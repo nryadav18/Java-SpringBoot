@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!--
+  error/404.html - a custom error page.
+  Spring Boot automatically uses templates/error/<status>.html (or error/4xx.html,
+  error/5xx.html, error.html) for BROWSER requests, instead of the "Whitelabel Error Page".
+  Available model values include: status, error, path, timestamp.
+-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Not found')}">
+    <title>Not found</title>
+</head>
+<body>
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+<main class="container center">
+    <h1>🔍 Page not found</h1>
+    <p>We could not find <code th:text="${path}">/todos/99</code>.</p>
+    <p><a class="btn" th:href="@{/todos}">Back to my todos</a></p>
+</main>
+<footer th:replace="~{fragments/layout :: footer}"></footer>
+</body>
+</html>

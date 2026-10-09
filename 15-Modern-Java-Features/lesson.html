@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>15 · Modern Java Features</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 15</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>15. Modern Java Features (Java 9 – 17)</h1>
+  <p class="subtitle">Write Java the way modern teams write it: records instead of boilerplate classes, smart enums, sealed types, switch expressions, pattern matching and the handy helpers added from Java 9 to 17.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="15-Modern-Java-Features"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li><code>var</code> — when it helps and when it hurts.</li>
+      <li><strong>Records</strong> — one-line immutable data classes, compact constructors, and why they are perfect DTOs in Spring.</li>
+      <li><strong>Enums</strong> with fields, constructors, methods, per-constant behaviour, and switching on them.</li>
+      <li><strong>Sealed classes/interfaces</strong> — controlling who may extend your types.</li>
+      <li><strong>Switch expressions</strong> with <code>-&gt;</code>, multiple labels, <code>yield</code> and exhaustiveness.</li>
+      <li><strong>Text blocks</strong> for JSON, SQL and HTML.</li>
+      <li><strong>Pattern matching for <code>instanceof</code></strong>.</li>
+      <li><strong>Helpful NullPointerExceptions</strong>, <code>List.of</code>/<code>Map.of</code>, and new <code>String</code> methods.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../8-OOP-Polymorphism-Abstraction-Interfaces/lesson.html">Topic 8 · Polymorphism &amp; Interfaces</a>, <a href="../11-Collections-Framework/lesson.html">Topic 11 · Collections</a> and <a href="../14-Streams-API-And-Optional/lesson.html">Topic 14 · Streams</a>. You already met <code>var</code> (topic 2), arrow switch (topic 3) and text blocks (topic 5) briefly — here we go deeper and put everything together.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- =========================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Java has a reputation for being "wordy". For years, a simple class to hold a student's name and email needed 50+ lines: fields, a constructor, getters, <code>equals</code>, <code>hashCode</code>, <code>toString</code>. Between Java 9 (2017) and Java 17 (2021), the language changed a lot to fix this. Java 17 is a <strong>Long-Term Support (LTS)</strong> release, and Spring Boot 3 <em>requires</em> at least Java 17 — so these features are exactly what you will see in modern Spring projects:</p>
+  <ul>
+    <li><strong>Records</strong> are the standard way to write <strong>DTOs</strong> (request/response objects) in Spring REST APIs (topics 33+) and type-safe configuration (<code>@ConfigurationProperties</code>, topic 29).</li>
+    <li><strong>Enums</strong> model statuses and roles: <code>OrderStatus.SHIPPED</code>, <code>Role.ADMIN</code> — and JPA can store them in the database (<code>@Enumerated</code>).</li>
+    <li><strong>Text blocks</strong> make SQL in <code>@Query</code> and JSON in tests readable.</li>
+    <li><strong>Switch expressions</strong> and <strong>pattern matching</strong> remove whole classes of bugs (forgotten <code>break</code>, wrong casts).</li>
+    <li><strong>Helpful NPE messages</strong> save you hours of debugging.</li>
+  </ul>
+  <div class="table-wrap"><table>
+    <tr><th>Feature</th><th>Final in Java</th></tr>
+    <tr><td><code>List.of</code>, <code>Set.of</code>, <code>Map.of</code></td><td>9</td></tr>
+    <tr><td><code>var</code> for local variables</td><td>10</td></tr>
+    <tr><td>New String methods (<code>isBlank</code>, <code>strip</code>, <code>lines</code>, <code>repeat</code>)</td><td>11</td></tr>
+    <tr><td>Switch expressions</td><td>14</td></tr>
+    <tr><td>Helpful NullPointerExceptions</td><td>14 (on by default from 15)</td></tr>
+    <tr><td>Text blocks</td><td>15</td></tr>
+    <tr><td>Records, pattern matching for <code>instanceof</code></td><td>16</td></tr>
+    <tr><td>Sealed classes</td><td>17</td></tr>
+  </table></div>
+
+  <!-- =========================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🧾 Record = a printed receipt</strong>
+    A shop receipt holds data — items, total, date. Once printed, nobody edits it. If two receipts show exactly the same data, they are "equal" for all practical purposes. You never need to write instructions for how to "print" or "compare" a receipt — every receipt works the same way. That is a <strong>record</strong>: pure, unchangeable data, with the boring parts done automatically.
+  </div>
+  <div class="callout analogy"><strong>🚦 Enum = traffic light colours</strong>
+    A traffic light has exactly three states: RED, YELLOW, GREEN. Not "Red", "red", or "purple". An <strong>enum</strong> makes the compiler enforce that fixed list — and each state can carry information (how many seconds it lasts) and behaviour (what drivers should do).
+  </div>
+  <div class="callout analogy"><strong>🎟️ Sealed class = an exclusive guest list</strong>
+    A wedding with a guest list: only the named people may enter. A <strong>sealed</strong> type is a class or interface with a guest list (<code>permits</code>): only the listed classes may extend it. Because the bouncer knows the full list, nobody unexpected can show up — and your code can safely handle "every possible guest".
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 <code>var</code> — local variable type inference (Java 10)</h3>
+  <p><code>var</code> lets the compiler work out the type of a <strong>local variable</strong> from the value on the right side.</p>
+  <pre><code class="lang-java">var shopName = "FreshMart";                              // String
+var cart = new ArrayList&lt;String&gt;();                      // ArrayList&lt;String&gt;
+var marksByStudent = new HashMap&lt;String, List&lt;Integer&gt;&gt;(); // saves typing a long type twice
+for (var entry : marksByStudent.entrySet()) { ... }      // Map.Entry&lt;String, List&lt;Integer&gt;&gt;</code></pre>
+  <p><strong>Important:</strong> <code>var</code> is <em>not</em> like JavaScript's <code>var</code>. Java is still statically typed: the type is fixed at compile time. <code>shopName = 10;</code> is a compile error.</p>
+  <div class="table-wrap"><table>
+    <tr><th>✅ Allowed</th><th>❌ Not allowed</th></tr>
+    <tr><td>Local variables with an initializer</td><td>Fields: <code>private var count = 0;</code></td></tr>
+    <tr><td>for / for-each loop variables</td><td>Method parameters and return types</td></tr>
+    <tr><td>try-with-resources variables</td><td>No initializer: <code>var x;</code></td></tr>
+    <tr><td>Lambda parameters (Java 11): <code>(var a, var b) -&gt; ...</code></td><td><code>var y = null;</code>, <code>var arr = {1, 2};</code>, <code>var f = () -&gt; 1;</code></td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 When to use var</strong>
+    Use it when the type is <strong>obvious from the right side</strong> (<code>var list = new ArrayList&lt;Order&gt;()</code>). Avoid it when the right side hides the type: <code>var result = service.process(data);</code> — the reader has to go look up what <code>process</code> returns.
+  </div>
+
+  <h3>3.2 Text blocks (Java 15)</h3>
+  <p>A <strong>text block</strong> is a multi-line string between triple quotes <code>"""</code>. No more <code>\n</code>, <code>\"</code> and <code>+</code> everywhere.</p>
+  <pre><code class="lang-java">// Before
+String json = "{\n" +
+        "  \"name\": \"Laptop\",\n" +
+        "  \"price\": 55000\n" +
+        "}";
+
+// After
+String json = """
+        {
+          "name": "Laptop",
+          "price": 55000
+        }""";</code></pre>
+  <p>Rules to remember:</p>
+  <ul>
+    <li>The opening <code>"""</code> must be followed by a <strong>new line</strong>; content starts on the next line.</li>
+    <li><strong>Indentation:</strong> Java removes the common leading spaces. The left-most line (or the closing <code>"""</code> if it's further left) sets the margin. Relative indentation (like the nested <code>&lt;li&gt;</code>) is kept.</li>
+    <li>If the closing <code>"""</code> is on its own line, the string ends with a newline; if it's right after the last text, it doesn't.</li>
+    <li><code>\</code> at the end of a line joins it with the next line (no newline).</li>
+    <li><code>\s</code> is a single space that is never stripped (trailing spaces are normally removed).</li>
+    <li>Use <code>.formatted(...)</code> to fill in <code>%s</code>/<code>%d</code> placeholders.</li>
+  </ul>
+  <pre><code class="lang-java">// You'll see this in Spring Data JPA (topic 39):
+@Query("""
+       SELECT p FROM Product p
+       WHERE p.price &gt; :minPrice
+       ORDER BY p.price DESC
+       """)
+List&lt;Product&gt; findExpensive(@Param("minPrice") double minPrice);</code></pre>
+
+  <h3>3.3 Records (Java 16) — data classes in one line</h3>
+  <p>Look at all the code a classic "data holder" class needs:</p>
+  <pre><code class="lang-java">public final class Point {
+    private final int x;
+    private final int y;
+    public Point(int x, int y) { this.x = x; this.y = y; }
+    public int x() { return x; }
+    public int y() { return y; }
+    @Override public boolean equals(Object o) { ... 6 lines ... }
+    @Override public int hashCode() { return Objects.hash(x, y); }
+    @Override public String toString() { return "Point[x=" + x + ", y=" + y + "]"; }
+}</code></pre>
+  <p>With a record:</p>
+  <pre><code class="lang-java">public record Point(int x, int y) { }</code></pre>
+  <p>From that single line, Java generates:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Generated</th><th>Details</th></tr>
+    <tr><td>Fields</td><td><code>private final int x; private final int y;</code> — the record's <em>components</em></td></tr>
+    <tr><td>Canonical constructor</td><td><code>new Point(3, 4)</code></td></tr>
+    <tr><td>Accessors</td><td><code>p.x()</code> and <code>p.y()</code> — <strong>no "get" prefix</strong></td></tr>
+    <tr><td><code>equals</code> / <code>hashCode</code></td><td>Based on all components (value equality)</td></tr>
+    <tr><td><code>toString</code></td><td><code>Point[x=3, y=4]</code></td></tr>
+  </table></div>
+  <p><strong>Rules of records:</strong></p>
+  <ul>
+    <li>Records are <strong>immutable</strong> — no setters, fields are <code>final</code>. To "change" one, create a new record (a <em>wither</em> method like <code>withPrice(...)</code>).</li>
+    <li>Records are implicitly <code>final</code> — nobody can extend them — and they cannot extend another class (they already extend <code>java.lang.Record</code>). They <strong>can implement interfaces</strong>.</li>
+    <li>You can add methods, static fields, static methods and extra constructors. You <strong>cannot</strong> add extra instance fields.</li>
+    <li>Immutability is <em>shallow</em>: <code>record Cart(List&lt;String&gt; items)</code> — someone could still modify the list itself. Use <code>List.copyOf(items)</code> in the compact constructor to protect it.</li>
+  </ul>
+
+  <p><strong>Compact constructor — where validation lives</strong></p>
+  <pre><code class="lang-java">record Product(String name, double price, int stock) {
+    Product {                                  // no parameter list!
+        if (price &lt; 0) throw new IllegalArgumentException("Price cannot be negative");
+        name = name.strip();                   // you may adjust parameters
+    }                                          // fields are assigned automatically here
+}</code></pre>
+  <p>A compact constructor runs <em>before</em> the fields are assigned. It is the perfect place for validation, so an invalid record can never exist.</p>
+
+  <div class="callout info"><strong>ℹ️ Records as DTOs in Spring</strong>
+    A <strong>DTO (Data Transfer Object)</strong> is a simple object whose only job is to carry data between layers or over the network — for example the JSON body of a request. Records are ideal: short, immutable, with correct <code>equals</code>/<code>toString</code>. Spring's JSON library (Jackson) reads and writes records automatically:
+    <pre><code class="lang-java">public record CreateProductRequest(@NotBlank String name, @Positive double price) { }
+
+@PostMapping("/api/products")
+public ProductResponse create(@RequestBody CreateProductRequest request) { ... }</code></pre>
+    You'll write exactly this in topics 32–35. <strong>Note:</strong> JPA <em>entities</em> (topic 38) can't be records, because JPA needs a no-args constructor and mutable fields. Records = DTOs; classes = entities.
+  </div>
+
+  <h3>3.4 Enums — a fixed set of named constants</h3>
+  <p>An <strong>enum</strong> (enumeration) is a special class with a fixed set of instances. Instead of error-prone strings like <code>"SHIPPED"</code> or magic numbers like <code>3</code>, you use type-safe constants:</p>
+  <pre><code class="lang-java">enum Day { MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY }
+
+Day today = Day.FRIDAY;
+today.name();            // "FRIDAY"
+today.ordinal();         // 4 (position, from 0) - don't store this in a database!
+Day.valueOf("SUNDAY");   // String -&gt; enum (IllegalArgumentException if no match)
+Day.values();            // array of all constants
+today == Day.FRIDAY      // compare with == (each constant exists exactly once)</code></pre>
+  <p><strong>Enums can have fields, a constructor and methods</strong> — they're real classes:</p>
+  <pre><code class="lang-java">enum OrderStatus {
+    PLACED("Order placed", false),
+    SHIPPED("On the way", false),
+    DELIVERED("Delivered to customer", true);
+
+    private final String label;
+    private final boolean finalState;
+
+    OrderStatus(String label, boolean finalState) {   // always private
+        this.label = label;
+        this.finalState = finalState;
+    }
+
+    String getLabel() { return label; }
+    boolean canCancel() { return this == PLACED; }
+}</code></pre>
+  <p><strong>Constant-specific behaviour:</strong> declare an <code>abstract</code> method in the enum and let each constant implement it — a neat replacement for long <code>if/else</code> chains (this is the Strategy pattern in disguise):</p>
+  <pre><code class="lang-java">enum DeliveryType {
+    STANDARD { double charge(double v) { return v &gt;= 500 ? 0 : 40; } },
+    EXPRESS  { double charge(double v) { return 99; } };
+    abstract double charge(double orderValue);
+}</code></pre>
+  <p><strong>EnumMap</strong> and <strong>EnumSet</strong> are special, very fast collections for enum keys/values. They keep the declaration order.</p>
+  <div class="callout tip"><strong>💡 Enums in Spring</strong>
+    JPA can store an enum in a column with <code>@Enumerated(EnumType.STRING)</code> (topic 38), and Jackson converts enums to/from JSON strings automatically (<code>"status": "SHIPPED"</code>). Roles in Spring Security are often enums too.
+  </div>
+
+  <h3>3.5 Switch expressions (Java 14)</h3>
+  <p>The old <code>switch</code> <em>statement</em> had two problems: it "falls through" to the next case if you forget <code>break</code>, and it can't directly produce a value. The new form fixes both:</p>
+  <pre><code class="lang-java">String type = switch (day) {
+    case 1, 7 -&gt; "Weekend";          // several labels, comma separated
+    default   -&gt; "Weekday";          // arrow: no fall-through, no break
+};                                   // note the semicolon - it's an expression
+
+double discount = switch (city) {
+    case "Chennai" -&gt; {
+        double base = orderValue * 0.05;
+        yield Math.min(base, 100);   // 'yield' returns a value from a block
+    }
+    case "Delhi" -&gt; 50;
+    default -&gt; 0;
+};</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Old <code>case X:</code></th><th>New <code>case X -&gt;</code></th></tr>
+    <tr><td>Fall-through</td><td>Yes, unless you write <code>break</code></td><td>Never</td></tr>
+    <tr><td>Multiple labels</td><td>Stacked <code>case 1: case 7:</code></td><td><code>case 1, 7 -&gt;</code></td></tr>
+    <tr><td>Returns a value</td><td>No (statement)</td><td>Yes, when used as an expression</td></tr>
+    <tr><td>Must cover all cases</td><td>No</td><td>Yes, when used as an expression (exhaustive)</td></tr>
+  </table></div>
+  <p><strong>Exhaustiveness:</strong> a switch <em>expression</em> must handle every possible value. For a <code>String</code> or <code>int</code> you need <code>default</code>. For an <code>enum</code>, listing every constant is enough — and if someone later adds a new constant, the code stops compiling until you handle it. That's a compiler-checked to-do list!</p>
+
+  <h3>3.6 Pattern matching for <code>instanceof</code> (Java 16)</h3>
+  <pre><code class="lang-java">// Before: test, then cast, then use
+if (obj instanceof String) {
+    String s = (String) obj;
+    System.out.println(s.length());
+}
+
+// Now: test + cast + new variable in one step
+if (obj instanceof String s) {
+    System.out.println(s.length());
+}
+
+// The variable can be used straight away after &amp;&amp; (only if the test passed)
+if (obj instanceof String s &amp;&amp; !s.isEmpty()) { ... }</code></pre>
+  <p>The variable (<code>s</code>) is called a <strong>pattern variable</strong>. It only exists where Java is sure the test was true. A classic use is a short <code>equals</code> method:</p>
+  <pre><code class="lang-java">public boolean equals(Object o) {
+    return o instanceof Money other
+            &amp;&amp; amount == other.amount
+            &amp;&amp; currency.equals(other.currency);
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ In newer Java</strong>
+    Java 21 adds <strong>pattern matching for switch</strong> (<code>case CardPayment c -&gt; ...</code>) and <strong>record patterns</strong> (<code>if (obj instanceof Point(int x, int y))</code>). They are only previews in Java 17, so this course uses <code>if</code>/<code>instanceof</code> chains — but it's good to know they exist.
+  </div>
+
+  <h3>3.7 Sealed classes and interfaces (Java 17)</h3>
+  <p>Normally, anyone can implement your interface or extend your (non-final) class. Sometimes you want a <strong>closed</strong> set: a payment can be Card, UPI or Wallet — nothing else.</p>
+  <pre><code class="lang-java">sealed interface Payment permits CardPayment, UpiPayment, WalletPayment { }
+
+record CardPayment(String cardNumber, double amount) implements Payment { }   // records are final
+record UpiPayment(String upiId, double amount) implements Payment { }
+non-sealed class WalletPayment implements Payment { ... }                    // open again</code></pre>
+  <p>Every permitted subclass must say how it continues the hierarchy:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Modifier</th><th>Meaning</th></tr>
+    <tr><td><code>final</code></td><td>The hierarchy stops here. (Records and enums are final automatically.)</td></tr>
+    <tr><td><code>sealed ... permits ...</code></td><td>It is closed too, with its own guest list.</td></tr>
+    <tr><td><code>non-sealed</code></td><td>Opens it again: anybody may extend this subclass.</td></tr>
+  </table></div>
+  <div class="flow">
+    <span class="box info">sealed Payment</span><span class="arrow">→</span>
+    <span class="box">CardPayment (final)</span>
+    <span class="box">UpiPayment (final)</span>
+    <span class="box alt">WalletPayment (non-sealed)</span><span class="arrow">→</span><span class="box alt">PaytmWallet</span>
+  </div>
+  <p><strong>Why bother?</strong> (1) Your domain model says exactly what is possible. (2) Code that handles "all payment types" can be sure it's complete. (3) With Java 21's switch patterns, the compiler even checks you handled every subtype. Permitted subclasses must be in the same package (or module) as the sealed type — in a single file, as in our example, that's automatic.</p>
+
+  <h3>3.8 Helpful NullPointerExceptions (Java 14+)</h3>
+  <p>Consider: <code>order.getCustomer().getAddress().getCity().toUpperCase();</code> — four calls, any of which could hit a <code>null</code>. Before Java 14 the error said only <code>java.lang.NullPointerException</code> with a line number. Now it tells you precisely:</p>
+  <pre class="terminal"><code>Cannot invoke "Address.getCity()" because the return value of "Customer.getAddress()" is null</code></pre>
+  <p>Read it from the end: <em>getAddress() returned null</em>, so we could not call <em>getCity()</em> on it. Fix that link of the chain. (In Java 17 this is on by default — nothing to configure.)</p>
+
+  <h3>3.9 Collection factory methods (Java 9/10)</h3>
+  <pre><code class="lang-java">List&lt;String&gt; fruits = List.of("Apple", "Mango");
+Set&lt;Integer&gt; primes = Set.of(2, 3, 5, 7);
+Map&lt;String, Integer&gt; stock = Map.of("Pen", 100, "Book", 25);          // up to 10 key-value pairs
+Map&lt;String, String&gt; capitals = Map.ofEntries(Map.entry("India", "New Delhi"),
+                                             Map.entry("Japan", "Tokyo"));
+List&lt;String&gt; snapshot = List.copyOf(mutableList);                     // immutable copy</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Property</th><th>Behaviour</th></tr>
+    <tr><td>Immutable</td><td><code>add</code>/<code>put</code>/<code>remove</code> throw <code>UnsupportedOperationException</code></td></tr>
+    <tr><td>No nulls</td><td><code>List.of("A", null)</code> throws <code>NullPointerException</code></td></tr>
+    <tr><td>No duplicates (Set/Map)</td><td><code>Set.of("x", "x")</code> throws <code>IllegalArgumentException</code></td></tr>
+    <tr><td>Order</td><td><code>List.of</code> keeps order; <code>Set.of</code>/<code>Map.of</code> iteration order is unspecified</td></tr>
+  </table></div>
+  <p>Compare with <code>Arrays.asList(...)</code> (older): fixed size but you <em>can</em> <code>set</code> elements, and it allows nulls. Prefer <code>List.of</code> for constants and test data.</p>
+
+  <h3>3.10 New String methods (Java 11 – 15)</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>What it does</th><th>Example → result</th></tr>
+    <tr><td><code>isBlank()</code></td><td>True if empty or only whitespace</td><td><code>"   ".isBlank()</code> → <code>true</code></td></tr>
+    <tr><td><code>strip()</code></td><td>Like <code>trim()</code> but Unicode-aware</td><td>removes the "em space" that <code>trim</code> misses</td></tr>
+    <tr><td><code>stripLeading()</code> / <code>stripTrailing()</code></td><td>Strip one side only</td><td><code>"  hi  ".stripLeading()</code> → <code>"hi  "</code></td></tr>
+    <tr><td><code>lines()</code></td><td>Stream of lines</td><td><code>"a\nb".lines().count()</code> → <code>2</code></td></tr>
+    <tr><td><code>repeat(n)</code></td><td>Repeat the string</td><td><code>"=-".repeat(3)</code> → <code>"=-=-=-"</code></td></tr>
+    <tr><td><code>indent(n)</code></td><td>Add n spaces to each line (and ensure trailing newline)</td><td>see Example06</td></tr>
+    <tr><td><code>transform(fn)</code></td><td>Apply any function to the string</td><td><code>s.transform(x -&gt; x.strip().toLowerCase())</code></td></tr>
+    <tr><td><code>formatted(args)</code></td><td>Same as <code>String.format</code>, called on the template</td><td><code>"%s is %d".formatted("Asha", 20)</code></td></tr>
+    <tr><td><code>chars()</code> (older, Java 8)</td><td><code>IntStream</code> of characters</td><td>count upper-case letters</td></tr>
+  </table></div>
+
+  <!-- =========================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>Example01_VarAndTextBlocks.java</code></td><td><code>var</code> in many places (and commented-out invalid uses); JSON, SQL and HTML text blocks; <code>\</code>, <code>\s</code>, <code>formatted()</code>.</td></tr>
+    <tr><td><code>Example02_Records.java</code></td><td>Basic record, value equality, records in a <code>Set</code>, compact constructor validation, extra methods, wither, static factory, interface implementation, request/response DTOs.</td></tr>
+    <tr><td><code>Example03_Enums.java</code></td><td><code>values</code>/<code>valueOf</code>/<code>ordinal</code>, enum with fields + methods, exhaustive switch on an enum, constant-specific <code>charge()</code>, <code>EnumMap</code>/<code>EnumSet</code>.</td></tr>
+    <tr><td><code>Example04_SealedClasses.java</code></td><td>Sealed <code>Payment</code> interface with record and <code>non-sealed</code> implementations; a sealed abstract class with final subclasses; processing with <code>instanceof</code> patterns; <code>isSealed()</code>/<code>getPermittedSubclasses()</code>.</td></tr>
+    <tr><td><code>Example05_SwitchAndPatternMatching.java</code></td><td>Old vs new switch, multiple labels, <code>yield</code>, exhaustive enum switch, arrow switch as a statement; <code>instanceof</code> patterns with <code>&amp;&amp;</code> and a modern <code>equals</code>.</td></tr>
+    <tr><td><code>Example06_NpeCollectionsAndStrings.java</code></td><td>A real helpful NPE message; <code>List.of</code>/<code>Set.of</code>/<code>Map.of</code>/<code>Map.ofEntries</code>/<code>copyOf</code> and their rules; the new String methods.</td></tr>
+  </table></div>
+
+  <h3>Example02 — records (the most important file)</h3>
+  <pre><span class="file">Example02_Records.java</span><code class="lang-java">record Point(int x, int y) { }
+
+Point p1 = new Point(3, 4);
+Point p2 = new Point(3, 4);
+p1.equals(p2);   // true  - same VALUES
+p1 == p2;        // false - two different objects in memory</code></pre>
+  <p>Because <code>equals</code> and <code>hashCode</code> are generated correctly, putting <code>p1</code> and <code>p2</code> into a <code>HashSet</code> keeps only one of them — the output shows "set size: 2" for three points where two are equal.</p>
+  <p>The <code>Product</code> record shows validation in a compact constructor (negative price is rejected, the name is stripped), extra methods (<code>inStock()</code>, <code>priceWithGst()</code>), a wither (<code>withPrice</code>) returning a <em>new</em> record, a static constant and a static factory method <code>outOfStock(...)</code>. Finally, <code>CreateStudentRequest</code> → <code>StudentResponse</code> imitates what a Spring controller does: receive a request DTO, save, return a response DTO.</p>
+
+  <h3>Example03 — enums</h3>
+  <pre><span class="file">Example03_Enums.java</span><code class="lang-java">String plan = switch (d) {
+    case SATURDAY, SUNDAY -&gt; "Relax";
+    case MONDAY -&gt; "Team meeting";
+    case TUESDAY, WEDNESDAY, THURSDAY, FRIDAY -&gt; "Write code";
+};   // no default: all 7 constants are covered, the compiler checks this</code></pre>
+  <p>Notice: inside <code>case</code> labels you write <code>SATURDAY</code>, not <code>Day.SATURDAY</code>. The <code>DeliveryType</code> enum gives each constant its own <code>charge()</code> implementation, so <code>t.charge(order)</code> works without any <code>if</code>.</p>
+
+  <h3>Example04 — sealed types</h3>
+  <pre><span class="file">Example04_SealedClasses.java</span><code class="lang-java">sealed interface Payment permits CardPayment, UpiPayment, WalletPayment { }
+
+static String process(Payment payment) {
+    if (payment instanceof CardPayment card) {
+        ...card.cardNumber()...
+    } else if (payment instanceof UpiPayment upi) {
+        ...upi.upiId()...
+    } else if (payment instanceof WalletPayment wallet) {
+        ...wallet.walletName()...
+    }
+    throw new IllegalStateException("Unknown payment type");
+}</code></pre>
+  <p><code>PaytmWallet extends WalletPayment</code> is allowed only because <code>WalletPayment</code> is <code>non-sealed</code>. A commented-out <code>CashPayment</code> shows what is <em>not</em> allowed — try un-commenting it to see the compiler error.</p>
+
+  <h3>Example05 — switch &amp; patterns</h3>
+  <p>The same "weekday/weekend" logic is written with the old statement and the new expression so you can compare. The <code>describe(Object)</code> method shows patterns with conditions: <code>obj instanceof Integer i &amp;&amp; i &gt; 0</code>.</p>
+
+  <h3>Example06 — NPE, collections, strings</h3>
+  <p><code>cityOf(order)</code> calls a chain of getters; for an order whose customer has no address, the caught exception's message names exactly which call returned <code>null</code>. The rest demonstrates immutability rules of <code>List.of</code> and friends and each new String method.</p>
+
+  <!-- =========================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <p><strong>In VS Code:</strong> open <code>D:\Java-SpringBoot\15-Modern-Java-Features</code>, open a file and click <strong>Run</strong> above <code>main</code>. Make sure VS Code uses JDK 17 (status bar → "Java: 17").</p>
+  <p><strong>From the terminal:</strong></p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\15-Modern-Java-Features"
+java Example01_VarAndTextBlocks.java
+java Example02_Records.java
+java Example03_Enums.java
+java Example04_SealedClasses.java
+java Example05_SwitchAndPatternMatching.java
+java Example06_NpeCollectionsAndStrings.java</code></pre>
+  <p>Expected output of <code>Example02_Records.java</code>:</p>
+  <pre class="terminal"><code>1) toString     : Point[x=3, y=4]
+1) accessor x() : 3  (not getX()!)
+1) p1.equals(p2): true  (compares VALUES, not memory)
+1) p1 == p2     : false (different objects)
+1) same hashCode: true
+1) set size     : 2 (duplicate point removed)
+2) product      : Product[name=Laptop, price=55000.0, stock=3] (name was stripped)
+2) invalid      : Price cannot be negative: -10.0
+3) in stock?    : true
+3) with GST     : 64900.00
+3) withPrice    : Product[name=Laptop, price=49999.0, stock=3]  original unchanged: 55000.0
+3) factory      : Product[name=Tablet, price=20000.0, stock=0]
+3) low stock?   : true
+4) Circle[radius=1.0] area=3.14
+4) Rectangle[width=2.0, height=3.0] area=6.0
+5) request DTO  : CreateStudentRequest[name=Ravi, email=ravi@college.edu, age=20]
+5) response DTO : StudentResponse[id=101, name=Ravi, email=ravi@college.edu]</code></pre>
+  <p>Expected output of <code>Example04_SealedClasses.java</code>:</p>
+  <pre class="terminal"><code>Charging card ****4444 Rs.2500.0
+Sending UPI request to asha@okbank Rs.799.0
+Debiting PhonePe wallet Rs.150.0
+Debiting Paytm wallet Rs.300.0
+Payment is sealed?  true
+Permitted types:   CardPayment UpiPayment WalletPayment
+Fleet wheels:      14</code></pre>
+  <p>First line of interest in <code>Example06_NpeCollectionsAndStrings.java</code>:</p>
+  <pre class="terminal"><code>A) NPE message: Cannot invoke "Example06_NpeCollectionsAndStrings$Address.getCity()" because the return value of "Example06_NpeCollectionsAndStrings$Customer.getAddress()" is null</code></pre>
+  <p>(<code>Outer$Inner</code> is how Java names a nested class.) On the Windows console the special "em space" in part C may show as <code>?</code> — that's just the console's font/encoding. The other files' full outputs are in their <code>/* Output: ... */</code> comments.</p>
+  <div class="callout warn"><strong>⚠️ "error: records are not supported in -source 8"?</strong>
+    You're running an old Java. Check with <code>java -version</code> — it must say 17. In VS Code, run "Java: Configure Java Runtime" from the Command Palette and select JDK 17.
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: calling <code>getName()</code> on a record</strong>
+    <code>record Student(String name)</code> has <code>student.name()</code>, not <code>getName()</code>. <strong>Fix:</strong> use the component name as the method name.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: trying to add a field or setter to a record</strong>
+    <pre><code class="lang-java">record Student(String name) {
+    private int age;                          // ❌ instance fields not allowed
+    void setName(String n) { this.name = n; } // ❌ name is final
+}</code></pre>
+    <strong>Fix:</strong> add it as a component (<code>record Student(String name, int age)</code>) and use withers to "change" values. If you truly need mutability (e.g. a JPA entity), use a normal class.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: assigning fields in a compact constructor</strong>
+    <code>Product { this.price = price; }</code> doesn't compile — Java assigns fields automatically at the end. <strong>Fix:</strong> assign to the <em>parameter</em> instead (<code>price = Math.max(0, price);</code>) or just validate.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: storing <code>ordinal()</code> or comparing enums with <code>equals</code> on strings</strong>
+    If you add a constant in the middle, every ordinal shifts and stored data becomes wrong. <strong>Fix:</strong> store <code>name()</code> (JPA: <code>EnumType.STRING</code>), and compare with <code>status == OrderStatus.SHIPPED</code>.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>valueOf</code> with user input</strong>
+    <code>OrderStatus.valueOf("shipped")</code> throws <code>IllegalArgumentException</code> (case-sensitive). <strong>Fix:</strong> <code>valueOf(input.trim().toUpperCase())</code> inside a try/catch, with a friendly error message.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting the semicolon or mixing <code>:</code> and <code>-&gt;</code></strong>
+    A switch <em>expression</em> ends with <code>};</code>. And within one switch you must use either all <code>case X:</code> or all <code>case X -&gt;</code>, not both.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: using <code>return</code> instead of <code>yield</code> in a switch block</strong>
+    Inside <code>case "Chennai" -&gt; { ... }</code> of a switch expression, <code>return</code> would try to exit the whole method. <strong>Fix:</strong> <code>yield value;</code>.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: modifying <code>List.of(...)</code></strong>
+    <code>UnsupportedOperationException</code>. <strong>Fix:</strong> <code>new ArrayList&lt;&gt;(List.of(...))</code> when you need a modifiable list.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: text block opening on the same line</strong>
+    <code>String s = """Hello""";</code> doesn't compile — the opening <code>"""</code> must be followed by a line break.
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Use records for DTOs, value objects, configuration properties and method results</strong> that just carry data. Use classes for things with identity and changing state (entities, services).</li>
+    <li><strong>Validate in the compact constructor</strong> so invalid objects can't exist. Make collections inside records immutable with <code>List.copyOf</code>.</li>
+    <li><strong>Prefer enums over String/int constants</strong> for fixed sets (statuses, roles, types). Put behaviour into the enum when it belongs to each constant.</li>
+    <li><strong>Prefer switch expressions</strong> with <code>-&gt;</code>; for enums, list all constants and skip <code>default</code> so the compiler warns you when a new constant is added.</li>
+    <li><strong>Use <code>var</code> only when the type is obvious</strong> from the right-hand side. Never for public APIs (it isn't allowed there anyway).</li>
+    <li><strong>Use text blocks</strong> for any multi-line SQL, JSON or HTML — especially JSON in tests.</li>
+    <li><strong>Use sealed hierarchies</strong> to model closed sets of alternatives (payment types, API results like Success/Failure).</li>
+    <li><strong>Use <code>List.of</code>/<code>Map.of</code></strong> for constants and test data; return unmodifiable collections from methods to protect your data.</li>
+    <li><strong>Prefer <code>strip()</code> and <code>isBlank()</code></strong> over <code>trim()</code> and <code>isEmpty()</code> for user input.</li>
+  </ul>
+
+  <!-- =========================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li><code>var</code> infers local variable types; Java is still statically typed.</li>
+    <li>Text blocks (<code>"""</code>) make multi-line strings readable; use <code>formatted()</code> to fill placeholders.</li>
+    <li>A <strong>record</strong> is an immutable data class: fields, constructor, accessors (<code>name()</code>), <code>equals</code>/<code>hashCode</code>/<code>toString</code> generated. Validate in the compact constructor.</li>
+    <li>Records are the go-to choice for <strong>DTOs in Spring</strong>; JPA entities stay normal classes.</li>
+    <li>Enums are full classes: fields, constructors, methods, per-constant behaviour; compare with <code>==</code>; store by name.</li>
+    <li>Sealed types (<code>sealed ... permits</code>) restrict who can extend them; subclasses are <code>final</code>, <code>sealed</code> or <code>non-sealed</code>.</li>
+    <li>Switch expressions: <code>-&gt;</code>, no fall-through, multiple labels, <code>yield</code>, must be exhaustive.</li>
+    <li><code>obj instanceof Type t</code> tests and casts in one step.</li>
+    <li>Helpful NPE messages tell you exactly which value was null.</li>
+    <li><code>List.of</code>/<code>Set.of</code>/<code>Map.of</code> create immutable, null-free collections.</li>
+  </ul></div>
+
+  <!-- =========================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <p>Create <code>Practice15.java</code> in this folder; put records/enums as nested types inside the class (like the examples do).</p>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Book record.</strong> Create <code>record Book(String title, String author, int year)</code>. Create two books with the same data and print <code>equals</code>, <code>==</code> and the book itself. Add a method <code>boolean isClassic()</code> (year before 1950).</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">record Book(String title, String author, int year) {
+    boolean isClassic() { return year &lt; 1950; }
+}
+
+Book a = new Book("1984", "George Orwell", 1949);
+Book b = new Book("1984", "George Orwell", 1949);
+System.out.println(a.equals(b));      // true
+System.out.println(a == b);           // false
+System.out.println(a);                // Book[title=1984, author=George Orwell, year=1949]
+System.out.println(a.isClassic());    // true</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Validated record.</strong> Create <code>record Email(String value)</code> whose compact constructor rejects values without "@" and stores the value in lower case. Test with "Asha@Mail.com" and "invalid".</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">record Email(String value) {
+    Email {
+        if (value == null || !value.contains("@")) {
+            throw new IllegalArgumentException("Invalid email: " + value);
+        }
+        value = value.strip().toLowerCase();
+    }
+}
+
+System.out.println(new Email("Asha@Mail.com"));   // Email[value=asha@mail.com]
+try {
+    new Email("invalid");
+} catch (IllegalArgumentException e) {
+    System.out.println(e.getMessage());           // Invalid email: invalid
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Smart enum.</strong> Create <code>enum Plan</code> with constants <code>FREE(0, 1)</code>, <code>BASIC(199, 5)</code>, <code>PREMIUM(499, 20)</code> where the numbers are monthly price and max devices. Add <code>yearlyPrice()</code> (12 months, 2 months free for non-free plans) and print a table of all plans with <code>values()</code>.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">enum Plan {
+    FREE(0, 1), BASIC(199, 5), PREMIUM(499, 20);
+
+    private final int monthlyPrice;
+    private final int maxDevices;
+
+    Plan(int monthlyPrice, int maxDevices) {
+        this.monthlyPrice = monthlyPrice;
+        this.maxDevices = maxDevices;
+    }
+
+    int yearlyPrice() { return monthlyPrice * 10; }   // pay 10, get 12 (FREE stays 0)
+    int maxDevices() { return maxDevices; }
+}
+
+for (Plan p : Plan.values()) {
+    System.out.printf("%-8s devices=%-3d yearly=Rs.%d%n", p, p.maxDevices(), p.yearlyPrice());
+}
+// FREE     devices=1   yearly=Rs.0
+// BASIC    devices=5   yearly=Rs.1990
+// PREMIUM  devices=20  yearly=Rs.4990</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Switch expression.</strong> Write <code>static String grade(int marks)</code> using a switch expression on <code>marks / 10</code>: 9–10 → "A", 8 → "B", 7 → "C", 5–6 → "D", anything else → "F". Then a second switch expression on a <code>Plan</code> (from exercise 3) returning a welcome message, with no <code>default</code>.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">static String grade(int marks) {
+    return switch (marks / 10) {
+        case 9, 10 -&gt; "A";
+        case 8 -&gt; "B";
+        case 7 -&gt; "C";
+        case 5, 6 -&gt; "D";
+        default -&gt; "F";
+    };
+}
+
+static String welcome(Plan plan) {
+    return switch (plan) {
+        case FREE -&gt; "Enjoy the basics!";
+        case BASIC -&gt; "Thanks for subscribing!";
+        case PREMIUM -&gt; "Welcome, VIP!";
+    };   // all constants covered -&gt; no default needed
+}
+
+System.out.println(grade(95) + grade(81) + grade(55) + grade(20));   // ABDF
+System.out.println(welcome(Plan.PREMIUM));                         // Welcome, VIP!</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Sealed shapes.</strong> Create <code>sealed interface Shape permits Circle, Square, Triangle</code> with three records (<code>Circle(double r)</code>, <code>Square(double side)</code>, <code>Triangle(double base, double height)</code>). Write <code>static double area(Shape s)</code> using <code>instanceof</code> patterns (not a method on the records), then print the total area of a list of shapes rounded to 2 decimals.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">sealed interface Shape permits Circle, Square, Triangle { }
+record Circle(double r) implements Shape { }
+record Square(double side) implements Shape { }
+record Triangle(double base, double height) implements Shape { }
+
+static double area(Shape s) {
+    if (s instanceof Circle c) return Math.PI * c.r() * c.r();
+    if (s instanceof Square sq) return sq.side() * sq.side();
+    if (s instanceof Triangle t) return 0.5 * t.base() * t.height();
+    throw new IllegalStateException("Unknown shape " + s);
+}
+
+List&lt;Shape&gt; shapes = List.of(new Circle(1), new Square(2), new Triangle(3, 4));
+double total = shapes.stream().mapToDouble(s -&gt; area(s)).sum();
+System.out.printf("Total area: %.2f%n", total);                    // Total area: 13.14</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Report with a text block.</strong> Using a list of <code>record Sale(String product, int qty, double price)</code>, build a text block "invoice" template with <code>%s</code>/<code>%d</code>/<code>%.2f</code> placeholders and fill it with <code>formatted()</code> showing the number of lines, total quantity and grand total. Use <code>List.of</code> for the data and streams for the totals.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">record Sale(String product, int qty, double price) {
+    double total() { return qty * price; }
+}
+
+var sales = List.of(new Sale("Pen", 10, 12.5), new Sale("Notebook", 3, 60), new Sale("Bag", 1, 899));
+int totalQty = sales.stream().mapToInt(Sale::qty).sum();
+double grandTotal = sales.stream().mapToDouble(Sale::total).sum();
+
+String invoice = """
+        ===== INVOICE =====
+        Customer : %s
+        Lines    : %d
+        Items    : %d
+        Total    : Rs.%.2f
+        ===================
+        """.formatted("Asha", sales.size(), totalQty, grandTotal);
+System.out.print(invoice);
+// ===== INVOICE =====
+// Customer : Asha
+// Lines    : 3
+// Items    : 14
+// Total    : Rs.1204.00
+// ===================</code></pre>
+    </details>
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is a record in Java? What does the compiler generate?</summary>
+    <p>A record (Java 16) is a special, transparent, immutable data carrier class declared as <code>record Name(components)</code>. The compiler generates private final fields, a canonical constructor, accessor methods named after the components, and <code>equals</code>, <code>hashCode</code> and <code>toString</code> based on all components. Records are implicitly final and extend <code>java.lang.Record</code>.</p></details>
+  <details><summary>Q2. Can records have methods, static fields, or implement interfaces? Can they extend a class?</summary>
+    <p>They can have instance and static methods, static fields, nested types, additional constructors (which must delegate to the canonical one) and can implement interfaces. They cannot declare extra instance fields and cannot extend any class (they implicitly extend <code>Record</code>). They can't be extended either (implicitly final).</p></details>
+  <details><summary>Q3. What is a compact constructor?</summary>
+    <p>A canonical constructor of a record written without the parameter list: <code>Product { ... }</code>. It's used for validation and normalisation of parameters; field assignment happens automatically at the end, so you must not assign <code>this.x</code> inside it.</p></details>
+  <details><summary>Q4. Why are records good for DTOs but not for JPA entities?</summary>
+    <p>DTOs are just data to transfer — records give immutability, concise code, and correct equals/toString, and Jackson supports them. JPA entities need a no-args constructor, mutable (non-final) fields for lazy loading/proxies (Hibernate creates subclasses), and identity-based lifecycle — all things records don't allow.</p></details>
+  <details><summary>Q5. What are sealed classes and why use them?</summary>
+    <p>A sealed class/interface (Java 17) restricts which classes may extend/implement it, listed with <code>permits</code>. Each permitted subclass must be <code>final</code>, <code>sealed</code> or <code>non-sealed</code>. Benefits: an explicit, closed domain model; the compiler (and readers) know all possible subtypes, enabling exhaustive handling (exhaustive pattern matching in switch from Java 21); prevents unexpected extensions of a library API.</p></details>
+  <details><summary>Q6. What's the difference between a switch statement and a switch expression?</summary>
+    <p>A switch expression produces a value (<code>String s = switch (x) { ... };</code>), must be exhaustive, and with arrow labels has no fall-through. Blocks use <code>yield</code> to return a value. A statement just executes code; the old colon form falls through unless <code>break</code> is used. The arrow form can also be used for statements.</p></details>
+  <details><summary>Q7. Explain pattern matching for instanceof.</summary>
+    <p><code>if (obj instanceof String s)</code> tests the type, casts and binds the result to a new variable <code>s</code> in one step. The pattern variable is in scope only where the match is definitely true (e.g. after <code>&amp;&amp;</code> or in the if-block). It removes redundant casts and ClassCastException risks.</p></details>
+  <details><summary>Q8. Can enums have constructors? Why compare enums with ==?</summary>
+    <p>Yes — enum constructors are implicitly private and run once per constant when the enum class loads. Each enum constant is a singleton, so <code>==</code> is correct, null-safe on the left side, and faster than <code>equals</code>. Enums can also implement interfaces and have abstract methods with constant-specific bodies.</p></details>
+  <details><summary>Q9. What is the difference between List.of() and Arrays.asList()?</summary>
+    <p><code>List.of</code> returns a fully immutable list and rejects null elements. <code>Arrays.asList</code> returns a fixed-size list backed by the array: you can't add/remove, but you can <code>set</code> elements (which changes the array), and nulls are allowed.</p></details>
+  <details><summary>Q10. What are some limitations of var?</summary>
+    <p>Only for local variables with initializers, loop variables, try-with-resources and lambda parameters. Not for fields, method parameters or return types; not with <code>null</code>, array initializers or lambdas without a target type. Overuse hurts readability when the type isn't obvious; with diamond (<code>var list = new ArrayList&lt;&gt;()</code>) it infers <code>ArrayList&lt;Object&gt;</code>.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../14-Streams-API-And-Optional/lesson.html"><small>← Previous</small>14. Streams API &amp; Optional</a>
+    <a class="next" href="../16-File-IO-And-Date-Time/lesson.html"><small>Next →</small>16. File I/O &amp; Date-Time</a>
+  </nav>
+</main>
+</body>
+</html>

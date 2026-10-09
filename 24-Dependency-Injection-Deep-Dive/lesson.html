@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>24 · Dependency Injection Deep Dive</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part B · Spring Framework Core › Topic 24</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part B · Spring Framework Core</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>24. Dependency Injection Deep Dive</h1>
+  <p class="subtitle">Master every way Spring can hand dependencies to your beans — and know how to fix the errors when it can't decide or gets stuck.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="24-Dependency-Injection-Deep-Dive"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Constructor vs setter vs field injection — how each works and why <strong>constructor injection</strong> is the professional choice.</li>
+      <li>What <code>@Autowired</code> does and when you can leave it out.</li>
+      <li>How Spring chooses a bean when there are <strong>several implementations</strong>: <code>@Primary</code> and <code>@Qualifier</code>.</li>
+      <li>Injecting a <code>List</code> or <code>Map</code> of all beans of a type (a clean "strategy pattern").</li>
+      <li>Injecting settings from a properties file with <code>@Value</code> and <code>@PropertySource</code>.</li>
+      <li>Optional dependencies: <code>Optional</code>, <code>ObjectProvider</code>, <code>@Autowired(required = false)</code>.</li>
+      <li>What a <strong>circular dependency</strong> is, why it happens, and how to avoid it.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../23-Spring-IoC-Container-And-Beans/lesson.html">Topic 23 · IoC Container &amp; Beans</a> (stereotypes, component scanning, bean names).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1. WHY ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Dependency Injection is the <strong>heart of Spring</strong>. Every controller, service and repository you write in Spring Boot gets its collaborators through DI. So questions like these come up <em>daily</em> at work:</p>
+  <ul>
+    <li>"We have card, UPI and PayPal payment classes. How do I tell Spring which one to use here?"</li>
+    <li>"How do I read the delivery fee from a configuration file instead of hard-coding <code>40.0</code>?"</li>
+    <li>"The SMS module is installed only for some customers. How do I depend on it <em>only if it exists</em>?"</li>
+    <li>"Startup fails with <em>'Requested bean is currently in creation: Is there an unresolvable circular reference?'</em> — what now?"</li>
+  </ul>
+  <p>DI is also one of the <strong>most asked interview topics</strong> for Java developers: "constructor vs field injection", "<code>@Primary</code> vs <code>@Qualifier</code>" and "circular dependencies" appear in almost every Spring interview.</p>
+
+  <!-- ===================================================== 2. ANALOGY ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🛵 A food-delivery rider gets their equipment</strong>
+    <p>A new delivery rider joins QuickBite. They need a bike, a phone and a delivery bag. There are three ways the company could give them:</p>
+    <ul>
+      <li><strong>Constructor injection</strong> — on the joining day, the rider gets <em>everything at once</em> in a welcome kit. They can't start work without it. From minute one, the rider is complete. ✅</li>
+      <li><strong>Setter injection</strong> — the rider starts first, and the bag is "delivered later". For a while the rider is working without a bag. Fine for <em>optional</em> extras (like a rain jacket), risky for essentials.</li>
+      <li><strong>Field injection</strong> — someone sneaks into the rider's locker at night and puts the phone there. It works, but nobody can see from the outside what the rider needs, and you can't easily train a rider outside the company.</li>
+    </ul>
+    <p>When the manager says "give the rider <em>a payment terminal</em>" and there are three types, the company needs a rule: "unless told otherwise, give the <strong>card terminal</strong>" (<code>@Primary</code>), or the order is specific: "this rider gets the <strong>UPI terminal</strong>" (<code>@Qualifier</code>).</p>
+  </div>
+
+  <!-- ===================================================== 3. CONCEPTS ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The three styles of injection</h3>
+  <p>Spring can hand a dependency to your bean in three ways.</p>
+
+  <p><strong>① Constructor injection</strong> — dependencies are constructor parameters.</p>
+  <pre><span class="file">order/CheckoutService.java</span><code class="lang-java">@Service
+public class CheckoutService {
+
+    private final PaymentGateway paymentGateway;   // final: set once, never null afterwards
+    private final ShopSettings shopSettings;
+
+    public CheckoutService(PaymentGateway paymentGateway, ShopSettings shopSettings) {
+        this.paymentGateway = paymentGateway;
+        this.shopSettings = shopSettings;
+    }
+}</code></pre>
+
+  <p><strong>② Setter injection</strong> — Spring creates the object (no-arg constructor), then calls a setter marked <code>@Autowired</code>.</p>
+  <pre><span class="file">order/ReceiptService.java</span><code class="lang-java">@Service
+public class ReceiptService {
+
+    private ReceiptPrinter printer;               // cannot be final
+
+    @Autowired                                    // required: tells Spring to call this setter
+    public void setPrinter(ReceiptPrinter printer) {
+        this.printer = printer;
+    }
+}</code></pre>
+
+  <p><strong>③ Field injection</strong> — <code>@Autowired</code> directly on a field. Spring writes into the private field using reflection (Topic 18).</p>
+  <pre><span class="file">order/LegacyAuditService.java</span><code class="lang-java">@Service
+public class LegacyAuditService {
+
+    @Autowired
+    private ReceiptPrinter receiptPrinter;        // hidden dependency, cannot be final
+}</code></pre>
+
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Constructor</th><th>Setter</th><th>Field</th></tr>
+    <tr><td>Fields can be <code>final</code> (immutable)</td><td>✅</td><td>❌</td><td>❌</td></tr>
+    <tr><td>Object is complete right after <code>new</code></td><td>✅</td><td>❌ (null until setter runs)</td><td>❌</td></tr>
+    <tr><td>Dependencies visible from outside</td><td>✅ in the constructor signature</td><td>🟡 in setter methods</td><td>❌ hidden inside</td></tr>
+    <tr><td>Plain unit test with <code>new</code> (no Spring)</td><td>✅ <code>new CheckoutService(fake, settings)</code></td><td>🟡 call setters manually</td><td>❌ need reflection or Spring</td></tr>
+    <tr><td>Required dependencies enforced</td><td>✅ by the compiler</td><td>❌</td><td>❌</td></tr>
+    <tr><td>Warns you when a class grows too big</td><td>✅ a 10-parameter constructor looks wrong</td><td>❌</td><td>❌ 10 fields look harmless</td></tr>
+    <tr><td>Circular dependencies</td><td>Detected immediately (good!)</td><td>Can be hidden</td><td>Can be hidden</td></tr>
+    <tr><td>Good for</td><td><strong>Required dependencies — the default choice</strong></td><td>Optional / changeable dependencies</td><td>Tests and old code only</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 The rule used by the Spring team itself</strong>
+    "Use constructor injection for mandatory dependencies and setter injection for optional ones." Field injection is easy to type, but IntelliJ even shows a warning for it ("Field injection is not recommended"). You will see it in older projects — recognise it, but don't write it.</div>
+
+  <h3>3.2 <code>@Autowired</code> — and when it's optional</h3>
+  <p><code>@Autowired</code> means "Spring, please inject a matching bean here". Where you need it:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Situation</th><th><code>@Autowired</code> needed?</th></tr>
+    <tr><td>Class has <strong>exactly one constructor</strong></td><td>❌ No (since Spring 4.3). Spring uses it automatically. This is the modern style.</td></tr>
+    <tr><td>Class has <strong>several constructors</strong></td><td>✅ Yes, on the one Spring should use (otherwise Spring looks for a no-arg constructor).</td></tr>
+    <tr><td>Setter injection</td><td>✅ Yes, on the setter.</td></tr>
+    <tr><td>Field injection</td><td>✅ Yes, on the field.</td></tr>
+    <tr><td>Parameters of a <code>@Bean</code> method</td><td>❌ No — always injected.</td></tr>
+  </table></div>
+  <pre><code class="lang-java">@Service
+public class DeliveryEstimator {
+    private final MapsClient maps;
+    private final int bufferMinutes;
+
+    @Autowired                                     // two constructors -&gt; mark the one for Spring
+    public DeliveryEstimator(MapsClient maps) {
+        this(maps, 10);
+    }
+
+    DeliveryEstimator(MapsClient maps, int bufferMinutes) {   // used by tests
+        this.maps = maps;
+        this.bufferMinutes = bufferMinutes;
+    }
+}</code></pre>
+  <p><code>@Autowired</code> is in package <code>org.springframework.beans.factory.annotation</code>. (The Java standard also has <code>@Inject</code> from <code>jakarta.inject</code> which does the same — you may see it in some projects.)</p>
+
+  <h3>3.3 How Spring finds a match — "by type" first</h3>
+  <p>When Spring needs to fill a parameter of type <code>PaymentGateway</code>, it looks for beans whose type <em>is</em> <code>PaymentGateway</code> (or implements/extends it). Then:</p>
+  <div class="flow">
+    <span class="box info">Find beans by TYPE</span><span class="arrow">→</span>
+    <span class="box">0 found?<br><small>error (unless optional)</small></span><span class="arrow">→</span>
+    <span class="box">1 found?<br><small>inject it ✅</small></span><span class="arrow">→</span>
+    <span class="box alt">2+ found?<br><small>@Qualifier → @Primary → parameter name → error</small></span>
+  </div>
+  <p>With several candidates Spring narrows down in this order:</p>
+  <ol>
+    <li><strong><code>@Qualifier("name")</code></strong> on the injection point → take that exact bean.</li>
+    <li>Exactly one candidate marked <strong><code>@Primary</code></strong> → take it.</li>
+    <li>A candidate whose <strong>bean name equals the parameter/field name</strong> → take it (a fallback; needs the <code>-parameters</code> compiler flag for constructor parameters — our pom sets it).</li>
+    <li>Still undecided → <code>NoUniqueBeanDefinitionException: expected single matching bean but found 3: cardPayment,paypal,upiPayment</code>.</li>
+  </ol>
+
+  <h3>3.4 Multiple implementations: <code>@Primary</code></h3>
+  <p>QuickBite has three <code>PaymentGateway</code> beans. Most of the app should use card payments, so we mark that one as the default:</p>
+  <pre><span class="file">payment/CardPayment.java</span><code class="lang-java">@Component
+@Primary                 // "the default PaymentGateway when nobody says which one"
+@Order(1)
+public class CardPayment implements PaymentGateway { ... }</code></pre>
+  <p>Now <code>CheckoutService(PaymentGateway paymentGateway, ...)</code> receives <code>CardPayment</code> — without mentioning it anywhere.</p>
+  <p><code>@Primary</code> also works on <code>@Bean</code> methods:</p>
+  <pre><code class="lang-java">@Bean
+@Primary
+public Clock clock() { return Clock.systemUTC(); }</code></pre>
+
+  <h3>3.5 Multiple implementations: <code>@Qualifier</code></h3>
+  <p>Express checkout must always use UPI. We point at the exact bean by its name:</p>
+  <pre><span class="file">order/ExpressCheckoutService.java</span><code class="lang-java">@Service
+public class ExpressCheckoutService {
+
+    private final PaymentGateway paymentGateway;
+
+    public ExpressCheckoutService(@Qualifier("upiPayment") PaymentGateway paymentGateway) {
+        this.paymentGateway = paymentGateway;
+    }
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th></th><th><code>@Primary</code></th><th><code>@Qualifier</code></th></tr>
+    <tr><td>Placed on</td><td>The <strong>bean</strong> (class or <code>@Bean</code> method)</td><td>The <strong>injection point</strong> (parameter / field / setter) — and optionally on the bean, to give it a qualifier label</td></tr>
+    <tr><td>Meaning</td><td>"I am the default choice"</td><td>"I want <em>this specific</em> one"</td></tr>
+    <tr><td>Who decides</td><td>The bean provider</td><td>The bean consumer</td></tr>
+    <tr><td>When both apply</td><td colspan="2"><strong><code>@Qualifier</code> wins</strong> — a specific request beats a general default.</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Avoid typos in qualifier strings</strong>
+    <code>@Qualifier("upiPaymnet")</code> (typo) fails at startup with "No qualifying bean". In bigger projects teams create constants (<code>PaymentNames.UPI</code>) or custom qualifier annotations (an annotation such as <code>@Upi</code> that is itself annotated with <code>@Qualifier</code>), so the compiler catches mistakes.</div>
+
+  <h3>3.6 Injecting ALL beans of a type: <code>List</code> and <code>Map</code></h3>
+  <p>Sometimes you don't want <em>one</em> payment gateway — you want <em>all</em> of them, e.g. to show the options on the checkout page. Just ask for a collection:</p>
+  <pre><span class="file">payment/PaymentRegistry.java</span><code class="lang-java">@Component
+public class PaymentRegistry {
+
+    private final List&lt;PaymentGateway&gt; allGateways;               // all beans, sorted by @Order
+    private final Map&lt;String, PaymentGateway&gt; gatewaysByName;     // key = bean name
+
+    public PaymentRegistry(List&lt;PaymentGateway&gt; allGateways,
+                           Map&lt;String, PaymentGateway&gt; gatewaysByName) {
+        this.allGateways = allGateways;
+        this.gatewaysByName = gatewaysByName;
+    }
+
+    public String payWith(String beanName, double amount) {
+        PaymentGateway gateway = gatewaysByName.get(beanName);    // "paypal", "upiPayment", ...
+        if (gateway == null) throw new IllegalArgumentException("Unknown payment method: " + beanName);
+        return gateway.pay(amount);
+    }
+}</code></pre>
+  <ul>
+    <li><code>List&lt;PaymentGateway&gt;</code> → every bean of that type. Order is controlled with <code>@Order(1)</code>, <code>@Order(2)</code>… (lower number = earlier).</li>
+    <li><code>Map&lt;String, PaymentGateway&gt;</code> → key is the <strong>bean name</strong>. Note <code>PayPalPayment</code> is named <code>"paypal"</code> by <code>@Component("paypal")</code>.</li>
+    <li>This is the <strong>Strategy pattern</strong> for free: add a new <code>@Component class WalletPayment implements PaymentGateway</code> and it appears automatically — no <code>if/else</code> or <code>switch</code> to edit.</li>
+  </ul>
+  <div class="callout tip"><strong>💡 Real-world use</strong>
+    Validation rules, discount rules, report exporters (PDF/Excel/CSV), notification channels — any time you have "many interchangeable handlers", inject a <code>List</code> or <code>Map</code> of them.</div>
+
+  <h3>3.7 <code>@Value</code> — injecting settings, not beans</h3>
+  <p>Hard-coding values like the delivery fee in Java code is bad: changing it means recompiling and redeploying. Instead we keep settings in a <strong>properties file</strong> (key = value lines):</p>
+  <pre><span class="file">src/main/resources/application.properties</span><code class="lang-properties">shop.name=QuickBite
+shop.delivery-fee=40.0
+shop.free-delivery-above=300
+shop.max-items-per-order=20
+shop.cities=Hyderabad,Pune,Chennai</code></pre>
+  <p>Two pieces connect this file to your beans:</p>
+  <ol>
+    <li><strong><code>@PropertySource</code></strong> on a configuration class loads the file into Spring's <strong>Environment</strong> (a central "settings store" — Topic 26).</li>
+    <li><strong><code>@Value("${key}")</code></strong> on a parameter/field injects one value. <code>${...}</code> is a <strong>placeholder</strong>: "replace me with the setting called <em>key</em>".</li>
+  </ol>
+  <pre><span class="file">config/AppConfig.java</span><code class="lang-java">@Configuration
+@ComponentScan("com.course.di")
+@PropertySource("classpath:application.properties")     // classpath: = from src/main/resources
+public class AppConfig {
+
+    @Bean
+    public static PropertySourcesPlaceholderConfigurer propertyPlaceholderConfigurer() {
+        return new PropertySourcesPlaceholderConfigurer();
+    }
+}</code></pre>
+  <pre><span class="file">config/ShopSettings.java</span><code class="lang-java">@Component
+public class ShopSettings {
+
+    public ShopSettings(@Value("${shop.name}") String shopName,
+                        @Value("${shop.delivery-fee}") double deliveryFee,
+                        @Value("${shop.free-delivery-above:500}") double freeDeliveryAbove,
+                        @Value("${shop.max-items-per-order}") int maxItemsPerOrder,
+                        @Value("${shop.support-email:help@quickbite.example}") String supportEmail,
+                        @Value("${shop.cities}") String[] cities) {
+        ...
+    }
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Syntax</th><th>Meaning</th></tr>
+    <tr><td><code>${shop.name}</code></td><td>Value of key <code>shop.name</code>. Missing key → startup error (with the configurer bean).</td></tr>
+    <tr><td><code>${shop.free-delivery-above:500}</code></td><td>Use the key; if it's missing, use the <strong>default</strong> after the colon: <code>500</code>.</td></tr>
+    <tr><td><code>${shop.support-email:help@quickbite.example}</code></td><td>Key not in the file → default is injected.</td></tr>
+    <tr><td><code>${shop.cities}</code> into <code>String[]</code></td><td>Comma-separated text is split into an array automatically.</td></tr>
+    <tr><td><code>#{...}</code></td><td>Not a placeholder but a SpEL expression (calculations, other beans). Topic 26.</td></tr>
+  </table></div>
+  <p>Spring <strong>converts</strong> the text from the file into the parameter's type: <code>"40.0"</code> → <code>double</code>, <code>"20"</code> → <code>int</code>, <code>"true"</code> → <code>boolean</code>.</p>
+  <div class="callout info"><strong>ℹ️ What is <code>PropertySourcesPlaceholderConfigurer</code>?</strong>
+    It's a Spring helper that replaces <code>${...}</code> placeholders. Without it, plain Spring still resolves placeholders in a "lenient" way — but an unknown key is <em>silently</em> injected as the literal text <code>"${shop.typo}"</code>. With the bean, an unknown key fails fast with <code>Could not resolve placeholder 'shop.typo'</code>. It must be a <code>static</code> <code>@Bean</code> because it has to exist <em>before</em> other beans are created. <strong>Spring Boot registers it automatically</strong> and also loads <code>application.properties</code> without <code>@PropertySource</code> — Topic 29.</div>
+
+  <h3>3.8 Optional dependencies</h3>
+  <p>By default every dependency is <strong>required</strong>: if no matching bean exists, startup fails with <code>NoSuchBeanDefinitionException: No qualifying bean of type 'SmsGateway' available</code>. When a dependency is truly optional, say so:</p>
+  <pre><span class="file">notify/OrderNotifier.java</span><code class="lang-java">@Component
+public class OrderNotifier {
+
+    private final Optional&lt;SmsGateway&gt; smsGateway;            // way 1: java.util.Optional
+    private final ObjectProvider&lt;SmsGateway&gt; smsProvider;     // way 2: Spring's ObjectProvider
+    private SmsGateway backupSms;                             // way 3: optional setter
+
+    public OrderNotifier(Optional&lt;SmsGateway&gt; smsGateway, ObjectProvider&lt;SmsGateway&gt; smsProvider) {
+        this.smsGateway = smsGateway;
+        this.smsProvider = smsProvider;
+    }
+
+    @Autowired(required = false)                              // not called if no bean exists
+    public void setBackupSms(SmsGateway backupSms) { this.backupSms = backupSms; }
+
+    public String notifyCustomer(String phone, String text) {
+        if (smsGateway.isPresent()) {
+            smsGateway.get().sendSms(phone, text);
+            return "SMS sent";
+        }
+        return "No SMS gateway installed -&gt; skipped SMS";
+    }
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Way</th><th>When no bean exists</th><th>Best for</th></tr>
+    <tr><td><code>Optional&lt;T&gt;</code> parameter</td><td><code>Optional.empty()</code></td><td>Simple "maybe there is one" with constructor injection</td></tr>
+    <tr><td><code>ObjectProvider&lt;T&gt;</code></td><td><code>getIfAvailable()</code> returns <code>null</code>; <code>getIfAvailable(() -&gt; fallback)</code> returns a fallback</td><td>Optional <em>and</em> lazy lookups; also very useful with prototype beans (Topic 25)</td></tr>
+    <tr><td><code>@Autowired(required = false)</code></td><td>Setter/field is simply not set (stays <code>null</code>)</td><td>Optional setter injection</td></tr>
+  </table></div>
+
+  <h3>3.9 Circular dependencies</h3>
+  <p>A <strong>circular dependency</strong> is when beans depend on each other in a circle:</p>
+  <div class="flow">
+    <span class="box">InventoryService</span><span class="arrow">→ needs →</span>
+    <span class="box alt">PricingService</span><span class="arrow">→ needs →</span>
+    <span class="box">InventoryService</span><span class="arrow">↺</span>
+  </div>
+  <p>With constructor injection, Spring must create <code>PricingService</code> before it can call <code>InventoryService</code>'s constructor — but creating <code>PricingService</code> requires an <code>InventoryService</code> first. Chicken and egg! Spring detects this and stops:</p>
+  <pre class="terminal"><code>BeanCurrentlyInCreationException: Error creating bean with name 'inventoryService':
+Requested bean is currently in creation: Is there an unresolvable circular reference
+or an asynchronous initialization dependency?</code></pre>
+  <p>A circle like this usually means a <strong>design problem</strong>: two classes are too entangled, or responsibilities are in the wrong place. Fixes, from best to worst:</p>
+  <ol>
+    <li><strong>Redesign: extract the shared part into a third bean.</strong> Here, both services only needed the stock level. We moved that into <code>StockLevels</code>, and both depend on it. The arrows now point one way:
+      <div class="flow">
+        <span class="box">FixedInventoryService</span><span class="arrow">→</span>
+        <span class="box info">StockLevels</span><span class="arrow">←</span>
+        <span class="box">FixedPricingService</span>
+      </div></li>
+    <li><strong>Merge</strong> the two classes if they are really one responsibility.</li>
+    <li><strong>Use events</strong> (Topic 52): A publishes "stock changed", B listens — A doesn't need B any more.</li>
+    <li><strong><code>@Lazy</code> on one constructor parameter</strong> — Spring injects a placeholder proxy and creates the real bean later. It works, but hides the design smell. Use as a last resort.</li>
+  </ol>
+  <div class="callout warn"><strong>⚠️ "But with field injection the circle works!"</strong>
+    In plain Spring, field/setter injection can quietly "solve" some cycles by injecting a half-finished bean. That is <em>not</em> a feature to rely on. Since <strong>Spring Boot 2.6, circular references are forbidden by default</strong> (<code>spring.main.allow-circular-references=false</code>) — so such code fails as soon as it moves to Spring Boot. Constructor injection finds the problem early, which is a good thing.</div>
+
+  <!-- ===================================================== 4. CODE ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Package <code>com.course.di</code> holds the QuickBite app; package <code>com.course.circular</code> holds the circular-dependency demo. It lives <em>outside</em> <code>com.course.di</code> on purpose, so the main app's <code>@ComponentScan("com.course.di")</code> never sees the broken beans.</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>di/App.java</code></td><td>Starts the context and runs demos 1–6.</td></tr>
+    <tr><td><code>di/config/AppConfig.java</code></td><td><code>@ComponentScan</code>, <code>@PropertySource</code>, static placeholder configurer.</td></tr>
+    <tr><td><code>di/config/ShopSettings.java</code></td><td><code>@Value</code> with defaults and type conversion; a settings-driven business rule.</td></tr>
+    <tr><td><code>di/payment/PaymentGateway.java</code></td><td>The interface with 3 implementations.</td></tr>
+    <tr><td><code>di/payment/CardPayment.java</code></td><td><code>@Primary</code>, <code>@Order(1)</code>.</td></tr>
+    <tr><td><code>di/payment/UpiPayment.java</code></td><td>Default name <code>upiPayment</code>, <code>@Order(2)</code>.</td></tr>
+    <tr><td><code>di/payment/PayPalPayment.java</code></td><td>Custom name <code>@Component("paypal")</code>, <code>@Order(3)</code>.</td></tr>
+    <tr><td><code>di/payment/PaymentRegistry.java</code></td><td><code>List</code> and <code>Map</code> injection.</td></tr>
+    <tr><td><code>di/order/CheckoutService.java</code></td><td>Constructor injection, receives the <code>@Primary</code> gateway.</td></tr>
+    <tr><td><code>di/order/ExpressCheckoutService.java</code></td><td><code>@Qualifier("upiPayment")</code>.</td></tr>
+    <tr><td><code>di/order/ReceiptPrinter.java</code></td><td>Simple helper bean.</td></tr>
+    <tr><td><code>di/order/ReceiptService.java</code></td><td>Setter injection.</td></tr>
+    <tr><td><code>di/order/LegacyAuditService.java</code></td><td>Field injection (to recognise, not copy).</td></tr>
+    <tr><td><code>di/notify/SmsGateway.java</code>, <code>OrderNotifier.java</code></td><td>Optional dependency — there is deliberately <em>no</em> <code>SmsGateway</code> bean.</td></tr>
+    <tr><td><code>circular/broken/InventoryService.java</code>, <code>PricingService.java</code></td><td>The cycle.</td></tr>
+    <tr><td><code>circular/fixed/StockLevels.java</code>, <code>FixedInventoryService.java</code>, <code>FixedPricingService.java</code></td><td>The redesign that removes the cycle.</td></tr>
+    <tr><td><code>resources/application.properties</code></td><td>Shop settings.</td></tr>
+  </table></div>
+
+  <h3>4.1 Demo 1 – the three injection styles in action</h3>
+  <pre><span class="file">App.java</span><code class="lang-java">CheckoutService checkout = context.getBean(CheckoutService.class);
+ReceiptService receipts = context.getBean(ReceiptService.class);
+LegacyAuditService audit = context.getBean(LegacyAuditService.class);
+System.out.println("constructor -&gt; " + checkout.checkout(250));
+System.out.println("setter      -&gt; " + receipts.receiptFor("Order #101, 2 x Biryani"));
+System.out.println("field       -&gt; " + audit.audit("order #101 paid"));</code></pre>
+  <p>All three work the same from the outside. <code>checkout(250)</code> prints <code>Paid 290.0 by CARD</code>: 250 of food + 40 delivery fee (from the properties file, because 250 is below the free-delivery limit of 300), paid with the <code>@Primary</code> card gateway. The line <code>[setter injection] setPrinter() called by Spring</code> appears during startup — proof that Spring calls the setter after creating the object.</p>
+
+  <h3>4.2 Demo 6 – catching the circular dependency</h3>
+  <pre><span class="file">App.java</span><code class="lang-java">try (AnnotationConfigApplicationContext broken =
+             new AnnotationConfigApplicationContext("com.course.circular.broken")) {
+    System.out.println("(should never get here)");
+} catch (Exception e) {
+    Throwable root = e;
+    while (root.getCause() != null) {      // dig to the deepest cause
+        root = root.getCause();
+    }
+    System.out.println("FAILED as expected -&gt; " + root.getClass().getSimpleName());
+    System.out.println(root.getMessage());
+}</code></pre>
+  <ul>
+    <li><code>new AnnotationConfigApplicationContext("package.name")</code> scans a package directly (no config class needed).</li>
+    <li>Spring wraps errors in several layers (<code>UnsatisfiedDependencyException</code> → … → <code>BeanCurrentlyInCreationException</code>). The <strong>deepest cause</strong> usually has the clearest message — a useful habit for reading any Java stack trace (Topic 10).</li>
+    <li>Spring also logs a <code>WARNING: Exception encountered during context initialization - cancelling refresh attempt...</code> line (red in some terminals). That's Spring's own log — expected here.</li>
+  </ul>
+
+  <!-- ===================================================== 5. RUN ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\24-Dependency-Injection-Deep-Dive"
+mvn -q compile exec:java</code></pre>
+  <p>In VS Code: open the folder <code>24-Dependency-Injection-Deep-Dive</code>, open <code>di/App.java</code>, click <strong>Run</strong>.</p>
+  <p>Expected output (the long Spring <code>WARNING</code> log line in demo 6 is shortened here):</p>
+  <pre class="terminal"><code>=== Starting the QuickBite container ===
+   [setter injection] setPrinter() called by Spring
+
+=== DEMO 1: Three styles of injection ===
+   constructor -&gt; Paid 290.0 by CARD
+   setter      -&gt; [RECEIPT] Order #101, 2 x Biryani
+   field       -&gt; [RECEIPT] AUDIT order #101 paid
+
+=== DEMO 2: Many implementations -&gt; @Primary and @Qualifier ===
+   CheckoutService (no qualifier) uses: Credit/Debit Card   &lt;- @Primary
+   ExpressCheckoutService uses:        UPI   &lt;- @Qualifier("upiPayment")
+   express pay -&gt; Paid 99.0 by UPI
+
+=== DEMO 3: Inject ALL implementations (List and Map) ===
+   List (sorted by @Order): [Credit/Debit Card, UPI, PayPal]
+   Map keys (bean names):   [cardPayment, paypal, upiPayment]
+   payWith("paypal") -&gt; Paid 560.0 by PAYPAL
+
+=== DEMO 4: @Value + @PropertySource ===
+   shop=QuickBite, deliveryFee=40.0, freeDeliveryAbove=300.0, maxItems=20, supportEmail=help@quickbite.example, cities=Hyderabad|Pune|Chennai
+   delivery fee for 250 -&gt; 40.0
+   delivery fee for 350 -&gt; 0.0 (free above 300)
+
+=== DEMO 5: Optional dependencies ===
+   No SMS gateway installed -&gt; skipped SMS (Optional empty: true, provider gives: null, setter-injected: null)
+
+=== DEMO 6: Circular dependency ===
+   Starting a container for package com.course.circular.broken ...
+WARNING: Exception encountered during context initialization - cancelling refresh attempt: ...
+   FAILED as expected -&gt; BeanCurrentlyInCreationException
+   Error creating bean with name 'inventoryService': Requested bean is currently in creation: Is there an unresolvable circular reference or an asynchronous initialization dependency?
+   Starting a container for package com.course.circular.fixed ...
+   Fixed design works! Paneer Tikka in stock? true, price (only 2 left): 120.0
+=== Done ===</code></pre>
+  <p>Things to notice:</p>
+  <ul>
+    <li><code>freeDeliveryAbove=300.0</code>: the file's value (300) won over the <code>@Value</code> default (500). Defaults are used only when the key is missing — like <code>supportEmail</code>.</li>
+    <li>The <code>Map</code> keys are bean names — <code>paypal</code>, not <code>payPalPayment</code>, because of the custom name.</li>
+  </ul>
+
+  <!-- ===================================================== 6. MISTAKES ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>NoUniqueBeanDefinitionException</code> after adding a second implementation</strong>
+    Everything worked with one <code>PaymentGateway</code>. You add <code>UpiPayment</code>, and suddenly startup fails: <code>expected single matching bean but found 2</code>.<br>
+    <strong>Fix:</strong> mark the default with <code>@Primary</code>, and/or use <code>@Qualifier</code> where a specific one is needed — or inject a <code>List</code>/<code>Map</code> if you need all of them.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: field is <code>null</code> — "but I wrote <code>@Autowired</code>!"</strong>
+    Usually because the object was created with <code>new LegacyAuditService()</code> — Spring never saw it, so it never injected anything. Or the class isn't a bean (no stereotype annotation, outside the scanned package).<br>
+    <strong>Fix:</strong> let Spring create the object and get it via injection. With constructor injection this mistake is impossible: <code>new</code> forces you to pass the dependencies.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting <code>@Autowired</code> on a setter</strong>
+    The setter is never called; the field stays <code>null</code>; <code>NullPointerException</code> later.<br>
+    <strong>Fix:</strong> setters need <code>@Autowired</code>. (Single constructors don't.)</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>@Value</code> on a <code>static</code> field</strong>
+    <code>@Value("${shop.name}") private static String name;</code> stays <code>null</code> — Spring injects into <em>objects</em>, not classes.<br>
+    <strong>Fix:</strong> use a normal (preferably constructor) parameter.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>${...}</code> not replaced — you see the literal text <code>${shop.name}</code></strong>
+    The properties file wasn't loaded (missing <code>@PropertySource</code>, wrong file name, file not in <code>src/main/resources</code>), and no placeholder configurer is registered.<br>
+    <strong>Fix:</strong> check the <code>@PropertySource</code> path, and register the <code>static PropertySourcesPlaceholderConfigurer</code> so mistakes fail loudly.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: mixing <code>${}</code> and <code>#{}</code></strong>
+    <code>@Value("#{shop.name}")</code> is a SpEL expression looking for a <em>bean</em> called <code>shop</code>, not a property.<br>
+    <strong>Fix:</strong> properties use <code>${...}</code>. SpEL (<code>#{...}</code>) is for expressions — Topic 26.</div>
+  <div class="callout danger"><strong>🛑 Mistake: "fixing" a circular dependency by switching to field injection</strong>
+    It may hide the error in plain Spring, but the design problem stays and Spring Boot will refuse it by default.<br>
+    <strong>Fix:</strong> redesign — extract shared logic into a third bean, merge classes, or use events.</div>
+
+  <!-- ===================================================== 7. BEST ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Constructor injection for all required dependencies</strong>, with <code>private final</code> fields. Leave out <code>@Autowired</code> when there's one constructor.</li>
+    <li><strong>Setter injection only for genuinely optional</strong> dependencies; <strong>never field injection</strong> in production code (it's OK in test classes).</li>
+    <li><strong>Too many constructor parameters (5+)?</strong> The class probably does too much. Split it (Single Responsibility — Topic 70).</li>
+    <li><strong>Depend on interfaces</strong> and choose implementations with <code>@Primary</code> (a sensible default) and <code>@Qualifier</code> (exceptions).</li>
+    <li><strong>Use <code>List</code>/<code>Map</code> injection</strong> instead of long <code>if/else</code> chains choosing an implementation.</li>
+    <li><strong>Never hard-code settings</strong> like URLs, fees, limits, passwords. Put them in properties and inject with <code>@Value</code> (or, in Spring Boot, the type-safe <code>@ConfigurationProperties</code> — Topic 29).</li>
+    <li><strong>Provide sensible defaults</strong> (<code>${key:default}</code>) for non-critical settings; leave critical ones without defaults so a missing value fails fast.</li>
+    <li><strong>Treat circular dependencies as a design bug</strong>, not a configuration puzzle.</li>
+  </ul>
+
+  <!-- ===================================================== 8. SUMMARY ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Three injection styles: <strong>constructor</strong> (preferred), setter (optional deps), field (avoid).</li>
+    <li><code>@Autowired</code> is optional on a single constructor; required on setters, fields and when there are several constructors.</li>
+    <li>Spring matches by <strong>type</strong>; with several candidates it uses <code>@Qualifier</code>, then <code>@Primary</code>, then the parameter name, else it fails.</li>
+    <li><code>@Primary</code> = default chosen by the provider; <code>@Qualifier</code> = specific choice by the consumer, and it wins.</li>
+    <li>Ask for <code>List&lt;T&gt;</code> (ordered with <code>@Order</code>) or <code>Map&lt;String, T&gt;</code> (bean name → bean) to get all implementations.</li>
+    <li><code>@PropertySource</code> loads a properties file; <code>@Value("${key:default}")</code> injects values with automatic type conversion.</li>
+    <li>Optional dependencies: <code>Optional&lt;T&gt;</code>, <code>ObjectProvider&lt;T&gt;</code>, or <code>@Autowired(required = false)</code>.</li>
+    <li>Circular dependencies fail with <code>BeanCurrentlyInCreationException</code>; fix them by redesigning.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9. EXERCISES ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Change a setting.</strong> Set <code>shop.delivery-fee=25.5</code> and remove the <code>shop.free-delivery-above</code> line from <code>application.properties</code>. Run. What's the delivery fee for 350 now, and why?</p>
+    <details><summary>Hint / solution</summary>
+      <p>The fee becomes 25.5. Without the key, the <code>@Value</code> default <code>500</code> is used, so 350 is now <em>below</em> the limit and pays 25.5 (before it was free because the file said 300). No Java code changed — that's the point of externalised configuration.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>A new payment method.</strong> Add <code>WalletPayment</code> (bean name <code>wallet</code>, <code>@Order(4)</code>, display name "QuickBite Wallet"). Without touching <code>PaymentRegistry</code>, make demo 3 show it and pay 120 with it.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">@Component("wallet")
+@Order(4)
+public class WalletPayment implements PaymentGateway {
+    @Override public String pay(double amount) { return "Paid " + amount + " by WALLET"; }
+    @Override public String displayName() { return "QuickBite Wallet"; }
+}
+
+// App.java, demo 3
+System.out.println("   payWith(\"wallet\") -&gt; " + registry.payWith("wallet", 120));</code></pre>
+      <p>The list now ends with "QuickBite Wallet" and the map contains <code>wallet</code>. Open/closed principle in action.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Remove <code>@Primary</code>.</strong> Delete <code>@Primary</code> from <code>CardPayment</code> and run. Read the error. Then fix it <em>without</em> putting <code>@Primary</code> back, by changing only <code>CheckoutService</code>.</p>
+    <details><summary>Hint / solution</summary>
+      <p>Startup fails while creating <code>checkoutService</code>: <code>NoUniqueBeanDefinitionException: ... expected single matching bean but found 3: cardPayment,paypal,upiPayment</code>. (The parameter name <code>paymentGateway</code> doesn't match any bean name, so the name fallback doesn't help.)</p>
+      <pre><code class="lang-java">public CheckoutService(@Qualifier("cardPayment") PaymentGateway paymentGateway,
+                       ShopSettings shopSettings) { ... }</code></pre>
+      <p>Renaming the parameter to <code>cardPayment</code> would also work (name fallback) — but it's fragile and unclear. Prefer <code>@Qualifier</code>.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Install the SMS module.</strong> Create <code>ConsoleSmsGateway implements SmsGateway</code> with <code>@Component</code> that prints <code>[SMS] to phone: text</code>. Run again. What changes in demo 5?</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">@Component
+public class ConsoleSmsGateway implements SmsGateway {
+    @Override
+    public void sendSms(String phone, String text) {
+        System.out.println("   [SMS] to " + phone + ": " + text);
+    }
+}</code></pre>
+      <p>Now <code>Optional</code> is present, the SMS is printed and <code>notifyCustomer</code> returns <code>"SMS sent"</code>. The setter <code>setBackupSms</code> is also called now. <code>OrderNotifier</code> adapted without any change.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Fix the cycle with <code>@Lazy</code>.</strong> In <code>circular/broken/PricingService</code>, put <code>@Lazy</code> (from <code>org.springframework.context.annotation</code>) on the constructor parameter. Run. Does demo 6 still fail? Explain in your own words what Spring injected, and why the lesson still calls redesign the better fix.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public PricingService(@Lazy InventoryService inventoryService) {
+    this.inventoryService = inventoryService;
+}</code></pre>
+      <p>The broken context now starts, so demo 6 prints "(should never get here)". Spring injected a <strong>lazy-resolution proxy</strong> — a stand-in object of a generated subclass of <code>InventoryService</code>. The real bean is fetched only when a method is first called on the proxy, by which time it exists. It works, but the two classes are still tangled together; the code is harder to understand and test. Redesign removes the cause instead of hiding it. (Remove <code>@Lazy</code> afterwards so the demo shows the error again.)</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Unit test without Spring.</strong> Add JUnit 5 (<code>org.junit.jupiter:junit-jupiter:5.11.4</code>, scope <code>test</code>) to the pom and write a test for <code>CheckoutService</code>. <code>PaymentGateway</code> has two methods, so a lambda won't do — write a small fake class that remembers the charged amount, and check that <code>checkout(350)</code> charges exactly 350 (free delivery).</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">class CheckoutServiceTest {
+
+    static class FakeGateway implements PaymentGateway {
+        double charged;
+        public String pay(double amount) { charged = amount; return "ok"; }
+        public String displayName() { return "fake"; }
+    }
+
+    @Test
+    void bigOrdersGetFreeDelivery() {
+        FakeGateway fake = new FakeGateway();
+        ShopSettings settings = new ShopSettings("Test", 40, 300, 20, "a@b.c", new String[]{"Pune"});
+        CheckoutService service = new CheckoutService(fake, settings);
+
+        service.checkout(350);
+
+        assertEquals(350.0, fake.charged);
+    }
+}</code></pre>
+      <p>Because everything uses constructor injection — even the <code>@Value</code> settings — the test needs no Spring at all. Try that with <code>LegacyAuditService</code>!</p>
+    </details>
+  </div>
+
+  <!-- ===================================================== 10. INTERVIEW ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What types of dependency injection does Spring support? Which is recommended and why?</summary>
+    <p>Constructor, setter and field injection. Constructor injection is recommended: it allows <code>final</code> (immutable) fields, guarantees the object is fully initialised, makes dependencies explicit, enables plain unit tests without Spring or reflection, detects circular dependencies early and makes "too many dependencies" visible. Setter injection suits optional dependencies; field injection should be avoided outside tests.</p></details>
+  <details><summary>Q2. Is @Autowired required on a constructor?</summary>
+    <p>Not if the class has exactly one constructor (since Spring 4.3) — Spring uses it automatically. If there are several constructors, you must annotate the one Spring should use; otherwise Spring tries the default no-arg constructor.</p></details>
+  <details><summary>Q3. How does Spring resolve which bean to inject when there are multiple candidates?</summary>
+    <p>It matches by type first. If several beans match, it applies <code>@Qualifier</code> at the injection point; otherwise it prefers a single <code>@Primary</code> candidate (or the highest <code>@Priority</code>); as a last fallback it matches the bean name to the parameter/field name. If it still can't decide, it throws <code>NoUniqueBeanDefinitionException</code>.</p></details>
+  <details><summary>Q4. What's the difference between @Primary and @Qualifier?</summary>
+    <p><code>@Primary</code> is declared on a bean and makes it the default among candidates of the same type. <code>@Qualifier</code> is declared at the injection point (and optionally on the bean) to request a specific bean. <code>@Qualifier</code> takes precedence over <code>@Primary</code>.</p></details>
+  <details><summary>Q5. How can you inject all implementations of an interface?</summary>
+    <p>Inject a <code>List&lt;Interface&gt;</code> (ordered by <code>@Order</code>/<code>Ordered</code>), a <code>Map&lt;String, Interface&gt;</code> (keys are bean names), or use <code>ObjectProvider&lt;Interface&gt;</code> and stream over it. This is commonly used to implement the Strategy pattern.</p></details>
+  <details><summary>Q6. How do you inject values from a properties file?</summary>
+    <p>Load the file with <code>@PropertySource("classpath:file.properties")</code> (Spring Boot loads <code>application.properties</code> automatically) and inject with <code>@Value("${key}")</code> or <code>@Value("${key:default}")</code>. Spring converts the string to the target type. For groups of settings, Spring Boot's <code>@ConfigurationProperties</code> is the type-safe alternative.</p></details>
+  <details><summary>Q7. What is the difference between ${...} and #{...} in @Value?</summary>
+    <p><code>${...}</code> is a property placeholder resolved from the Environment (properties files, system properties, environment variables). <code>#{...}</code> is a SpEL expression evaluated at runtime — it can do arithmetic, call methods and reference other beans. They can be combined: <code>#{'${shop.name}'.toUpperCase()}</code>.</p></details>
+  <details><summary>Q8. How do you declare an optional dependency?</summary>
+    <p>Use <code>Optional&lt;T&gt;</code> as the parameter type, use <code>ObjectProvider&lt;T&gt;</code> and call <code>getIfAvailable()</code>, use <code>@Autowired(required = false)</code> on a setter/field, or annotate the parameter with <code>@Nullable</code>.</p></details>
+  <details><summary>Q9. What is a circular dependency and how do you resolve it?</summary>
+    <p>Two or more beans that depend on each other directly or indirectly (A → B → A). With constructor injection Spring can't create either and throws <code>BeanCurrentlyInCreationException</code>. The best fix is a redesign: extract the shared logic into a third bean, merge the classes, or decouple with events. A workaround is <code>@Lazy</code> on one injection point (injects a proxy). Spring Boot 2.6+ forbids circular references by default.</p></details>
+  <details><summary>Q10. Why is field injection considered bad practice?</summary>
+    <p>Fields can't be final; dependencies are hidden; the class can't be instantiated in a valid state without Spring (tests need reflection or a Spring context); it hides classes with too many dependencies; and it couples the class to the DI container.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../23-Spring-IoC-Container-And-Beans/lesson.html"><small>← Previous</small>23. Spring IoC Container &amp; Beans</a>
+    <a class="next" href="../25-Bean-Scopes-And-Lifecycle/lesson.html"><small>Next →</small>25. Bean Scopes &amp; Lifecycle</a>
+  </nav>
+</main>
+</body>
+</html>

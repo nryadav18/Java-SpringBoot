@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>27 · Spring AOP</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part B · Spring Framework Core › Topic 27</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part B · Spring Framework Core</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>27. Spring AOP (Aspect-Oriented Programming)</h1>
+  <p class="subtitle">Add logging, timing, validation and security to hundreds of methods without touching them — and understand the proxies behind <code>@Transactional</code>.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="27-Spring-AOP"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What <strong>cross-cutting concerns</strong> are and why copy-pasting them is a problem.</li>
+      <li>The AOP vocabulary: <strong>Aspect, Advice, Join point, Pointcut, Target, Proxy, Weaving</strong>.</li>
+      <li>All five advice types: <code>@Before</code>, <code>@After</code>, <code>@AfterReturning</code>, <code>@AfterThrowing</code>, <code>@Around</code>.</li>
+      <li>How to write <strong>pointcut expressions</strong> (<code>execution</code>, <code>within</code>, <code>@annotation</code>, <code>args</code>, <code>bean</code>).</li>
+      <li>How to build your own annotation-based aspect: <code>@LogExecutionTime</code>.</li>
+      <li>How Spring AOP works inside: <strong>JDK dynamic proxies vs CGLIB proxies</strong>.</li>
+      <li>The <strong>self-invocation gotcha</strong> — the #1 reason <code>@Transactional</code> "doesn't work" for beginners.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../25-Bean-Scopes-And-Lifecycle/lesson.html">Topic 25 · BeanPostProcessor</a>, <a href="../26-Spring-Configuration-Profiles-And-Environment/lesson.html">Topic 26 · CGLIB subclasses of @Configuration</a>, and annotations from <a href="../18-Annotations-And-Reflection/lesson.html">Topic 18</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1. WHY ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Your manager asks: <em>"Log every call to every service method, with its arguments and result. And measure how long the slow ones take."</em> The online shop has 40 service classes with 300 methods. Without AOP you would paste this into every method:</p>
+  <pre><code class="lang-java">public String placeOrder(String item, int quantity) {
+    System.out.println("START placeOrder " + item + ", " + quantity);   // logging
+    long start = System.nanoTime();                                     // timing
+    try {
+        // ... the 3 lines of REAL business logic ...
+        System.out.println("END placeOrder returned " + orderId);        // logging
+        return orderId;
+    } catch (RuntimeException e) {
+        System.out.println("placeOrder FAILED: " + e.getMessage());     // logging
+        throw e;
+    } finally {
+        System.out.println("took " + (System.nanoTime() - start) / 1_000_000 + " ms");   // timing
+    }
+}</code></pre>
+  <p>Three lines of business logic drowned in fifteen lines of "plumbing" — copied 300 times. Change the log format? Edit 300 methods. Forget one? No logs there.</p>
+  <p>Logging, timing, security checks, transactions, caching, retries… these are <strong>cross-cutting concerns</strong>: they cut across <em>many</em> classes, but have nothing to do with the business logic itself. <strong>AOP (Aspect-Oriented Programming)</strong> lets you write such code <strong>once</strong>, in one class, and declare <em>where</em> it applies.</p>
+  <p>Even if you never write an aspect at work, you will use AOP every day: <code>@Transactional</code> (Topic 42), <code>@Cacheable</code> (Topic 51), <code>@Async</code> (Topic 52) and <code>@PreAuthorize</code> (Topic 48) are all implemented with Spring AOP proxies. Understanding proxies explains why they sometimes "don't work".</p>
+
+  <!-- ===================================================== 2. ANALOGY ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏢 The security desk and CCTV of an office building</strong>
+    <p>The people in an office (your <strong>service methods</strong>) do their jobs: accounting, design, sales. They don't check visitors' IDs, record who came in, or note the time — the <strong>building</strong> does that, for <em>every</em> office, at the entrance.</p>
+    <ul>
+      <li>The <strong>security guard</strong> and the <strong>CCTV</strong> are <strong>aspects</strong> — one place for a concern that affects all offices.</li>
+      <li>"Check ID <em>before</em> entering", "log the time <em>after</em> leaving", "film the whole visit (<em>around</em>)" are <strong>advice</strong> — <em>what</em> to do and <em>when</em>.</li>
+      <li>"Only for offices on floors 3–5" or "only for rooms with a red sticker" is a <strong>pointcut</strong> — <em>where</em> it applies. The red sticker is our custom annotation <code>@LogExecutionTime</code>.</li>
+      <li>Each actual visit to an office is a <strong>join point</strong>.</li>
+      <li>The <strong>reception desk</strong> that every visitor must pass through, instead of walking directly into the office, is the <strong>proxy</strong>.</li>
+      <li>⚠️ If an employee walks from their office into the office next door <em>through an internal door</em>, they never pass reception — nothing is checked or logged. That's the <strong>self-invocation gotcha</strong>.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== 3. CONCEPTS ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Cross-cutting concerns</h3>
+  <p>Picture the application as layers (controllers, services, repositories) drawn as vertical columns. Logging, security and transactions run <em>horizontally across all of them</em>:</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 640 240" width="640" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, sans-serif" font-size="14">
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="140" y="20" width="120" height="200" rx="8"/>
+        <rect x="290" y="20" width="120" height="200" rx="8"/>
+        <rect x="440" y="20" width="120" height="200" rx="8"/>
+      </g>
+      <g fill="currentColor" text-anchor="middle">
+        <text x="200" y="45" font-weight="bold">OrderService</text>
+        <text x="350" y="45" font-weight="bold">PaymentService</text>
+        <text x="500" y="45" font-weight="bold">UserService</text>
+      </g>
+      <g stroke-width="10" opacity="0.35">
+        <line x1="110" y1="90" x2="590" y2="90" stroke="#2f7d32"/>
+        <line x1="110" y1="135" x2="590" y2="135" stroke="#1f6fb2"/>
+        <line x1="110" y1="180" x2="590" y2="180" stroke="#c0561b"/>
+      </g>
+      <g fill="currentColor" font-size="13">
+        <text x="10" y="95">Logging</text>
+        <text x="10" y="140">Security</text>
+        <text x="10" y="185">Transactions</text>
+      </g>
+    </svg>
+    <figcaption>Business modules are columns; cross-cutting concerns are rows that cut across all of them. AOP puts each row in one place.</figcaption>
+  </figure>
+  <p>Typical cross-cutting concerns: logging/auditing, performance measurement, security checks, transactions, caching, retrying failed calls, input validation, exception translation.</p>
+
+  <h3>3.2 The AOP vocabulary</h3>
+  <p>AOP has some fancy words. Here they are in plain English, with the matching piece of our project:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Term</th><th>Plain meaning</th><th>In our project</th></tr>
+    <tr><td><strong>Aspect</strong></td><td>A class that bundles one cross-cutting concern: the code <em>and</em> where it applies.</td><td><code>LoggingAspect</code>, <code>PerformanceAspect</code>, <code>ValidationAspect</code></td></tr>
+    <tr><td><strong>Advice</strong></td><td><em>What</em> to do and <em>when</em> (before, after, around…). A method in an aspect.</td><td><code>logBefore()</code>, <code>measure()</code></td></tr>
+    <tr><td><strong>Join point</strong></td><td>A point during execution where advice <em>could</em> run. In Spring AOP: always a <strong>method execution</strong> on a Spring bean.</td><td>The call <code>orderService.placeOrder("Keyboard", 2)</code></td></tr>
+    <tr><td><strong>Pointcut</strong></td><td>An expression that <em>selects</em> join points: "which methods?"</td><td><code>execution(* com.course.aop.service.*.*(..))</code></td></tr>
+    <tr><td><strong>Target</strong></td><td>The real object whose method is being advised.</td><td>The real <code>OrderService</code> object</td></tr>
+    <tr><td><strong>Proxy</strong></td><td>A generated wrapper object around the target that runs the advice and then calls the target.</td><td><code>OrderService$$SpringCGLIB$$0</code>, <code>jdk.proxy3.$Proxy49</code></td></tr>
+    <tr><td><strong>Weaving</strong></td><td>Linking aspects with targets. Can happen at compile time, class-load time, or <strong>runtime</strong>. Spring AOP weaves at runtime by creating proxies.</td><td>Done by <code>@EnableAspectJAutoProxy</code> at startup</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 One sentence to remember</strong>
+    An <strong>aspect</strong> contains <strong>advice</strong> (what/when) bound to a <strong>pointcut</strong> (where), which matches <strong>join points</strong> (method calls) on <strong>targets</strong>, applied through a <strong>proxy</strong> created by <strong>weaving</strong>.</div>
+
+  <h3>3.3 Switching AOP on</h3>
+  <p>Two things are needed:</p>
+  <ol>
+    <li>The dependency <code>spring-aspects</code> (it brings <code>aspectjweaver</code>, which contains the <code>@Aspect</code>/<code>@Before</code>… annotations and the pointcut language).
+      <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-aspects&lt;/artifactId&gt;
+    &lt;version&gt;6.2.11&lt;/version&gt;
+&lt;/dependency&gt;</code></pre></li>
+    <li><code>@EnableAspectJAutoProxy</code> on a configuration class:
+      <pre><span class="file">config/AppConfig.java</span><code class="lang-java">@Configuration
+@ComponentScan("com.course.aop")
+@EnableAspectJAutoProxy
+public class AppConfig { }</code></pre></li>
+  </ol>
+  <p><code>@EnableAspectJAutoProxy</code> registers a <strong>BeanPostProcessor</strong> (remember Topic 25!). After each bean is initialised, it asks: "does any aspect's pointcut match a method of this bean?" If yes, it returns a <strong>proxy</strong> instead of the bean. Everyone who injects that bean gets the proxy.</p>
+  <div class="callout info"><strong>ℹ️ Spring Boot</strong> — add <code>spring-boot-starter-aop</code> and AOP is enabled automatically (no <code>@EnableAspectJAutoProxy</code> needed). Many starters (data-jpa, cache…) already include it.</div>
+
+  <h3>3.4 Writing an aspect</h3>
+  <pre><span class="file">aspect/LoggingAspect.java</span><code class="lang-java">@Aspect                 // this class is an aspect
+@Component              // ...and a Spring bean - REQUIRED, or Spring never finds it
+@Order(2)
+public class LoggingAspect {
+
+    @Before("execution(* com.course.aop.service.*.*(..))")
+    public void logBefore(JoinPoint joinPoint) {
+        System.out.println("[LOG @Before] " + joinPoint.getSignature().getName()
+                + " args=" + Arrays.toString(joinPoint.getArgs()));
+    }
+}</code></pre>
+  <p>Read it as: "<em>Before</em> the <em>execution</em> of <em>any</em> method of <em>any</em> class in package <code>com.course.aop.service</code>, run <code>logBefore</code>." The <code>JoinPoint</code> parameter gives information about the intercepted call:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>Returns</th></tr>
+    <tr><td><code>getSignature().getName()</code></td><td>Method name, e.g. <code>placeOrder</code></td></tr>
+    <tr><td><code>getSignature().getDeclaringType()</code></td><td>The class/interface declaring the method</td></tr>
+    <tr><td><code>getSignature().toShortString()</code></td><td>e.g. <code>OrderService.generateMonthlyReport()</code></td></tr>
+    <tr><td><code>getArgs()</code></td><td>The arguments as <code>Object[]</code></td></tr>
+    <tr><td><code>getTarget()</code> / <code>getThis()</code></td><td>The real object / the proxy</td></tr>
+  </table></div>
+
+  <h3>3.5 The five advice types</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Advice</th><th>Runs…</th><th>Can access</th><th>Typical use</th></tr>
+    <tr><td><code>@Before</code></td><td>before the method</td><td>arguments</td><td>logging, security/validation checks (throw to block the call)</td></tr>
+    <tr><td><code>@AfterReturning</code></td><td>after a <strong>normal</strong> return</td><td>the return value (<code>returning = "result"</code>)</td><td>log results, audit successful actions</td></tr>
+    <tr><td><code>@AfterThrowing</code></td><td>after an <strong>exception</strong></td><td>the exception (<code>throwing = "ex"</code>)</td><td>error logging, alerting, exception translation</td></tr>
+    <tr><td><code>@After</code></td><td>after the method <strong>either way</strong> (like <code>finally</code>)</td><td>arguments</td><td>releasing resources, "finished" logs</td></tr>
+    <tr><td><code>@Around</code></td><td><strong>around</strong> the method — you decide when (and if) it runs</td><td>everything; can change args and result</td><td>timing, transactions, caching, retry</td></tr>
+  </table></div>
+  <pre><span class="file">aspect/LoggingAspect.java</span><code class="lang-java">@AfterReturning(pointcut = "com.course.aop.aspect.CommonPointcuts.businessLayer()", returning = "result")
+public void logAfterReturning(JoinPoint joinPoint, Object result) {        // "result" name must match
+    System.out.println("[LOG @AfterReturning] " + methodName(joinPoint) + " returned " + result);
+}
+
+@AfterThrowing(pointcut = "com.course.aop.aspect.CommonPointcuts.businessLayer()", throwing = "ex")
+public void logAfterThrowing(JoinPoint joinPoint, Exception ex) {          // "ex" name must match
+    System.out.println("[LOG @AfterThrowing] " + methodName(joinPoint) + " threw " + ex.getMessage());
+}
+
+@After("com.course.aop.aspect.CommonPointcuts.businessLayer()")
+public void logAfter(JoinPoint joinPoint) {
+    System.out.println("[LOG @After] " + methodName(joinPoint) + " finished (success or not)");
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ <code>@AfterThrowing</code> doesn't swallow the exception</strong>
+    It only <em>observes</em> it. The exception continues to the caller (our <code>main()</code> still catches it). To actually handle or replace an exception, use <code>@Around</code> with try/catch.</div>
+
+  <h3>3.6 <code>@Around</code> — the most powerful advice</h3>
+  <pre><span class="file">aspect/PerformanceAspect.java</span><code class="lang-java">@Around("com.course.aop.aspect.CommonPointcuts.timedMethods()")
+public Object measure(ProceedingJoinPoint joinPoint) throws Throwable {
+    long start = System.nanoTime();
+    try {
+        return joinPoint.proceed();          // call the real method - DON'T FORGET THIS!
+    } finally {
+        long millis = (System.nanoTime() - start) / 1_000_000;
+        System.out.println(joinPoint.getSignature().toShortString() + " took " + millis + " ms");
+    }
+}</code></pre>
+  <ul>
+    <li>It receives a <code>ProceedingJoinPoint</code> — a <code>JoinPoint</code> with a <code>proceed()</code> method.</li>
+    <li><code>proceed()</code> runs the next advice in the chain and finally the real method. If you never call it, <strong>the method never runs</strong>.</li>
+    <li>You <strong>must return</strong> the result of <code>proceed()</code> (return type <code>Object</code>), or callers get <code>null</code>.</li>
+    <li>It must declare <code>throws Throwable</code>, because the real method may throw anything.</li>
+    <li>You can call <code>proceed(newArgs)</code> with changed arguments, call it several times (retry!), or skip it and return a cached value. That's exactly how <code>@Cacheable</code> and <code>@Transactional</code> work.</li>
+  </ul>
+  <div class="callout tip"><strong>💡 Use the weakest advice that does the job</strong>
+    Need only a "before" log? Use <code>@Before</code>. It's simpler and you can't accidentally forget <code>proceed()</code>. Use <code>@Around</code> when you need before <em>and</em> after with shared state (like a start time), or control over the call.</div>
+
+  <h3>3.7 Pointcut expressions</h3>
+  <p>The most common pointcut designator is <code>execution(...)</code>. Its pattern mirrors a method declaration:</p>
+  <pre><code>execution( modifiers?  return-type  declaring-type?.method-name(params)  throws? )
+
+execution( public      String       com.course.aop.service.OrderService.placeOrder(String, int) )
+execution(             *            com.course.aop.service.*.*(..) )
+              │          │                  │              │ │  └─ (..) = any number of any parameters
+              │          │                  │              │ └─ any method name
+              │          │                  │              └─ any class in the package
+              │          │                  └─ package
+              │          └─ * = any return type
+              └─ modifiers are optional</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Expression</th><th>Matches</th></tr>
+    <tr><td><code>execution(* com.course.aop.service.*.*(..))</code></td><td>Any method of any class directly in package <code>service</code></td></tr>
+    <tr><td><code>execution(* com.course.aop..*.*(..))</code></td><td><code>..</code> in a package = this package <strong>and all sub-packages</strong></td></tr>
+    <tr><td><code>execution(* com.course.aop.service.*.place*(..))</code></td><td>Methods whose name starts with <code>place</code></td></tr>
+    <tr><td><code>execution(public String *(..))</code></td><td>Any public method returning <code>String</code></td></tr>
+    <tr><td><code>execution(* *(String, ..))</code></td><td>Methods whose first parameter is a <code>String</code></td></tr>
+    <tr><td><code>within(com.course.aop.payment..*)</code></td><td>Every method of every class in <code>payment</code> and below</td></tr>
+    <tr><td><code>@annotation(com.course.aop.annotation.LogExecutionTime)</code></td><td>Methods annotated with <code>@LogExecutionTime</code></td></tr>
+    <tr><td><code>@within(org.springframework.stereotype.Service)</code></td><td>All methods of classes annotated with <code>@Service</code></td></tr>
+    <tr><td><code>args(item, quantity)</code></td><td>Methods whose arguments match the advice parameters' types — and <strong>binds</strong> them</td></tr>
+    <tr><td><code>bean(orderService)</code> / <code>bean(*Service)</code></td><td>Methods of beans with that name (Spring-only designator)</td></tr>
+    <tr><td><code>A &amp;&amp; B</code>, <code>A || B</code>, <code>!A</code></td><td>Combine expressions</td></tr>
+  </table></div>
+  <p><strong>Named pointcuts</strong>: instead of repeating long expressions, declare them once with <code>@Pointcut</code> on an empty method and refer to them by name:</p>
+  <pre><span class="file">aspect/CommonPointcuts.java</span><code class="lang-java">public class CommonPointcuts {
+
+    @Pointcut("execution(* com.course.aop.service.*.*(..)) || within(com.course.aop.payment..*)")
+    public void businessLayer() { }
+
+    @Pointcut("@annotation(com.course.aop.annotation.LogExecutionTime)")
+    public void timedMethods() { }
+
+    @Pointcut("execution(* com.course.aop.service.*.place*(..))")
+    public void placingOrders() { }
+}
+
+// usage in any aspect (fully qualified name of the pointcut method):
+@Before("com.course.aop.aspect.CommonPointcuts.businessLayer()")</code></pre>
+  <p><strong>Argument binding</strong> with <code>args(...)</code> gives you typed parameters instead of an <code>Object[]</code>:</p>
+  <pre><span class="file">aspect/ValidationAspect.java</span><code class="lang-java">@Before("com.course.aop.aspect.CommonPointcuts.placingOrders() &amp;&amp; args(item, quantity)")
+public void checkQuantity(String item, int quantity) {     // names match args(item, quantity)
+    if (quantity &gt; 100) {
+        throw new IllegalArgumentException("Quantity " + quantity + " too large for " + item);
+    }                                                      // throwing here = the real method never runs
+}</code></pre>
+
+  <h3>3.8 A custom annotation as a pointcut: <code>@LogExecutionTime</code></h3>
+  <p>Package-based pointcuts are "all or nothing". Often you want developers to <strong>opt in</strong> per method. Create a marker annotation:</p>
+  <pre><span class="file">annotation/LogExecutionTime.java</span><code class="lang-java">@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)          // must be RUNTIME so Spring can see it
+public @interface LogExecutionTime { }</code></pre>
+  <p>Bind an <code>@Around</code> advice to <code>@annotation(...)</code> (as in <code>PerformanceAspect</code>), then simply annotate methods:</p>
+  <pre><code class="lang-java">@LogExecutionTime
+public String generateMonthlyReport() throws InterruptedException { ... }</code></pre>
+  <p>This is exactly the pattern of Spring's own annotations: <code>@Transactional</code>, <code>@Cacheable</code>, <code>@Async</code>, <code>@PreAuthorize</code> are all "markers" that an aspect/interceptor looks for.</p>
+
+  <h3>3.9 Several aspects on one method: <code>@Order</code></h3>
+  <p>When several aspects match the same method, <code>@Order</code> on the aspect class decides the nesting. <strong>Lower number = outer layer</strong> (runs first on the way in, last on the way out):</p>
+  <div class="flow">
+    <span class="box alt">caller</span><span class="arrow">→</span>
+    <span class="box">@Order(1) PerformanceAspect</span><span class="arrow">→</span>
+    <span class="box">@Order(2) LoggingAspect</span><span class="arrow">→</span>
+    <span class="box">@Order(3) ValidationAspect</span><span class="arrow">→</span>
+    <span class="box info">real method</span>
+  </div>
+  <p>That's why in the output the <code>[TIME]</code> lines surround the <code>[LOG]</code> lines, and why <code>LoggingAspect</code> still logs the exception thrown by the inner <code>ValidationAspect</code>. Within <em>one</em> aspect, don't rely on the order of two advice methods of the same type — split them into separate aspects if order matters.</p>
+
+  <h3>3.10 How Spring AOP works: proxies</h3>
+  <p>Spring AOP never changes your class's bytecode. It wraps the bean in a <strong>proxy</strong> — a generated object that looks like your bean, runs the advice, and delegates to the real object:</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 700 170" width="700" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, sans-serif" font-size="14">
+      <defs><marker id="arr27" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="10" y="55" width="130" height="50" rx="8"/>
+        <rect x="200" y="20" width="270" height="120" rx="10" stroke-dasharray="6 4"/>
+        <rect x="330" y="55" width="120" height="50" rx="8"/>
+        <path d="M140 80 H200" marker-end="url(#arr27)"/>
+        <path d="M270 80 H330" marker-end="url(#arr27)"/>
+        <path d="M470 80 H540" marker-end="url(#arr27)"/>
+        <rect x="540" y="55" width="150" height="50" rx="8"/>
+      </g>
+      <g fill="currentColor" text-anchor="middle">
+        <text x="75" y="85">Caller (main)</text>
+        <text x="335" y="40" font-size="12">Proxy (OrderService$$SpringCGLIB$$0)</text>
+        <text x="235" y="78" font-size="12">advice</text><text x="235" y="94" font-size="12">chain</text>
+        <text x="390" y="78" font-size="12">delegates</text><text x="390" y="94" font-size="12">to target</text>
+        <text x="615" y="78">Target</text><text x="615" y="94" font-size="12">real OrderService</text>
+      </g>
+    </svg>
+    <figcaption>The caller holds a reference to the proxy. Each call passes through the advice chain before reaching the real object.</figcaption>
+  </figure>
+  <p>Spring uses two proxy technologies:</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>JDK dynamic proxy</th><th>CGLIB proxy</th></tr>
+    <tr><td>How</td><td>Built into the JDK (<code>java.lang.reflect.Proxy</code>). Creates a class that <strong>implements the same interfaces</strong> as the bean.</td><td>Generates a <strong>subclass</strong> of the bean's class at runtime (library bundled inside Spring).</td></tr>
+    <tr><td>Requires</td><td>The bean implements at least one interface</td><td>The class isn't <code>final</code>; advised methods aren't <code>final</code>/<code>private</code></td></tr>
+    <tr><td>You can inject it as…</td><td>Only the <strong>interface</strong> type (<code>PaymentService</code>), <em>not</em> <code>CardPaymentService</code></td><td>The class type or any interface</td></tr>
+    <tr><td>Class name in our output</td><td><code>jdk.proxy3.$Proxy49</code></td><td><code>OrderService$$SpringCGLIB$$0</code></td></tr>
+    <tr><td>Used when</td><td>Plain Spring default (<code>proxyTargetClass = false</code>) for interface-based beans</td><td>Beans without interfaces, or always when <code>proxyTargetClass = true</code> — <strong>Spring Boot's default</strong></td></tr>
+  </table></div>
+  <p>Our demo 1 shows both: <code>OrderService</code> has no interface → CGLIB; <code>CardPaymentService implements PaymentService</code> → JDK proxy. <code>AopUtils</code> tells you which:</p>
+  <pre><span class="file">App.java</span><code class="lang-java">AopUtils.isJdkDynamicProxy(bean);     // true for paymentService
+AopUtils.isCglibProxy(bean);          // true for orderService
+AopUtils.getTargetClass(bean);        // the real class behind the proxy</code></pre>
+  <div class="callout warn"><strong>⚠️ Limits of Spring AOP (because it uses proxies)</strong>
+    <ul>
+      <li>Only <strong>Spring beans</strong> can be advised — not objects you create with <code>new</code>.</li>
+      <li>Only <strong>method execution</strong> join points (no field access, no constructors).</li>
+      <li><code>private</code> and <code>final</code> methods can't be intercepted; <code>static</code> methods neither. Keep advised methods <code>public</code>.</li>
+      <li><strong>Calls from inside the same object bypass the proxy</strong> — next section.</li>
+    </ul>
+    For the rare cases needing more, the full <strong>AspectJ</strong> framework weaves bytecode at compile or load time. Spring AOP covers 99% of business needs.</div>
+
+  <h3>3.11 The self-invocation gotcha ⚠️</h3>
+  <p>This is the most important practical lesson of the topic. Look at <code>placeBulkOrders</code>:</p>
+  <pre><span class="file">service/OrderService.java</span><code class="lang-java">public List&lt;String&gt; placeBulkOrders(List&lt;String&gt; items) {
+    List&lt;String&gt; ids = new ArrayList&lt;&gt;();
+    for (String item : items) {
+        ids.add(this.placeOrder(item, 1));      // "this" is the TARGET, not the proxy!
+    }
+    return ids;
+}</code></pre>
+  <p>From <code>main()</code> we call <code>orderService.placeBulkOrders(...)</code> on the <strong>proxy</strong> → advice runs for <code>placeBulkOrders</code>. The proxy calls the <strong>target</strong>. Inside the target, <code>this.placeOrder(...)</code> is a plain Java call on the target object itself — it <strong>never passes through the proxy</strong>, so no advice runs for the inner calls:</p>
+  <div class="flow">
+    <span class="box alt">main()</span><span class="arrow">→</span>
+    <span class="box">Proxy ✅ advice</span><span class="arrow">→</span>
+    <span class="box info">target.placeBulkOrders()</span><span class="arrow">→ this. →</span>
+    <span class="box info">target.placeOrder() ❌ no advice</span>
+  </div>
+  <pre class="terminal"><code>=== DEMO 6a: Self-invocation - inner calls are NOT advised ===
+   [LOG  @Before]         OrderService.placeBulkOrders args=[[Cable, Charger]]
+      (business logic) saved ORD-2: 1 x Cable
+      (business logic) saved ORD-3: 1 x Charger
+   [LOG  @AfterReturning] OrderService.placeBulkOrders returned [ORD-2, ORD-3]</code></pre>
+  <p>Notice also that <code>ValidationAspect</code> would not check the inner calls either — a quantity of 500 would slip through!</p>
+  <div class="callout danger"><strong>🛑 Why this matters so much: <code>@Transactional</code></strong>
+    <code>@Transactional</code> (Topic 42) is implemented with exactly this kind of proxy. If a method in a service calls another <code>@Transactional</code> method <em>of the same class</em>, the inner annotation is silently ignored — no new transaction, no rollback rules. The same applies to <code>@Cacheable</code>, <code>@Async</code>, <code>@PreAuthorize</code>. Countless "Spring bug" reports are really this.</div>
+  <p><strong>Fixes</strong>, best first:</p>
+  <ol>
+    <li><strong>Move the outer method to another bean</strong> (our <code>BulkOrderService</code>). It receives the <em>proxy</em> by injection, so each call is advised. Usually also better design.</li>
+    <li><strong>Inject the bean into itself</strong> lazily: <code>public OrderService(@Lazy OrderService self)</code> and call <code>self.placeOrder(...)</code>. Works, but looks odd.</li>
+    <li><code>AopContext.currentProxy()</code> with <code>@EnableAspectJAutoProxy(exposeProxy = true)</code> — couples your code to Spring AOP; avoid.</li>
+  </ol>
+
+  <h3>3.12 Spring AOP vs AspectJ</h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Spring AOP</th><th>AspectJ (full)</th></tr>
+    <tr><td>Weaving</td><td>Runtime, via proxies</td><td>Compile-time or load-time bytecode weaving</td></tr>
+    <tr><td>Join points</td><td>Method execution on Spring beans</td><td>Methods, constructors, field access, any object</td></tr>
+    <tr><td>Self-invocation</td><td>Not advised</td><td>Advised</td></tr>
+    <tr><td>Setup</td><td>Simple — a dependency and an annotation</td><td>Special compiler or Java agent</td></tr>
+    <tr><td>Annotations</td><td colspan="2">Both use the same AspectJ annotations (<code>@Aspect</code>, <code>@Before</code>…) and pointcut language — that's why we need <code>aspectjweaver</code>.</td></tr>
+  </table></div>
+
+  <!-- ===================================================== 4. CODE ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Base package: <code>com.course.aop</code> — orders and payments of an online shop.</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>App.java</code></td><td>Demos 1–6.</td></tr>
+    <tr><td><code>config/AppConfig.java</code></td><td><code>@EnableAspectJAutoProxy</code>, component scan.</td></tr>
+    <tr><td><code>annotation/LogExecutionTime.java</code></td><td>Custom marker annotation (RUNTIME retention).</td></tr>
+    <tr><td><code>aspect/CommonPointcuts.java</code></td><td>Named pointcuts <code>businessLayer()</code>, <code>timedMethods()</code>, <code>placingOrders()</code>.</td></tr>
+    <tr><td><code>aspect/LoggingAspect.java</code></td><td><code>@Before</code>, <code>@AfterReturning</code>, <code>@AfterThrowing</code>, <code>@After</code>; <code>@Order(2)</code>.</td></tr>
+    <tr><td><code>aspect/PerformanceAspect.java</code></td><td><code>@Around</code> timing; <code>@Order(1)</code> (outermost).</td></tr>
+    <tr><td><code>aspect/ValidationAspect.java</code></td><td><code>@Before</code> + <code>args(...)</code> binding; blocks invalid calls; <code>@Order(3)</code>.</td></tr>
+    <tr><td><code>service/OrderService.java</code></td><td>No interface → CGLIB proxy. <code>generateMonthlyReport</code> is <code>@LogExecutionTime</code>. <code>placeBulkOrders</code> shows self-invocation.</td></tr>
+    <tr><td><code>service/BulkOrderService.java</code></td><td>Self-invocation fix: calls <code>OrderService</code> through the injected proxy.</td></tr>
+    <tr><td><code>payment/PaymentService.java</code>, <code>CardPaymentService.java</code></td><td>Interface-based bean → JDK proxy; <code>pay</code> is <code>@LogExecutionTime</code>.</td></tr>
+  </table></div>
+  <p>Notice what's <strong>not</strong> in <code>OrderService</code> and <code>CardPaymentService</code>: no logging, no timing, no validation code. Their methods contain only business logic (the <code>(business logic)</code> lines). Everything else is added from outside.</p>
+
+  <h3>4.1 Reading demo 2's output</h3>
+  <pre class="terminal"><code>   [TIME @Around]  start PaymentService.pay(..)
+   [LOG  @Before]         PaymentService.pay args=[ORD-1, 2998.0]
+      (business logic) charging card 2998.0 for ORD-1
+   [LOG  @AfterReturning] PaymentService.pay returned PAID-ORD-1
+   [LOG  @After]          PaymentService.pay finished (success or not)
+   [TIME @Around]  PaymentService.pay(..) took 1 ms</code></pre>
+  <ul>
+    <li><code>pay</code> matches both <code>timedMethods()</code> (it has <code>@LogExecutionTime</code>) and <code>businessLayer()</code> (payment package), so both aspects run, nested by <code>@Order</code>.</li>
+    <li>The declaring type shows as <code>PaymentService</code> (the interface) because a JDK proxy intercepts the interface method.</li>
+    <li>The custom annotation was put on the implementation class's method, and Spring still found it.</li>
+  </ul>
+
+  <h3>4.2 Reading demo 4's output (blocked call)</h3>
+  <pre class="terminal"><code>   [LOG  @Before]         OrderService.placeOrder args=[Mouse, 500]
+   [LOG  @AfterThrowing]  OrderService.placeOrder threw IllegalArgumentException: Quantity 500 too large for Mouse (max 100)
+   [LOG  @After]          OrderService.placeOrder finished (success or not)
+   main() caught: Quantity 500 too large for Mouse (max 100)  (placeOrder never ran)</code></pre>
+  <p>There's no <code>(business logic) saved ...</code> line: <code>ValidationAspect</code> threw before the real method was reached. Because <code>LoggingAspect</code> (order 2) wraps <code>ValidationAspect</code> (order 3), it observed the exception like any other failure.</p>
+
+  <!-- ===================================================== 5. RUN ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\27-Spring-AOP"
+mvn -q compile exec:java</code></pre>
+  <p>In VS Code: open the folder <code>27-Spring-AOP</code>, open <code>App.java</code>, click <strong>Run</strong>.</p>
+  <p>Expected output (timings and the <code>$Proxy</code> number will differ):</p>
+  <pre class="terminal"><code>=== DEMO 1: Proxies ===
+   orderService -&gt; com.course.aop.service.OrderService$$SpringCGLIB$$0  [CGLIB proxy (subclass)]
+      real target class: OrderService
+   paymentService -&gt; jdk.proxy3.$Proxy49  [JDK dynamic proxy]
+      real target class: CardPaymentService
+
+=== DEMO 2: A normal call ===
+   [LOG  @Before]         OrderService.placeOrder args=[Keyboard, 2]
+      (business logic) saved ORD-1: 2 x Keyboard
+   [LOG  @AfterReturning] OrderService.placeOrder returned ORD-1
+   [LOG  @After]          OrderService.placeOrder finished (success or not)
+   [TIME @Around]  start PaymentService.pay(..)
+   [LOG  @Before]         PaymentService.pay args=[ORD-1, 2998.0]
+      (business logic) charging card 2998.0 for ORD-1
+   [LOG  @AfterReturning] PaymentService.pay returned PAID-ORD-1
+   [LOG  @After]          PaymentService.pay finished (success or not)
+   [TIME @Around]  PaymentService.pay(..) took 1 ms
+
+=== DEMO 3: A call that throws ===
+   [LOG  @Before]         OrderService.cancelOrder args=[ORD-999]
+   [LOG  @AfterThrowing]  OrderService.cancelOrder threw IllegalArgumentException: No such order: ORD-999
+   [LOG  @After]          OrderService.cancelOrder finished (success or not)
+   main() caught: No such order: ORD-999
+
+=== DEMO 4: Advice that blocks a call ===
+   [LOG  @Before]         OrderService.placeOrder args=[Mouse, 500]
+   [LOG  @AfterThrowing]  OrderService.placeOrder threw IllegalArgumentException: Quantity 500 too large for Mouse (max 100)
+   [LOG  @After]          OrderService.placeOrder finished (success or not)
+   main() caught: Quantity 500 too large for Mouse (max 100)  (placeOrder never ran)
+
+=== DEMO 5: @Around timing via @LogExecutionTime ===
+   [TIME @Around]  start OrderService.generateMonthlyReport()
+   [LOG  @Before]         OrderService.generateMonthlyReport args=[]
+   [LOG  @AfterReturning] OrderService.generateMonthlyReport returned Monthly report: 1 open orders
+   [LOG  @After]          OrderService.generateMonthlyReport finished (success or not)
+   [TIME @Around]  OrderService.generateMonthlyReport() took 163 ms
+   Monthly report: 1 open orders
+
+=== DEMO 6a: Self-invocation - inner calls are NOT advised ===
+   [LOG  @Before]         OrderService.placeBulkOrders args=[[Cable, Charger]]
+      (business logic) saved ORD-2: 1 x Cable
+      (business logic) saved ORD-3: 1 x Charger
+   [LOG  @AfterReturning] OrderService.placeBulkOrders returned [ORD-2, ORD-3]
+   [LOG  @After]          OrderService.placeBulkOrders finished (success or not)
+   ^ only placeBulkOrders was logged; the two inner placeOrder calls were not!
+
+=== DEMO 6b: The fix - call through another bean ===
+   [LOG  @Before]         BulkOrderService.placeBulkOrders args=[[Cable, Charger]]
+   [LOG  @Before]         OrderService.placeOrder args=[Cable, 1]
+      (business logic) saved ORD-4: 1 x Cable
+   [LOG  @AfterReturning] OrderService.placeOrder returned ORD-4
+   [LOG  @After]          OrderService.placeOrder finished (success or not)
+   [LOG  @Before]         OrderService.placeOrder args=[Charger, 1]
+      (business logic) saved ORD-5: 1 x Charger
+   [LOG  @AfterReturning] OrderService.placeOrder returned ORD-5
+   [LOG  @After]          OrderService.placeOrder finished (success or not)
+   [LOG  @AfterReturning] BulkOrderService.placeBulkOrders returned [ORD-4, ORD-5]
+   [LOG  @After]          BulkOrderService.placeBulkOrders finished (success or not)
+   ^ now every placeOrder call went through the proxy and was logged</code></pre>
+
+  <!-- ===================================================== 6. MISTAKES ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: the aspect never runs — missing <code>@Component</code></strong>
+    <code>@Aspect</code> alone does not make a bean. Spring never sees the class.<br>
+    <strong>Fix:</strong> <code>@Aspect</code> <em>and</em> <code>@Component</code> (or register it with <code>@Bean</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: the aspect never runs — AOP not enabled</strong>
+    In plain Spring, forgetting <code>@EnableAspectJAutoProxy</code> (or the <code>spring-aspects</code> dependency) means no proxies are created.<br>
+    <strong>Fix:</strong> add both. In Spring Boot, add <code>spring-boot-starter-aop</code>.</div>
+  <div class="callout danger"><strong>🛑 Mistake: <code>@Around</code> without <code>proceed()</code> or without returning its result</strong>
+    The real method never runs, or every caller gets <code>null</code>.<br>
+    <strong>Fix:</strong> <code>return joinPoint.proceed();</code> — always.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: expecting advice on internal calls (self-invocation)</strong>
+    <code>this.otherMethod()</code> bypasses the proxy — also for <code>@Transactional</code>, <code>@Cacheable</code>, <code>@Async</code>.<br>
+    <strong>Fix:</strong> move the method into another bean and call it through the injected reference.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: advising <code>private</code> or <code>final</code> methods</strong>
+    Proxies can't override them, so nothing happens — no error, just silence.<br>
+    <strong>Fix:</strong> advised methods should be <code>public</code> and non-final.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: injecting the implementation class of a JDK-proxied bean</strong>
+    With <code>proxyTargetClass = false</code>, injecting <code>CardPaymentService</code> (the class) fails with <code>No qualifying bean of type 'com.course.aop.payment.CardPaymentService' available</code> — the bean in the container is a <code>jdk.proxy3.$Proxy49</code> that only implements <code>PaymentService</code>. (Looking it up by name with <code>getBean("cardPaymentService", CardPaymentService.class)</code> gives <code>BeanNotOfRequiredTypeException</code> instead.)<br>
+    <strong>Fix:</strong> inject the interface (<code>PaymentService</code>) — good practice anyway — or use <code>@EnableAspectJAutoProxy(proxyTargetClass = true)</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: pointcut too broad</strong>
+    <code>execution(* *(..))</code> matches every method of every bean — including Spring's own infrastructure and your aspects' collaborators. Slow, noisy and sometimes broken startup.<br>
+    <strong>Fix:</strong> always restrict to your own packages or annotations.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: custom annotation with default retention</strong>
+    Without <code>@Retention(RetentionPolicy.RUNTIME)</code> the annotation isn't visible at runtime, so <code>@annotation(...)</code> never matches.</div>
+
+  <!-- ===================================================== 7. BEST ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li>Use AOP only for <strong>genuinely cross-cutting</strong> concerns. Business rules belong in business code where people can see them.</li>
+    <li>Prefer <strong>annotation-based pointcuts</strong> (<code>@LogExecutionTime</code>) for opt-in behaviour, and narrow package-based pointcuts for "whole layer" behaviour.</li>
+    <li>Keep pointcuts in one <strong><code>CommonPointcuts</code></strong> class and reuse them by name.</li>
+    <li>Use the <strong>simplest advice type</strong> that works; <code>@Around</code> only when needed.</li>
+    <li>Keep advice <strong>fast and safe</strong> — it runs on every matching call. Never let a logging aspect throw.</li>
+    <li>Set <strong><code>@Order</code></strong> explicitly when several aspects can apply to the same method.</li>
+    <li>In real apps, log with <strong>SLF4J</strong> (Topic 30), not <code>System.out</code>, and never log passwords or card numbers in argument logs.</li>
+    <li>Remember the proxy rules: public methods, called from <strong>another bean</strong>.</li>
+  </ul>
+
+  <!-- ===================================================== 8. SUMMARY ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Cross-cutting concerns (logging, security, transactions, caching) are written once in an <strong>aspect</strong> instead of copied into every method.</li>
+    <li>Aspect = advice (what/when) + pointcut (where). Join point = a method execution. Target = the real object. Proxy = the wrapper. Weaving = linking them (at runtime in Spring).</li>
+    <li>Advice types: <code>@Before</code>, <code>@AfterReturning</code>, <code>@AfterThrowing</code>, <code>@After</code>, <code>@Around</code> (must call <code>proceed()</code> and return its result).</li>
+    <li>Pointcuts: <code>execution(...)</code>, <code>within(...)</code>, <code>@annotation(...)</code>, <code>args(...)</code>, <code>bean(...)</code>, combined with <code>&amp;&amp; || !</code>.</li>
+    <li>Enable with <code>spring-aspects</code> + <code>@EnableAspectJAutoProxy</code> (Boot: <code>spring-boot-starter-aop</code>); aspects need <code>@Aspect</code> + <code>@Component</code>.</li>
+    <li>Spring creates a <strong>JDK proxy</strong> for interface-based beans and a <strong>CGLIB subclass</strong> otherwise (Boot uses CGLIB always).</li>
+    <li><strong>Self-invocation bypasses the proxy</strong> — the same reason <code>@Transactional</code> on an internally called method is ignored.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9. EXERCISES ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Time another method.</strong> Put <code>@LogExecutionTime</code> on <code>OrderService.placeOrder</code>. Run. Which demos now show <code>[TIME]</code> lines? Does demo 6a time the inner calls?</p>
+    <details><summary>Hint / solution</summary>
+      <p>Demos 2, 4 and 6b now show timing around <code>placeOrder</code> (in demo 4 the timing still appears because <code>PerformanceAspect</code> is outermost; the exception passes through its <code>finally</code>). Demo 6a does <strong>not</strong> time the inner calls — self-invocation again.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Only log failures for payments.</strong> Write a new aspect <code>PaymentAlertAspect</code> with an <code>@AfterThrowing</code> advice for <code>within(com.course.aop.payment..*)</code> that prints <code>"ALERT: payment failed: " + ex.getMessage()</code>. Make <code>CardPaymentService.pay</code> throw for amounts over 50,000 and test it.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">@Aspect
+@Component
+public class PaymentAlertAspect {
+    @AfterThrowing(pointcut = "within(com.course.aop.payment..*)", throwing = "ex")
+    public void alert(Exception ex) {
+        System.out.println("   ALERT: payment failed: " + ex.getMessage());
+    }
+}
+
+// CardPaymentService.pay
+if (amount &gt; 50_000) {
+    throw new IllegalStateException("Card limit exceeded");
+}
+
+// App
+try { paymentService.pay("ORD-X", 75_000); } catch (IllegalStateException e) { System.out.println("caught"); }</code></pre>
+      <p>The advice can take just the exception — the <code>JoinPoint</code> parameter is optional.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>A retry aspect.</strong> Create <code>@Retry(times = 3)</code> and an <code>@Around</code> aspect that calls <code>proceed()</code> up to <code>times</code> times when an exception is thrown. Test it with a method that fails the first two calls and succeeds on the third.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Retry { int times() default 3; }
+
+@Aspect
+@Component
+public class RetryAspect {
+    @Around("@annotation(retry)")                 // binds the annotation instance to the parameter
+    public Object retry(ProceedingJoinPoint pjp, Retry retry) throws Throwable {
+        Throwable last = null;
+        for (int attempt = 1; attempt &lt;= retry.times(); attempt++) {
+            try {
+                return pjp.proceed();
+            } catch (Exception e) {
+                last = e;
+                System.out.println("   attempt " + attempt + " failed: " + e.getMessage());
+            }
+        }
+        throw last;
+    }
+}
+
+// in a bean:
+private int calls = 0;
+
+@Retry(times = 3)
+public String callFlakyCourierApi() {
+    if (++calls &lt; 3) throw new IllegalStateException("courier API timeout");
+    return "courier booked";
+}</code></pre>
+      <p><code>@annotation(retry)</code> with a parameter named <code>retry</code> binds the actual annotation, so you can read <code>times()</code>. Real projects use Spring Retry or Resilience4j (Topic 64) — built on the same idea.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>CGLIB everywhere.</strong> Change to <code>@EnableAspectJAutoProxy(proxyTargetClass = true)</code>. Run demo 1. What's the class of <code>paymentService</code> now? Can you now do <code>context.getBean(CardPaymentService.class)</code>?</p>
+    <details><summary>Hint / solution</summary>
+      <p><code>paymentService</code> becomes <code>com.course.aop.payment.CardPaymentService$$SpringCGLIB$$0  [CGLIB proxy (subclass)]</code>. Because the proxy is now a subclass of <code>CardPaymentService</code>, <code>getBean(CardPaymentService.class)</code> works. With the default JDK proxy it fails, since the proxy only implements <code>PaymentService</code>. This is the setting Spring Boot uses by default (<code>spring.aop.proxy-target-class=true</code>).</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Self-injection fix.</strong> Fix demo 6a <em>without</em> <code>BulkOrderService</code>: give <code>OrderService</code> a constructor parameter <code>@Lazy OrderService self</code> and call <code>self.placeOrder(...)</code> inside <code>placeBulkOrders</code>. Explain why <code>@Lazy</code> is needed, and why the separate-bean fix is still preferred.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">private final OrderService self;
+
+public OrderService(@Lazy OrderService self) {
+    this.self = self;
+}
+
+public List&lt;String&gt; placeBulkOrders(List&lt;String&gt; items) {
+    List&lt;String&gt; ids = new ArrayList&lt;&gt;();
+    for (String item : items) {
+        ids.add(self.placeOrder(item, 1));     // through the proxy -&gt; advised
+    }
+    return ids;
+}</code></pre>
+      <p>Without <code>@Lazy</code>, the bean would need <em>itself</em> to be constructed — a circular dependency (Topic 24). <code>@Lazy</code> injects a lazy-resolution proxy that looks up the real (AOP-proxied) <code>orderService</code> bean when first used. It works, but it's confusing to read; a separate bean expresses the design more clearly and is easier to test.</p>
+    </details>
+  </div>
+
+  <!-- ===================================================== 10. INTERVIEW ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is AOP and what problem does it solve?</summary>
+    <p>Aspect-Oriented Programming modularises cross-cutting concerns — logic needed in many places but unrelated to business rules (logging, security, transactions, caching, metrics). Instead of scattering and duplicating that code, you write it once in an aspect and declare where it applies with pointcuts. Result: cleaner business code, less duplication, consistent behaviour.</p></details>
+  <details><summary>Q2. Explain aspect, advice, join point, pointcut and weaving.</summary>
+    <p><strong>Aspect</strong>: a module containing a cross-cutting concern. <strong>Advice</strong>: the action taken and when (before/after/around). <strong>Join point</strong>: a point in program execution where advice can apply — in Spring AOP, a method execution. <strong>Pointcut</strong>: a predicate selecting join points. <strong>Weaving</strong>: linking aspects with target objects; Spring AOP does it at runtime by creating proxies, AspectJ can do it at compile or load time.</p></details>
+  <details><summary>Q3. What advice types exist? When would you use @Around?</summary>
+    <p><code>@Before</code>, <code>@AfterReturning</code>, <code>@AfterThrowing</code>, <code>@After</code> (finally) and <code>@Around</code>. Use <code>@Around</code> when you need control over the invocation: timing, transactions, caching (skip the call), retries (call several times), modifying arguments or the return value, or translating exceptions. It must call <code>proceed()</code> and return its result.</p></details>
+  <details><summary>Q4. How does Spring AOP work internally?</summary>
+    <p>An auto-proxy creator (a <code>BeanPostProcessor</code> registered by <code>@EnableAspectJAutoProxy</code>) checks each bean after initialisation; if any advisor's pointcut matches, it returns a proxy wrapping the bean. Calls on the proxy go through a chain of method interceptors (the advice, ordered by <code>@Order</code>) and finally reach the target.</p></details>
+  <details><summary>Q5. JDK dynamic proxy vs CGLIB proxy?</summary>
+    <p>A JDK dynamic proxy implements the target's interfaces and can be used only through those interfaces. A CGLIB proxy is a runtime-generated subclass of the target class, so it works without interfaces but cannot intercept final/private methods or proxy final classes. Plain Spring uses JDK proxies when interfaces exist (unless <code>proxyTargetClass = true</code>); Spring Boot defaults to CGLIB.</p></details>
+  <details><summary>Q6. Why doesn't advice (or @Transactional) apply when a method calls another method of the same class?</summary>
+    <p>Self-invocation: the internal call uses <code>this</code>, the target object, so it bypasses the proxy where advice lives. Fixes: move the method to another bean, inject a (lazy) self-reference, or use <code>AopContext.currentProxy()</code> with <code>exposeProxy = true</code>; or use AspectJ weaving.</p></details>
+  <details><summary>Q7. Which Spring features are built on AOP?</summary>
+    <p><code>@Transactional</code>, <code>@Cacheable</code>/<code>@CacheEvict</code>, <code>@Async</code>, method security (<code>@PreAuthorize</code>, <code>@Secured</code>), <code>@Retryable</code> (Spring Retry), <code>@Validated</code> method validation, and Resilience4j annotations in Spring Boot.</p></details>
+  <details><summary>Q8. What are the limitations of Spring AOP compared to AspectJ?</summary>
+    <p>Only method-execution join points; only Spring-managed beans; no interception of private/final/static methods or constructors; self-invocation isn't advised; slight runtime overhead of proxies. AspectJ removes these limits at the cost of a special compiler or load-time weaving agent.</p></details>
+  <details><summary>Q9. How do you control the order of multiple aspects?</summary>
+    <p>Annotate aspect classes with <code>@Order(n)</code> or implement <code>Ordered</code>. Lower values have higher precedence: they run first on the way in and last on the way out (outermost). Ordering between advice methods of the same type inside one aspect isn't something to rely on — split them into separate aspects.</p></details>
+  <details><summary>Q10. Write a pointcut matching all public methods of classes annotated with @Service in package com.shop.</summary>
+    <p><code>execution(public * com.shop..*.*(..)) &amp;&amp; @within(org.springframework.stereotype.Service)</code></p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../26-Spring-Configuration-Profiles-And-Environment/lesson.html"><small>← Previous</small>26. Configuration, Profiles &amp; Environment</a>
+    <a class="next" href="../28-Spring-Boot-Introduction/lesson.html"><small>Next →</small>28. Spring Boot Introduction</a>
+  </nav>
+</main>
+</body>
+</html>

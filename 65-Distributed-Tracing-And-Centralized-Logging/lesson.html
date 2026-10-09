@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>65 · Distributed Tracing &amp; Centralized Logging</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part F · Microservices &amp; Spring Cloud › Topic 65</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag adv">Part F · Microservices &amp; Spring Cloud</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>65. Distributed Tracing &amp; Centralized Logging</h1>
+  <p class="subtitle">Follow one user request through many services: same trace id in every log line, a timeline in Zipkin, and all logs searchable in one place.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="65-Distributed-Tracing-And-Centralized-Logging"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Why logs alone are not enough in microservices, and the 3 pillars of <strong>observability</strong>.</li>
+      <li>What a <strong>trace</strong>, a <strong>span</strong>, a <strong>trace id</strong> and a <strong>span id</strong> are (with a span tree diagram).</li>
+      <li>How <strong>Micrometer Tracing + Brave</strong> add trace ids automatically and pass them along in HTTP headers.</li>
+      <li>How to send spans to <strong>Zipkin</strong> (via Docker) and read the timeline.</li>
+      <li>How to put trace ids and a business <strong>correlation id</strong> into every log line.</li>
+      <li>How to create your own spans, and what <strong>centralized logging</strong> (ELK, Loki + Grafana) looks like.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know:
+    <a href="../30-Logging-In-Spring-Boot/lesson.html">Topic 30 · Logging (MDC)</a>,
+    <a href="../53-Actuator-Monitoring-And-Observability/lesson.html">Topic 53 · Actuator &amp; Micrometer</a> and
+    <a href="../45-Consuming-External-APIs-RestClient-WebClient/lesson.html">Topic 45 · RestClient</a>. Docker basics help (topic 66 goes deeper).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>A customer complains: <em>“My order at 10:42 took 9 seconds and then failed!”</em></p>
+  <p>In a monolith you open <strong>one</strong> log file and search for 10:42. In microservices that one click travelled through
+    the gateway, order-service, payment-service, inventory-service and notification-service — <strong>five</strong> processes,
+    maybe running as 3 copies each, on different machines, each with its own log. Thousands of other requests were logged at
+    10:42 too. Which lines belong to <em>this</em> customer? Which service was slow?</p>
+  <p>Without help, debugging is like finding five specific grains of sand on five beaches. Two tools fix it:</p>
+  <ul>
+    <li><strong>Distributed tracing</strong> — every request gets a unique <strong>trace id</strong> that travels with it to every service.
+      Each service writes it into its logs and reports timing information (<strong>spans</strong>) to a tracing server like Zipkin.</li>
+    <li><strong>Centralized logging</strong> — all services send their logs to one searchable place (ELK, Loki/Grafana, Splunk,
+      Datadog, CloudWatch…). Search <code>traceId=6ac86fd3…</code> and you get the complete story across all services.</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ Where you will see this at work</strong>
+    Every serious microservice company has a tracing UI (Zipkin, Jaeger, Grafana Tempo, Datadog APM, New Relic, AWS X-Ray)
+    and a log platform. In incidents, the first question is usually <em>“what's the trace id?”</em>. Spring Boot 3 gives you
+    all of this with two dependencies and three properties.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>📦 The courier tracking number</strong>
+    <p>You send a parcel from Delhi to Bangalore. The courier gives you <strong>one tracking number</strong>: <code>DL7731</code>.</p>
+    <ul>
+      <li>The parcel is scanned at each step: picked up in Delhi, sorted at the hub, loaded on a flight, arrived in Bangalore, out for delivery.</li>
+      <li>Every scan is written with the <strong>same tracking number</strong> plus a time stamp.</li>
+      <li>On the website you type <code>DL7731</code> and see the whole journey as a timeline — and that it sat 6 hours at the hub. <em>That</em> is where it was slow.</li>
+    </ul>
+    <p>Mapping:</p>
+    <ul>
+      <li>Tracking number = <strong>trace id</strong> (one per user request).</li>
+      <li>Each scan/step with start and end time = a <strong>span</strong> (with its own <strong>span id</strong>).</li>
+      <li>The label stuck on the box that every station reads = the <strong>HTTP header</strong> (<code>traceparent</code>) that carries the ids.</li>
+      <li>The tracking website = <strong>Zipkin</strong>.</li>
+      <li>Your own order number written on the box (“Birthday gift #42”) = a business <strong>correlation id</strong> (baggage).</li>
+      <li>A central office where all stations send their daily reports = <strong>centralized logging</strong>.</li>
+    </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Observability: the three pillars</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Pillar</th><th>Answers</th><th>Example</th><th>Tooling</th></tr>
+    <tr><td><strong>Logs</strong></td><td>What exactly happened?</td><td><code>Payment PAY-d213 for order 1001 -&gt; APPROVED</code></td><td>Logback → ELK / Loki</td></tr>
+    <tr><td><strong>Metrics</strong></td><td>How much / how often / how fast, overall?</td><td>p99 latency 420 ms, 3 errors/min</td><td>Micrometer → Prometheus → Grafana (topic 53)</td></tr>
+    <tr><td><strong>Traces</strong></td><td>Where did <em>this one request</em> go and where was time spent?</td><td>order 120 ms → payment 610 ms → fraud-check 270 ms</td><td>Micrometer Tracing → Zipkin / Jaeger / Tempo</td></tr>
+  </table></div>
+  <p>The magic happens when they are <strong>linked</strong>: a log line contains the trace id, so from a log you jump to the trace, and from a slow trace you jump to its logs.</p>
+
+  <h3>3.2 Trace, span, trace id, span id</h3>
+  <ul>
+    <li><strong>Span</strong> = one timed piece of work: “order-service handled POST /api/orders”, “RestClient called payment”, “fraud check”. It has a name, a start time, a duration, tags (key/values) and maybe an error.</li>
+    <li><strong>Span id</strong> = 16 hex characters, unique per span (e.g. <code>767331487f79789a</code>).</li>
+    <li><strong>Parent span id</strong> = the span that caused this one. This links spans into a tree.</li>
+    <li><strong>Trace</strong> = the whole tree of spans for one request.</li>
+    <li><strong>Trace id</strong> = 32 hex characters, the same for every span in the tree (e.g. <code>6ac86fd3a00d09a8767331487f79789a</code>).</li>
+  </ul>
+  <figure class="diagram">
+    <svg viewBox="0 0 720 300" width="720" role="img" aria-label="Span tree and timeline of one trace">
+      <g style="font: 12px sans-serif; fill: currentColor">
+        <text x="10" y="20" style="font-weight:700">traceId = 6ac86fd3a00d09a8767331487f79789a (same in every row)</text>
+        <!-- time axis -->
+        <line x1="300" y1="40" x2="710" y2="40" style="stroke: var(--muted)"/>
+        <text x="300" y="34" style="font-size:10px">0 ms</text>
+        <text x="490" y="34" style="font-size:10px">400 ms</text>
+        <text x="680" y="34" style="font-size:10px">800 ms</text>
+        <!-- rows -->
+        <text x="10" y="70">order-service · http post /api/orders</text>
+        <text x="10" y="86" style="font-size:10px; fill: var(--muted)">span 7673… (root, SERVER)</text>
+        <rect x="300" y="58" width="400" height="20" rx="4" style="fill: var(--accent-soft); stroke: var(--accent)"/>
+
+        <text x="25" y="115">├ order-service · order.validate</text>
+        <text x="25" y="131" style="font-size:10px; fill: var(--muted)">span f241… parent 7673…</text>
+        <rect x="303" y="103" width="6" height="20" rx="2" style="fill: var(--accent-soft); stroke: var(--accent)"/>
+
+        <text x="25" y="160">└ order-service · http post (client)</text>
+        <text x="25" y="176" style="font-size:10px; fill: var(--muted)">span 9a1c… parent 7673…</text>
+        <rect x="312" y="148" width="380" height="20" rx="4" style="fill: var(--info-soft); stroke: var(--info)"/>
+
+        <text x="40" y="205">└ payment-service · http post /api/payments</text>
+        <text x="40" y="221" style="font-size:10px; fill: var(--muted)">span 5cce… parent 9a1c… (other process!)</text>
+        <rect x="460" y="193" width="140" height="20" rx="4" style="fill: var(--java-soft); stroke: var(--java)"/>
+
+        <text x="55" y="250">└ payment-service · payment.fraud-check</text>
+        <text x="55" y="266" style="font-size:10px; fill: var(--muted)">span 72ef… parent 5cce…</text>
+        <rect x="463" y="238" width="132" height="20" rx="4" style="fill: var(--warn-soft); stroke: var(--warn)"/>
+      </g>
+    </svg>
+    <figcaption>One trace = a tree of spans. Left: who called whom. Right: when each span ran (the “waterfall” you see in Zipkin).</figcaption>
+  </figure>
+  <p>Look at the timeline and you instantly see: most of the time is spent inside payment-service, and inside that, in the fraud check.
+    Before the request reached payment-service there was also a gap — that's network + first-call warm-up.</p>
+
+  <h3>3.3 How ids travel: context propagation</h3>
+  <p>Inside one service the current trace is kept in a thread-local “context” (and copied into the logging <strong>MDC</strong>, topic 30).
+    Between services it travels as an <strong>HTTP header</strong>. Spring Boot 3 uses the <strong>W3C Trace Context</strong> standard by default:</p>
+  <pre class="terminal"><code>traceparent: 00-6ac86fd3a00d09a8767331487f79789a-9a1c5e0b7d2f4411-01
+             │  │                                │                │
+             │  trace id (32 hex)                parent span id   flags (01 = sampled)
+             version</code></pre>
+  <div class="flow">
+    <span class="box">order-service<br><small>creates trace</small></span><span class="arrow">→ traceparent header →</span>
+    <span class="box alt">payment-service<br><small>reads header, continues trace</small></span><span class="arrow">→ traceparent →</span>
+    <span class="box info">next service…</span>
+  </div>
+  <p>Older systems use <strong>B3</strong> headers (<code>X-B3-TraceId</code>, <code>X-B3-SpanId</code> — from Zipkin). You can switch with
+    <code>management.tracing.propagation.type=b3</code> or support both: <code>management.tracing.propagation.produce=w3c,b3</code>.</p>
+
+  <h3>3.4 The Spring Boot 3 tracing stack</h3>
+  <div class="flow">
+    <span class="box">Your code &amp; Spring<br><small>(MVC, RestClient, Kafka…)</small></span><span class="arrow">→</span>
+    <span class="box alt">Micrometer Observation<br><small>one API to measure</small></span><span class="arrow">→</span>
+    <span class="box alt">Micrometer Tracing<br><small>spans, ids, MDC</small></span><span class="arrow">→</span>
+    <span class="box info">Bridge<br><small>Brave <em>or</em> OpenTelemetry</small></span><span class="arrow">→</span>
+    <span class="box info">Reporter / exporter</span><span class="arrow">→</span>
+    <span class="box">Zipkin / Jaeger / Tempo</span>
+  </div>
+  <ul>
+    <li><strong>Micrometer Observation</strong>: Spring's instrumentation API. One <code>Observation</code> produces <em>both</em> a timer metric and a span.</li>
+    <li><strong>Micrometer Tracing</strong>: a “facade” for tracers (like SLF4J is a facade for logging libraries).</li>
+    <li><strong>Brave</strong>: the tracer library from the Zipkin project. Alternative: <strong>OpenTelemetry</strong> (<code>micrometer-tracing-bridge-otel</code>) — the vendor-neutral industry standard.</li>
+    <li><strong>Reporter</strong>: <code>zipkin-reporter-brave</code> sends finished spans to Zipkin over HTTP in the background.</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ What about Spring Cloud Sleuth?</strong>
+    In Spring Boot 2 tracing was done by <em>Spring Cloud Sleuth</em>. Sleuth does <strong>not</strong> work with Boot 3 — it was
+    replaced by Micrometer Tracing. Old tutorials with <code>spring-cloud-starter-sleuth</code> are outdated.</div>
+
+  <h3>3.5 Dependencies and configuration</h3>
+  <pre><span class="file">pom.xml (both services)</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-actuator&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;io.micrometer&lt;/groupId&gt;
+    &lt;artifactId&gt;micrometer-tracing-bridge-brave&lt;/artifactId&gt;   &lt;!-- version from Boot --&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;io.zipkin.reporter2&lt;/groupId&gt;
+    &lt;artifactId&gt;zipkin-reporter-brave&lt;/artifactId&gt;
+&lt;/dependency&gt;</code></pre>
+  <pre><span class="file">application.yml</span><code class="lang-yaml">spring:
+  application:
+    name: order-service          # becomes the service name in Zipkin and logs
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0           # record 100 % of requests (default is 0.1 = 10 %)
+  zipkin:
+    tracing:
+      endpoint: http://localhost:9411/api/v2/spans</code></pre>
+  <p>No Spring Cloud BOM is needed — tracing is part of Spring Boot itself.</p>
+
+  <h3>3.6 Sampling — do we record every request?</h3>
+  <p>Recording and storing every span of every request costs CPU, network and storage. So tracers <strong>sample</strong>:
+    <code>probability: 0.1</code> means 1 request in 10 is recorded (the decision is made once at the start and travels in the
+    <code>traceparent</code> flags, so a trace is never “half recorded”).</p>
+  <ul>
+    <li>Learning / local: <code>1.0</code>.</li>
+    <li>Production: often <code>0.05</code>–<code>0.2</code>, or smarter “tail-based” sampling in an OpenTelemetry collector (keep all slow/error traces).</li>
+    <li>Trace ids appear in <strong>logs</strong> even for unsampled requests — so log correlation always works.</li>
+  </ul>
+
+  <h3>3.7 Trace ids in every log line</h3>
+  <p>When tracing is on, Spring Boot 3.2+ automatically puts <code>traceId</code> and <code>spanId</code> into the MDC and adds them to the
+    console pattern. The default looks like <code>[order-service,6ac86fd3…,767331487f79789a]</code>. We extend the pattern with our correlation id:</p>
+  <pre><code class="lang-yaml">logging:
+  include-application-name: false      # the name is already inside our block
+  pattern:
+    correlation: "[${spring.application.name:},%X{traceId:-},%X{spanId:-},%X{correlation-id:-}] "</code></pre>
+  <p><code>%X{traceId:-}</code> means “the MDC value <code>traceId</code>, or empty if there is none” (e.g. during startup).
+    Result (real output from this topic):</p>
+  <pre class="terminal"><code>INFO 5976 --- [io-8081-exec-2] [order-service,6ac86fd3a00d09a8767331487f79789a,767331487f79789a,corr-d79f4144] c.course.tracing.order.OrderController : New order received: Pizza for 450.0
+INFO 20628 --- [io-8082-exec-4] [payment-service,6ac86fd3a00d09a8767331487f79789a,5cce3a2304e50622,corr-d79f4144] c.c.tracing.payment.PaymentController : Payment request received for order 1001 amount 450.0</code></pre>
+  <p>Two different processes, <strong>the same trace id</strong>. 🎉</p>
+
+  <h3>3.8 Propagation across RestClient — the golden rule</h3>
+  <div class="callout danger"><strong>🚨 Build HTTP clients from the Spring-provided builder</strong>
+    Tracing headers are only added if the client is <em>instrumented</em>. Spring Boot instruments the
+    <strong>injected</strong> <code>RestClient.Builder</code>, <code>RestTemplateBuilder</code> and <code>WebClient.Builder</code>.
+    If you write <code>RestClient.create()</code> or <code>new RestTemplate()</code>, no header is sent and payment-service starts a
+    <em>new, unrelated</em> trace.</div>
+  <pre><span class="file">PaymentClientConfig.java</span><code class="lang-java">@Bean
+public RestClient paymentRestClient(RestClient.Builder builder,          // injected =&gt; instrumented
+                                    @Value("${payment-service.base-url}") String baseUrl) {
+    return builder.baseUrl(baseUrl).build();
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Communication</th><th>Traced automatically?</th></tr>
+    <tr><td>Incoming Spring MVC / WebFlux requests</td><td>Yes</td></tr>
+    <tr><td>RestClient / RestTemplate / WebClient from Boot's builders</td><td>Yes</td></tr>
+    <tr><td>OpenFeign (topic 63)</td><td>Yes, when <code>io.github.openfeign:feign-micrometer</code> is on the classpath (Spring Cloud OpenFeign wires it up)</td></tr>
+    <tr><td>Kafka / RabbitMQ (topics 57–58)</td><td>Yes after enabling observation: <code>spring.kafka.template.observation-enabled=true</code>, <code>spring.kafka.listener.observation-enabled=true</code> (similar for RabbitMQ)</td></tr>
+    <tr><td>JDBC queries</td><td>Not by default (add the <code>datasource-micrometer</code> library if needed)</td></tr>
+    <tr><td><code>@Async</code> / your own thread pools</td><td>Only with a context-propagating task decorator (see mistakes)</td></tr>
+  </table></div>
+
+  <h3>3.9 Creating your own spans</h3>
+  <p>Automatic spans cover HTTP in/out. To see <em>inside</em> a service, wrap interesting work in an <strong>Observation</strong>:</p>
+  <pre><code class="lang-java">boolean suspicious = Observation.createNotStarted("payment.fraud-check", observationRegistry)
+        .lowCardinalityKeyValue("payment.method", "card")      // tag, visible in Zipkin
+        .observe(() -&gt; fraudCheck(request));                  // the measured work</code></pre>
+  <p>Three ways, from most to least recommended:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Way</th><th>Code</th><th>Notes</th></tr>
+    <tr><td>Observation API</td><td><code>Observation.createNotStarted(...).observe(...)</code></td><td>Span <em>and</em> metric. Tracer-independent.</td></tr>
+    <tr><td><code>@Observed</code> annotation</td><td><code>@Observed(name = "order.validate")</code> on a bean method</td><td>Needs <code>spring-boot-starter-aop</code>; same proxy rules as topic 27.</td></tr>
+    <tr><td>Tracer API</td><td><code>tracer.nextSpan().name("x").start()</code> … <code>span.end()</code></td><td>Low level; also gives <code>tracer.currentSpan()</code> to read ids.</td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Low vs high cardinality tags</strong>
+    <em>Cardinality</em> = how many different values a tag can have. <code>payment.method=card|upi|wallet</code> is <strong>low</strong>
+    (few values) — fine for metrics. <code>order.id=1001,1002,…</code> is <strong>high</strong> (endless values) — use
+    <code>highCardinalityKeyValue</code> so it goes only to the span, not to metrics (it would explode your metrics storage).</div>
+
+  <h3>3.10 Baggage and correlation ids</h3>
+  <p>Trace ids are random and technical. Sometimes you also want <strong>your own</strong> id travelling everywhere: a checkout id,
+    a tenant id, a mobile session id. That is <strong>baggage</strong> — key/values that ride along with the trace.</p>
+  <pre><code class="lang-yaml">management:
+  tracing:
+    baggage:
+      remote-fields: correlation-id        # send/receive it as an HTTP header called "correlation-id"
+      correlation:
+        fields: correlation-id             # also copy it into the MDC (so logs can print it)</code></pre>
+  <p>Our <code>CorrelationIdFilter</code> creates one if the caller did not send it, and returns it in the response header so the
+    customer/support team can quote it. In the log lines above you saw <code>corr-d79f4144</code> in <strong>both</strong> services.</p>
+  <div class="callout warn"><strong>⚠️ Baggage is sent with every downstream call</strong>
+    Keep it small and never put secrets or personal data (emails, card numbers) in it — it may also reach third parties.</div>
+
+  <h3>3.11 Zipkin</h3>
+  <p><strong>Zipkin</strong> is an open-source tracing server (from Twitter, 2012). It collects spans and shows them in a web UI.
+    Easiest way to run it is Docker:</p>
+  <pre><span class="file">docker-compose.yml</span><code class="lang-yaml">services:
+  zipkin:
+    image: openzipkin/zipkin:3
+    container_name: course-zipkin
+    ports:
+      - "9411:9411"</code></pre>
+  <p>In the UI (<code>http://localhost:9411</code>) you can: search traces by service, span name, tag or duration; open a trace
+    and see the waterfall; click a span to see tags and errors; and open the <strong>Dependencies</strong> page that draws which
+    service calls which. Alternatives: <strong>Jaeger</strong>, <strong>Grafana Tempo</strong>, and commercial APMs.</p>
+
+  <h3>3.12 Centralized logging</h3>
+  <p>Trace ids in logs only help if you can <em>search all logs together</em>. The common architecture:</p>
+  <div class="flow">
+    <span class="box">Services<br><small>log to stdout / file (JSON)</small></span><span class="arrow">→</span>
+    <span class="box alt">Shipper / agent<br><small>Filebeat, Fluent Bit, Promtail, Grafana Alloy</small></span><span class="arrow">→</span>
+    <span class="box info">Store + index<br><small>Elasticsearch / Loki</small></span><span class="arrow">→</span>
+    <span class="box">UI<br><small>Kibana / Grafana</small></span>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>ELK / Elastic Stack</th><th>Loki + Grafana</th></tr>
+    <tr><td>Parts</td><td><strong>E</strong>lasticsearch (store/search), <strong>L</strong>ogstash (process), <strong>K</strong>ibana (UI), + Beats/Filebeat (ship)</td><td>Loki (store), Promtail / Grafana Alloy (ship), Grafana (UI)</td></tr>
+    <tr><td>Indexing</td><td>Full-text index of every field — very powerful search</td><td>Indexes only labels (service, level); content scanned at query time</td></tr>
+    <tr><td>Cost / resources</td><td>Heavier (RAM, disk)</td><td>Lighter and cheaper</td></tr>
+    <tr><td>Best with</td><td>Complex searches, analytics</td><td>Teams already using Grafana/Prometheus/Tempo — logs, metrics and traces in one UI</td></tr>
+  </table></div>
+  <p><strong>Structured (JSON) logs</strong> make this much easier: each line is a JSON object with fields (<code>traceId</code>, <code>level</code>, <code>message</code>…)
+    instead of text the shipper must parse with regular expressions. Spring Boot 3.4+ supports it with one property:</p>
+  <pre><code class="lang-yaml">logging:
+  structured:
+    format:
+      console: ecs        # or "logstash" or "gelf" - JSON on the console
+      file: ecs           # JSON in the log file</code></pre>
+  <p>A line then looks like (shortened):</p>
+  <pre class="terminal"><code>{"@timestamp":"2026-10-09T04:38:43.859Z","log":{"level":"INFO","logger":"c.course.tracing.order.OrderController"},
+ "service":{"name":"order-service"},"message":"New order received: Pizza for 450.0",
+ "traceId":"6ac86fd3a00d09a8767331487f79789a","spanId":"767331487f79789a","correlation-id":"corr-d79f4144"}</code></pre>
+  <div class="callout tip"><strong>💡 In containers and Kubernetes</strong>
+    The usual rule (12-factor app, topic 59) is: <strong>log to stdout</strong>, don't manage files yourself. The platform (Docker,
+    Kubernetes) collects stdout and an agent ships it to the central store.</div>
+
+  <h3>3.13 OpenTelemetry in one paragraph</h3>
+  <p><strong>OpenTelemetry (OTel)</strong> is the vendor-neutral industry standard for traces, metrics and logs. With Spring Boot you can
+    swap Brave for OTel: <code>micrometer-tracing-bridge-otel</code> + <code>opentelemetry-exporter-otlp</code> and
+    <code>management.otlp.tracing.endpoint=http://localhost:4318/v1/traces</code>. Your code (Observation API) stays the same —
+    that is the benefit of the Micrometer facade. Many companies send OTLP to an OpenTelemetry Collector that forwards to Tempo, Jaeger or a commercial tool.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>order-service/…/OrderController.java</code></td><td>Entry point (port 8081): custom span <code>order.validate</code>, RestClient call to payment, Tracer API (<code>/trace-info</code>).</td></tr>
+    <tr><td><code>order-service/…/PaymentClientConfig.java</code></td><td>RestClient built from the injected (instrumented) builder.</td></tr>
+    <tr><td><code>order-service/…/CorrelationIdFilter.java</code></td><td>Creates the <code>correlation-id</code> baggage if missing; echoes it in the response.</td></tr>
+    <tr><td><code>payment-service/…/PaymentController.java</code></td><td>Port 8082. Joins the trace automatically; custom span <code>payment.fraud-check</code>.</td></tr>
+    <tr><td><code>*/src/main/resources/application.yml</code></td><td>Sampling, Zipkin endpoint, baggage, log pattern, <code>json-logs</code> profile.</td></tr>
+    <tr><td><code>docker-compose.yml</code></td><td>Zipkin server.</td></tr>
+    <tr><td><code>requests.http</code></td><td>Requests incl. custom <code>correlation-id</code> and <code>traceparent</code> headers.</td></tr>
+  </table></div>
+
+  <h3>4.1 order-service controller</h3>
+  <pre><span class="file">order-service/…/OrderController.java (core)</span><code class="lang-java">@PostMapping
+public OrderResponse placeOrder(@RequestBody OrderRequest request) {
+    log.info("New order received: {} for {}", request.item(), request.amount());
+
+    Observation.createNotStarted("order.validate", observationRegistry)   // custom child span
+            .observe(() -&gt; validate(request));
+
+    long orderId = ids.incrementAndGet();
+    log.info("Calling payment-service for order {}", orderId);
+    PaymentResponse payment = paymentRestClient.post()                       // CLIENT span + headers
+            .uri("/api/payments")
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(new PaymentRequest(orderId, request.amount()))
+            .retrieve()
+            .body(PaymentResponse.class);
+
+    return new OrderResponse(orderId, request.item(), request.amount(),
+            payment.status(), payment.paymentId(), currentTraceId());
+}
+
+private String currentTraceId() {
+    Span span = tracer.currentSpan();
+    return span != null ? span.context().traceId() : "none";
+}</code></pre>
+  <p>We return the trace id in the response — handy for support: “please tell us the traceId shown in the error screen”.</p>
+
+  <h3>4.2 The correlation id filter</h3>
+  <pre><span class="file">order-service/…/CorrelationIdFilter.java (core)</span><code class="lang-java">String existing = tracer.getBaggage(CORRELATION_ID) != null
+        ? tracer.getBaggage(CORRELATION_ID).get()
+        : null;
+
+if (existing != null &amp;&amp; !existing.isBlank()) {          // caller sent one: keep it
+    response.setHeader(CORRELATION_ID, existing);
+    chain.doFilter(request, response);
+    return;
+}
+
+String newId = "corr-" + UUID.randomUUID().toString().substring(0, 8);
+response.setHeader(CORRELATION_ID, newId);
+try (BaggageInScope baggage = tracer.createBaggageInScope(CORRELATION_ID, newId)) {
+    chain.doFilter(request, response);                  // everything inside sees the baggage
+}</code></pre>
+  <p>The filter runs <em>inside</em> Spring Boot's own tracing filter, so a span already exists. <code>BaggageInScope</code> is
+    <code>AutoCloseable</code>; try-with-resources (topic 10) removes it when the request is done, so it never leaks to the next request on the same thread.</p>
+
+  <h3>4.3 payment-service — zero tracing code needed for the basics</h3>
+  <p>payment-service only has the two dependencies and the YAML. Because the incoming request carries <code>traceparent</code>
+    and <code>correlation-id</code> headers, it continues the trace automatically. The only extra is the custom
+    <code>payment.fraud-check</code> span shown in 3.9.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 Start Zipkin (optional but recommended)</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\65-Distributed-Tracing-And-Centralized-Logging"
+docker compose up -d
+docker ps          # course-zipkin should be "Up"</code></pre>
+  <p>Docker Desktop must be running. No Docker? Skip this step — the apps run fine and still print trace ids; you will just see a warning that spans could not be sent.</p>
+
+  <h3>5.2 Start both services</h3>
+  <pre class="terminal"><code># Terminal 1
+cd payment-service
+mvn spring-boot:run
+
+# Terminal 2
+cd order-service
+mvn spring-boot:run</code></pre>
+  <p>Or use the Spring Boot Dashboard in VS Code (start payment-service first).</p>
+
+  <h3>5.3 Send requests</h3>
+  <pre class="terminal"><code>curl.exe -i -X POST http://localhost:8081/api/orders -H "Content-Type: application/json" -d "{\"item\":\"Pizza\",\"amount\":450}"
+
+HTTP/1.1 200
+correlation-id: corr-d79f4144
+...
+{"orderId":1001,"item":"Pizza","amount":450.0,"paymentStatus":"APPROVED","paymentId":"PAY-d21338ec","traceId":"6ac86fd3a00d09a8767331487f79789a"}</code></pre>
+  <p>Now compare the two consoles — <strong>same traceId and correlation id</strong>, different span ids:</p>
+  <pre class="terminal"><code>order-service:
+[order-service,6ac86fd3a00d09a8767331487f79789a,767331487f79789a,corr-d79f4144] OrderController : New order received: Pizza for 450.0
+[order-service,6ac86fd3a00d09a8767331487f79789a,f2413b0f7c041489,corr-d79f4144] OrderController : Validating order ...
+[order-service,6ac86fd3a00d09a8767331487f79789a,767331487f79789a,corr-d79f4144] OrderController : Calling payment-service for order 1001
+[order-service,6ac86fd3a00d09a8767331487f79789a,767331487f79789a,corr-d79f4144] OrderController : Order 1001 finished, payment status APPROVED
+
+payment-service:
+[payment-service,6ac86fd3a00d09a8767331487f79789a,5cce3a2304e50622,corr-d79f4144] PaymentController : Payment request received for order 1001 amount 450.0
+[payment-service,6ac86fd3a00d09a8767331487f79789a,72efb496385eae5e,corr-d79f4144] PaymentController : Running fraud check ...
+[payment-service,6ac86fd3a00d09a8767331487f79789a,5cce3a2304e50622,corr-d79f4144] PaymentController : Payment PAY-d21338ec for order 1001 -&gt; APPROVED</code></pre>
+  <p>Notice “Validating order …” and “Running fraud check …” have a <em>different</em> span id — they run inside our custom child spans.</p>
+  <p>With your own correlation id:</p>
+  <pre class="terminal"><code>curl.exe -X POST http://localhost:8081/api/orders -H "Content-Type: application/json" -H "correlation-id: checkout-42" -d "{\"item\":\"Laptop\",\"amount\":75000}"
+# both consoles: [...,checkout-42] ... payment status DECLINED</code></pre>
+  <p>Continue a trace started “somewhere else” (what an API gateway would send):</p>
+  <pre class="terminal"><code>curl.exe -X POST http://localhost:8081/api/orders -H "Content-Type: application/json" -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" -d "{\"item\":\"Coffee\",\"amount\":120}"
+{"orderId":1003,...,"traceId":"4bf92f3577b34da6a3ce929d0e0e4736"}     &lt;- our given trace id was reused!</code></pre>
+
+  <h3>5.4 Look at it in Zipkin</h3>
+  <ol>
+    <li>Open <code>http://localhost:9411</code>.</li>
+    <li>Click <strong>RUN QUERY</strong> (or filter <code>serviceName=order-service</code>).</li>
+    <li>Click a trace: you see the waterfall from the diagram in 3.2 — 5 spans, 2 services.</li>
+    <li>Click the <code>payment.fraud-check</code> span: see the tag <code>payment.method=card</code>.</li>
+    <li>Paste a trace id from your console into the search box at the top right to jump straight to it.</li>
+    <li>Open <strong>Dependencies</strong>: a graph order-service → payment-service.</li>
+  </ol>
+
+  <h3>5.5 JSON logs for centralized logging</h3>
+  <pre class="terminal"><code>mvn spring-boot:run -Dspring-boot.run.profiles=json-logs
+# writes logs\order-service.json - one JSON object per line, with traceId/spanId fields</code></pre>
+  <p>These files are what Filebeat or Promtail/Alloy would ship to Elasticsearch or Loki. When finished:
+    <strong>Ctrl + C</strong> in both terminals and <code>docker compose down</code>.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ “Dropped 1 spans due to ConnectException”</strong>
+    Zipkin is not running. Your app is fine — only the export failed.<br>
+    <strong>Fix:</strong> <code>docker compose up -d</code>, or set <code>management.tracing.enabled=false</code> / remove the reporter if you only want ids in logs.</div>
+  <div class="callout warn"><strong>⚠️ “I see only some of my requests in Zipkin”</strong>
+    Default sampling is <code>0.1</code> (10 %).<br>
+    <strong>Fix:</strong> <code>management.tracing.sampling.probability=1.0</code> while learning.</div>
+  <div class="callout danger"><strong>🚨 The trace breaks between services</strong>
+    payment-service shows a <em>different</em> trace id. Cause: the client was created with <code>RestClient.create()</code>,
+    <code>new RestTemplate()</code> or <code>WebClient.create()</code>.<br>
+    <strong>Fix:</strong> always inject and use Spring Boot's builder.</div>
+  <div class="callout warn"><strong>⚠️ Ids missing in logs from other threads</strong>
+    Code in <code>@Async</code> methods, <code>CompletableFuture.supplyAsync</code> or your own executors logs <code>[order-service,,]</code>: the
+    context is thread-local and did not move to the new thread.<br>
+    <strong>Fix:</strong> decorate executors: <code>executor.setTaskDecorator(new ContextPropagatingTaskDecorator())</code> (Spring 6.1+), or wrap with
+    <code>ContextSnapshotFactory.builder().build().captureAll().wrap(runnable)</code>.</div>
+  <div class="callout warn"><strong>⚠️ Old Sleuth dependency</strong>
+    <code>spring-cloud-starter-sleuth</code> with Boot 3 → startup errors or simply no tracing.<br>
+    <strong>Fix:</strong> remove it; use <code>micrometer-tracing-bridge-brave</code> (or <code>-otel</code>).</div>
+  <div class="callout warn"><strong>⚠️ Custom log pattern removes the ids</strong>
+    Overriding <code>logging.pattern.console</code> completely without <code>%X{traceId}</code>.<br>
+    <strong>Fix:</strong> prefer changing only <code>logging.pattern.correlation</code>, or include <code>%correlation</code>/<code>%X{traceId}</code> in your pattern.</div>
+  <div class="callout danger"><strong>🚨 Personal data in tags, baggage or logs</strong>
+    Emails, card numbers or tokens in spans/baggage end up in Zipkin, log stores and even other companies' systems.<br>
+    <strong>Fix:</strong> log ids, not personal data (topic 30). Mask where necessary.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Always set <code>spring.application.name</code></strong> — it is the service name everywhere.</li>
+    <li><strong>Sample wisely</strong> in production (e.g. 10 %) but keep trace ids in all logs; consider tail-based sampling to keep all errors.</li>
+    <li><strong>Return the trace id</strong> in error responses (e.g. a <code>traceId</code> field in your ProblemDetail, topic 35) so users can report it.</li>
+    <li><strong>Log JSON to stdout</strong> in containers; let the platform ship logs.</li>
+    <li><strong>Create custom spans</strong> only around meaningful work (external calls, heavy computations) — not every method.</li>
+    <li><strong>Low-cardinality tags</strong> for metrics; high-cardinality values only on spans.</li>
+    <li><strong>Propagate context</strong> through async code and messaging (enable observation for Kafka/RabbitMQ).</li>
+    <li><strong>Standardize</strong>: W3C trace context, same logging format across all services, same field names.</li>
+    <li><strong>Link the pillars</strong>: Grafana can jump from a Loki log line to the Tempo trace and to Prometheus metrics (exemplars).</li>
+    <li><strong>Retention</strong>: keep traces days, not months; logs as long as your policy/legal requirements say.</li>
+    <li>Consider <strong>OpenTelemetry</strong> for vendor neutrality in new platforms.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Observability = logs + metrics + traces, linked by trace ids.</li>
+    <li>A <strong>trace</strong> is a tree of <strong>spans</strong>; trace id (32 hex) is shared, span id (16 hex) is per span.</li>
+    <li>Boot 3: <code>micrometer-tracing-bridge-brave</code> + <code>zipkin-reporter-brave</code> + actuator; Sleuth is gone.</li>
+    <li>Ids travel in the W3C <code>traceparent</code> header; use Boot's injected client builders so they get added.</li>
+    <li>Logs get <code>[app,traceId,spanId]</code> automatically; customize with <code>logging.pattern.correlation</code>.</li>
+    <li>Custom spans with the Observation API (also produce metrics) or <code>@Observed</code>.</li>
+    <li>Baggage carries business correlation ids across services.</li>
+    <li>Zipkin (Docker, :9411) shows waterfalls and dependency graphs.</li>
+    <li>Centralized logging: ELK or Loki + Grafana; Boot 3.4+ structured JSON logs make shipping easy.</li>
+  </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Find the slow part.</strong> Run 5 orders, open Zipkin, sort by duration. Which span takes the most time in the slowest trace?</p>
+    <details><summary>Hint / solution</summary><p>Usually <code>payment.fraud-check</code> (100–300 ms random sleep). The very first request is often slower overall because of class loading / connection warm-up — a classic thing to notice in traces.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Sampling.</strong> Set <code>management.tracing.sampling.probability: 0.0</code> in order-service only, send 3 orders. Are trace ids still in the logs? Do traces appear in Zipkin?</p>
+    <details><summary>Hint / solution</summary><p>Logs still have trace ids (ids are always created). Zipkin shows nothing new: the “not sampled” flag (<code>-00</code> at the end of <code>traceparent</code>) travels to payment-service too, so it also does not report — the decision is made once, at the root.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Use <code>@Observed</code>.</strong> Move the validation into a new bean <code>OrderValidator</code> with a method annotated <code>@Observed(name = "order.validate")</code> and remove the manual Observation code.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// pom.xml: add spring-boot-starter-aop
+// application.yml: management.observations.annotations.enabled: true
+
+@Component
+public class OrderValidator {
+    @Observed(name = "order.validate", contextualName = "validate-order")
+    public void validate(OrderController.OrderRequest request) {
+        if (request.item() == null || request.item().isBlank() || request.amount() &lt;= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid order");
+        }
+    }
+}
+// OrderController: inject OrderValidator and call orderValidator.validate(request)
+// (call it from ANOTHER bean - self-invocation would bypass the proxy)</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Trace id in error responses.</strong> Add a <code>@RestControllerAdvice</code> to order-service that returns a ProblemDetail with a <code>traceId</code> property for every <code>ResponseStatusException</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@RestControllerAdvice
+class ErrorHandler {
+    private final Tracer tracer;
+    ErrorHandler(Tracer tracer) { this.tracer = tracer; }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    ProblemDetail handle(ResponseStatusException ex) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(ex.getStatusCode(), ex.getReason());
+        Span span = tracer.currentSpan();
+        pd.setProperty("traceId", span != null ? span.context().traceId() : "none");
+        return pd;
+    }
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Third service.</strong> Add a <code>notification-service</code> (port 8083) that payment-service calls after an APPROVED payment. Confirm the trace now shows 3 services and the Zipkin dependency graph has two arrows.</p>
+    <details><summary>Hint / solution</summary><p>Copy payment-service, rename package/app name, add <code>POST /api/notifications</code> that logs “Sending email for order X”. In payment-service add a <code>RestClient</code> bean built from the injected <code>RestClient.Builder</code> and call it when status is APPROVED. Same dependencies and tracing YAML in the new service. Zipkin → Dependencies: order-service → payment-service → notification-service.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Async context.</strong> In payment-service, run the fraud check with <code>CompletableFuture.supplyAsync(..., executor)</code>. First observe the missing ids in the log, then fix it.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Bean
+ThreadPoolTaskExecutor fraudExecutor() {
+    ThreadPoolTaskExecutor ex = new ThreadPoolTaskExecutor();
+    ex.setCorePoolSize(4);
+    ex.setThreadNamePrefix("fraud-");
+    ex.setTaskDecorator(new ContextPropagatingTaskDecorator());   // copies trace context + MDC
+    ex.initialize();
+    return ex;
+}
+// usage
+CompletableFuture.supplyAsync(() -&gt; fraudCheck(request), fraudExecutor).join();</code></pre>
+      <p>Without the decorator the log shows <code>[payment-service,,,]</code> on the <code>fraud-1</code> thread; with it, the same trace id appears.</p></details>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is distributed tracing and why do microservices need it?</summary>
+    <p>It follows a single request across service boundaries by giving it a trace id that is propagated with every call, while each unit of work records a span with timing. It lets you see the full call path, find latency bottlenecks and errors, and correlate logs across services — impossible with isolated per-service logs.</p></details>
+  <details><summary>Q2. Explain trace id, span id and parent span id.</summary>
+    <p>Trace id identifies the whole request journey and is identical in all its spans. Span id identifies one operation. Parent span id points to the span that caused this one, forming a tree (the root span has no parent).</p></details>
+  <details><summary>Q3. How is the trace context propagated between services?</summary>
+    <p>Via headers. Spring Boot 3 uses W3C Trace Context (<code>traceparent: version-traceId-parentSpanId-flags</code>, optionally <code>tracestate</code>); B3 headers are an alternative. Instrumented clients inject the headers; instrumented servers extract them and continue the trace. For messaging, headers on messages are used.</p></details>
+  <details><summary>Q4. What replaced Spring Cloud Sleuth in Spring Boot 3?</summary>
+    <p>Micrometer Tracing (a tracer facade) on top of Micrometer Observation, with bridges for Brave or OpenTelemetry and reporters/exporters for Zipkin, OTLP, etc.</p></details>
+  <details><summary>Q5. What is sampling and why is it used?</summary>
+    <p>Recording only a fraction of traces to limit overhead and storage. Head-based sampling decides at the root (probability) and propagates the decision; tail-based sampling (in a collector) decides after seeing the whole trace, e.g. keep all errors and slow traces.</p></details>
+  <details><summary>Q6. How do trace ids end up in log lines?</summary>
+    <p>The tracer puts traceId and spanId into the SLF4J MDC whenever a span is in scope; Spring Boot's default log pattern (logging.pattern.correlation) prints them. Custom fields like baggage can be added to the MDC via correlation fields.</p></details>
+  <details><summary>Q7. What is baggage? Give an example.</summary>
+    <p>Key/value context propagated alongside the trace to all downstream services, e.g. a tenant id, checkout id or correlation id. It can be added to logs. It must be small and free of sensitive data because it is sent on every call.</p></details>
+  <details><summary>Q8. Why might a trace break between two services?</summary>
+    <p>The outgoing client was not instrumented (created manually instead of from Spring's builders), a proxy/gateway stripped headers, the two sides use different propagation formats (W3C vs B3), or context was lost on a thread switch in async code.</p></details>
+  <details><summary>Q9. ELK vs Loki?</summary>
+    <p>ELK (Elasticsearch, Logstash, Kibana) indexes full log content — powerful search, more resources. Loki indexes only labels and stores compressed chunks — cheaper, integrates with Grafana, Prometheus and Tempo. Both need a shipper (Filebeat/Fluent Bit vs Promtail/Alloy).</p></details>
+  <details><summary>Q10. What is a correlation id and how is it different from a trace id?</summary>
+    <p>A correlation id is any id used to correlate events of one business transaction across systems; it may be created by the client or business process (e.g. checkout id) and live longer than a single request (e.g. across async steps). A trace id is a technical id generated by the tracing system for one trace. Often the trace id is used as the correlation id; baggage lets you carry your own as well.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../64-Resilience-With-Resilience4j/lesson.html"><small>← Previous</small>64. Resilience with Resilience4j</a>
+    <a class="next" href="../66-Docker-For-Spring-Boot/lesson.html"><small>Next →</small>66. Docker for Spring Boot</a>
+  </nav>
+</main>
+</body>
+</html>

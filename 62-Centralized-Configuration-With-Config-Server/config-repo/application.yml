@@ -1,0 +1,11 @@
+# ==================================================================
+# config-repo/application.yml   (Topic 62)
+# ------------------------------------------------------------------
+# SHARED settings: the Config Server sends these to EVERY service
+# (product-service, order-service, ...). Put company-wide values here.
+# A service-specific file (product-service.yml) can override any of them.
+# ==================================================================
+shop:
+  company-name: CourseShop Pvt Ltd
+  support-email: support@courseshop.example
+  welcome-message: Hello from the SHARED config-repo/application.yml

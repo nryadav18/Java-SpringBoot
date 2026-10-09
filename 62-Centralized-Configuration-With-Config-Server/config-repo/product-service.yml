@@ -1,0 +1,19 @@
+# ==================================================================
+# config-repo/product-service.yml   (Topic 62)
+# ------------------------------------------------------------------
+# Settings ONLY for the service whose spring.application.name is
+# "product-service" (the file name must match that name exactly).
+# Used for every profile; product-service-dev.yml / -prod.yml add to it.
+#
+# TRY A LIVE CHANGE: edit welcome-message or discount-percent below, save,
+# then  POST http://localhost:8081/actuator/refresh  - no restart needed!
+# ==================================================================
+shop:
+  welcome-message: Welcome to the product catalog (from config-repo/product-service.yml)
+  discount-percent: 5
+  feature:
+    new-arrivals: false
+  # An ENCRYPTED secret. The Config Server decrypts it (using encrypt.key) before
+  # sending it, so product-service receives the plain value "demo-payment-key-123".
+  # Create your own cipher text with:  curl -X POST http://localhost:8888/encrypt -d "my secret"
+  payment-api-key: '{cipher}1501635eabb27e06e553e9c1d4afcffd74528a5a78f335ffe2a32a8c46edc4cc2f3cf0458a8bec8eff74704283109413'

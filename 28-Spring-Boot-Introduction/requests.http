@@ -1,0 +1,15 @@
+### Topic 28 - Spring Boot Introduction
+### Start the app first: mvn spring-boot:run
+### Then click "Send Request" above each request (VS Code "REST Client" extension).
+
+### 1. Say hello (default name)
+GET http://localhost:8080/hello
+
+### 2. Say hello to a specific person
+GET http://localhost:8080/hello?name=Asha
+
+### 3. JSON info - a Map turned into JSON automatically
+GET http://localhost:8080/info
+
+### 4. Actuator health check (comes "for free" with spring-boot-starter-actuator)
+GET http://localhost:8080/actuator/health

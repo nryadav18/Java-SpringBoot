@@ -1,0 +1,35 @@
+# ------------------------------------------------------------
+# Topic 50 - OAuth2 Login client (default profile: GitHub + Google)
+# ------------------------------------------------------------
+# GitHub and Google are "well-known" providers: Spring already knows their URLs
+# (authorization-uri, token-uri, user-info-uri). We only give OUR client id + secret.
+#
+# The values below are PLACEHOLDERS so the app starts and compiles.
+# To really log in, register an OAuth app (see lesson.html) and set environment variables:
+#   PowerShell:  $env:GITHUB_CLIENT_ID="Ov23li..."; $env:GITHUB_CLIENT_SECRET="..."
+# NEVER commit real secrets to Git.
+server:
+  port: 8080
+
+spring:
+  application:
+    name: oauth2-login-client
+  security:
+    oauth2:
+      client:
+        registration:
+          github:
+            client-id: ${GITHUB_CLIENT_ID:replace-with-your-github-client-id}
+            client-secret: ${GITHUB_CLIENT_SECRET:replace-with-your-github-client-secret}
+            scope: read:user, user:email
+            # redirect-uri default: {baseUrl}/login/oauth2/code/{registrationId}
+            #   -> http://localhost:8080/login/oauth2/code/github   (enter this at GitHub!)
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:replace-with-your-google-client-id}
+            client-secret: ${GOOGLE_CLIENT_SECRET:replace-with-your-google-client-secret}
+            scope: openid, profile, email   # "openid" scope = please use OpenID Connect
+
+logging:
+  level:
+    # TRACE shows every step of the OAuth2 dance (redirects, code exchange) - great for learning
+    org.springframework.security: INFO

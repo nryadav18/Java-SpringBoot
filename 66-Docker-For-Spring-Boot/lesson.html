@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>66 · Docker for Spring Boot</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part F · Microservices &amp; Spring Cloud › Topic 66</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag adv">Part F · Microservices &amp; Spring Cloud</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>66. Docker for Spring Boot</h1>
+  <p class="subtitle">Package your Spring Boot app into a small, secure Docker image that runs the same way on your laptop, your colleague's laptop and any server in the cloud.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="66-Docker-For-Spring-Boot"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What containers are, how they differ from virtual machines, and why everybody uses them.</li>
+      <li>The Docker vocabulary: <strong>image, container, registry, Dockerfile, layer, tag</strong>.</li>
+      <li>How to write a Dockerfile for a Spring Boot jar — simple first, then a <strong>multi-stage, layered, non-root</strong> one.</li>
+      <li>The everyday commands: <code>docker build / run / ps / logs / exec / stop / rm</code>, port mapping and environment variables.</li>
+      <li>How environment variables override Spring configuration inside a container.</li>
+      <li>Spring Boot <strong>layered jars</strong>, <strong>Buildpacks</strong> (<code>mvn spring-boot:build-image</code>) and pushing to <strong>Docker Hub</strong>.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know:
+    <a href="../20-Maven-Build-Tool/lesson.html">Topic 20 · Maven (jar packaging)</a>,
+    <a href="../28-Spring-Boot-Introduction/lesson.html">Topic 28 · Spring Boot (java -jar)</a>,
+    <a href="../29-Configuration-Properties-And-Profiles/lesson.html">Topic 29 · Configuration &amp; profiles</a> and
+    <a href="../53-Actuator-Monitoring-And-Observability/lesson.html">Topic 53 · Actuator health</a>.
+    You need <strong>Docker Desktop</strong> installed and <em>running</em> (whale icon in the Windows tray).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>You know the famous sentence: <em>“But it works on my machine!”</em> Your app runs on your laptop with Java 17.0.19, but the
+    test server has Java 11, a different time zone and a missing font. The production server has another OS version. Bugs appear
+    that nobody can reproduce.</p>
+  <p><strong>Docker</strong> solves this by packaging your app <em>together with everything it needs</em> — the Java runtime, OS libraries,
+    configuration defaults — into one <strong>image</strong>. That image runs identically everywhere Docker runs: your Windows laptop,
+    a Linux server, AWS, Azure, Google Cloud, Kubernetes.</p>
+  <ul>
+    <li><strong>Same environment everywhere</strong> — dev, test and production use the very same image.</li>
+    <li><strong>Fast start</strong> — a container starts in seconds, not minutes like a virtual machine.</li>
+    <li><strong>Easy extra tools</strong> — need MySQL, Kafka, Redis, Zipkin? <code>docker run</code> instead of installing them (you did this in topics 43, 51, 57, 58, 65).</li>
+    <li><strong>Foundation for the rest of the course</strong> — Docker Compose (67), CI/CD (68) and Kubernetes (69) all work with images.</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ Where you will see this at work</strong>
+    Practically every company that runs Spring Boot microservices ships them as container images. A typical CI pipeline:
+    commit → tests → <code>docker build</code> → push to a registry → deploy the image to Kubernetes or a cloud container service.
+    “Write a Dockerfile for this service” is a normal task for a Java developer.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🚢 The shipping container</strong>
+    <p>Before the 1950s, ships were loaded piece by piece: sacks of rice, barrels, boxes of every shape. Every port needed different
+      handling, loading took weeks and things broke or got lost.</p>
+    <p>Then came the <strong>standard shipping container</strong>: one size, one shape. Whatever is inside — bananas or laptops — every ship,
+      crane, train and truck in the world can handle it the same way.</p>
+    <ul>
+      <li>The <strong>packing list / instructions</strong> for filling a container = the <strong>Dockerfile</strong>.</li>
+      <li>A sealed, ready-to-ship container design = the <strong>image</strong> (read-only, can be copied many times).</li>
+      <li>A container actually on a ship, in use = a running <strong>container</strong> (you can run many from one image).</li>
+      <li>The port warehouse where containers are stored and picked up = the <strong>registry</strong> (Docker Hub).</li>
+      <li>The ship and cranes = the <strong>Docker engine</strong> — it does not care what is inside.</li>
+    </ul>
+    <p>A <strong>virtual machine</strong>, in comparison, is like shipping a whole house (with its own foundation, plumbing and roof) just to move a sofa.</p></div>
+
+  <!-- ============================================================ -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Containers vs virtual machines</h3>
+  <figure class="diagram">
+    <svg viewBox="0 0 700 280" width="700" role="img" aria-label="Virtual machines compared with containers">
+      <g style="font: 12px sans-serif; fill: currentColor">
+        <text x="160" y="18" text-anchor="middle" style="font-weight:700">Virtual machines</text>
+        <text x="530" y="18" text-anchor="middle" style="font-weight:700">Containers</text>
+        <!-- VM side -->
+        <rect x="20" y="30" width="85" height="34" rx="4" style="fill: var(--accent-soft); stroke: var(--accent)"/><text x="62" y="51" text-anchor="middle">App A</text>
+        <rect x="117" y="30" width="85" height="34" rx="4" style="fill: var(--accent-soft); stroke: var(--accent)"/><text x="160" y="51" text-anchor="middle">App B</text>
+        <rect x="214" y="30" width="85" height="34" rx="4" style="fill: var(--accent-soft); stroke: var(--accent)"/><text x="257" y="51" text-anchor="middle">App C</text>
+        <rect x="20" y="68" width="85" height="30" rx="4" style="fill: var(--info-soft); stroke: var(--info)"/><text x="62" y="87" text-anchor="middle">Java + libs</text>
+        <rect x="117" y="68" width="85" height="30" rx="4" style="fill: var(--info-soft); stroke: var(--info)"/><text x="160" y="87" text-anchor="middle">Java + libs</text>
+        <rect x="214" y="68" width="85" height="30" rx="4" style="fill: var(--info-soft); stroke: var(--info)"/><text x="257" y="87" text-anchor="middle">Java + libs</text>
+        <rect x="20" y="102" width="85" height="44" rx="4" style="fill: var(--danger-soft); stroke: var(--danger)"/><text x="62" y="121" text-anchor="middle">Guest OS</text><text x="62" y="137" text-anchor="middle" style="font-size:10px">(GBs, boots)</text>
+        <rect x="117" y="102" width="85" height="44" rx="4" style="fill: var(--danger-soft); stroke: var(--danger)"/><text x="160" y="121" text-anchor="middle">Guest OS</text><text x="160" y="137" text-anchor="middle" style="font-size:10px">(GBs, boots)</text>
+        <rect x="214" y="102" width="85" height="44" rx="4" style="fill: var(--danger-soft); stroke: var(--danger)"/><text x="257" y="121" text-anchor="middle">Guest OS</text><text x="257" y="137" text-anchor="middle" style="font-size:10px">(GBs, boots)</text>
+        <rect x="20" y="152" width="279" height="34" rx="4" style="fill: var(--warn-soft); stroke: var(--warn)"/><text x="160" y="173" text-anchor="middle">Hypervisor (VMware, Hyper-V, VirtualBox)</text>
+        <rect x="20" y="192" width="279" height="34" rx="4" style="fill: var(--surface-2); stroke: var(--border)"/><text x="160" y="213" text-anchor="middle">Host operating system</text>
+        <rect x="20" y="232" width="279" height="34" rx="4" style="fill: var(--surface-2); stroke: var(--border)"/><text x="160" y="253" text-anchor="middle">Hardware</text>
+        <!-- container side -->
+        <rect x="390" y="64" width="85" height="34" rx="4" style="fill: var(--accent-soft); stroke: var(--accent)"/><text x="432" y="85" text-anchor="middle">App A</text>
+        <rect x="487" y="64" width="85" height="34" rx="4" style="fill: var(--accent-soft); stroke: var(--accent)"/><text x="530" y="85" text-anchor="middle">App B</text>
+        <rect x="584" y="64" width="85" height="34" rx="4" style="fill: var(--accent-soft); stroke: var(--accent)"/><text x="627" y="85" text-anchor="middle">App C</text>
+        <rect x="390" y="102" width="85" height="44" rx="4" style="fill: var(--info-soft); stroke: var(--info)"/><text x="432" y="121" text-anchor="middle">Java + libs</text><text x="432" y="137" text-anchor="middle" style="font-size:10px">(MBs)</text>
+        <rect x="487" y="102" width="85" height="44" rx="4" style="fill: var(--info-soft); stroke: var(--info)"/><text x="530" y="121" text-anchor="middle">Java + libs</text><text x="530" y="137" text-anchor="middle" style="font-size:10px">(MBs)</text>
+        <rect x="584" y="102" width="85" height="44" rx="4" style="fill: var(--info-soft); stroke: var(--info)"/><text x="627" y="121" text-anchor="middle">Java + libs</text><text x="627" y="137" text-anchor="middle" style="font-size:10px">(MBs)</text>
+        <rect x="390" y="152" width="279" height="34" rx="4" style="fill: var(--warn-soft); stroke: var(--warn)"/><text x="530" y="173" text-anchor="middle">Container engine (Docker)</text>
+        <rect x="390" y="192" width="279" height="34" rx="4" style="fill: var(--surface-2); stroke: var(--border)"/><text x="530" y="213" text-anchor="middle">Host OS (Linux kernel, shared)</text>
+        <rect x="390" y="232" width="279" height="34" rx="4" style="fill: var(--surface-2); stroke: var(--border)"/><text x="530" y="253" text-anchor="middle">Hardware</text>
+      </g>
+    </svg>
+    <figcaption>Each VM carries a full operating system. Containers share the host's kernel and only carry the app and its libraries.</figcaption>
+  </figure>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Virtual machine</th><th>Container</th></tr>
+    <tr><td>Contains</td><td>Full guest OS + app</td><td>App + libraries only (shares host kernel)</td></tr>
+    <tr><td>Size</td><td>Gigabytes</td><td>Megabytes (our image ≈ 200 MB)</td></tr>
+    <tr><td>Start time</td><td>Minutes</td><td>Seconds (mostly the JVM/Spring startup)</td></tr>
+    <tr><td>Isolation</td><td>Very strong (separate kernel)</td><td>Strong enough for most apps (namespaces, cgroups)</td></tr>
+    <tr><td>How many per server</td><td>Few</td><td>Many</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Docker on Windows</strong>
+    Containers need a Linux kernel. <strong>Docker Desktop</strong> runs a tiny Linux VM for you using <strong>WSL 2</strong> (Windows Subsystem for Linux).
+    You type <code>docker</code> commands in PowerShell as usual; they are executed in that Linux VM. That is why Docker Desktop must be <em>running</em>.</div>
+
+  <h3>3.2 Docker vocabulary</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Term</th><th>Simple meaning</th><th>Java comparison</th></tr>
+    <tr><td><strong>Dockerfile</strong></td><td>Text recipe that says how to build an image.</td><td>Source code (<code>.java</code>)</td></tr>
+    <tr><td><strong>Image</strong></td><td>Read-only package: filesystem + settings + start command. Built from a Dockerfile.</td><td>A class / a compiled <code>.jar</code></td></tr>
+    <tr><td><strong>Container</strong></td><td>A running (or stopped) instance of an image, with its own writable layer, network and process.</td><td>An object created with <code>new</code></td></tr>
+    <tr><td><strong>Layer</strong></td><td>Each Dockerfile step adds a layer (a set of file changes). Layers are cached and shared.</td><td>—</td></tr>
+    <tr><td><strong>Tag</strong></td><td>Version label of an image: <code>docker-demo:1.0</code>, <code>eclipse-temurin:17-jre-alpine</code>.</td><td>Maven version</td></tr>
+    <tr><td><strong>Registry</strong></td><td>Server that stores images: Docker Hub, GitHub Container Registry, AWS ECR…</td><td>Maven Central</td></tr>
+    <tr><td><strong>Docker engine / daemon</strong></td><td>Background service that builds and runs containers.</td><td>The JVM</td></tr>
+  </table></div>
+  <p>Check your installation:</p>
+  <pre class="terminal"><code>docker version
+docker run --rm hello-world      # downloads a tiny image and prints "Hello from Docker!"</code></pre>
+
+  <h3>3.3 Your first Dockerfile (the simple one)</h3>
+  <pre><span class="file">Dockerfile.simple</span><code>FROM eclipse-temurin:17-jre-alpine
+WORKDIR /app
+COPY target/docker-demo.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "app.jar"]</code></pre>
+  <p>Line by line:</p>
+  <ol>
+    <li><code>FROM eclipse-temurin:17-jre-alpine</code> — start from an existing image that already contains a Java 17 runtime
+      (<strong>Eclipse Temurin</strong> is the same OpenJDK build you installed; <strong>JRE</strong> = only what is needed to run, no compiler; <strong>alpine</strong> = a very small Linux).</li>
+    <li><code>WORKDIR /app</code> — “cd /app” (creates it if needed). Following commands run there.</li>
+    <li><code>COPY target/docker-demo.jar app.jar</code> — copy the jar from your computer (the <em>build context</em>) into the image.</li>
+    <li><code>EXPOSE 8080</code> — documentation: “this app listens on 8080”. It does <em>not</em> open the port to your PC by itself.</li>
+    <li><code>ENTRYPOINT [...]</code> — the command that runs when a container starts.</li>
+  </ol>
+  <p>Build and run it (the jar must exist first):</p>
+  <pre class="terminal"><code>mvn clean package -DskipTests
+docker build -f Dockerfile.simple -t docker-demo:simple .
+docker run --rm -p 8080:8080 docker-demo:simple</code></pre>
+  <p>The dot <code>.</code> at the end of <code>docker build</code> is the <strong>build context</strong>: the folder whose files Docker may <code>COPY</code>. Easy to forget!</p>
+
+  <h3>3.4 Dockerfile instructions you will use</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Instruction</th><th>What it does</th><th>Example</th></tr>
+    <tr><td><code>FROM</code></td><td>Base image. <code>AS name</code> names a stage (multi-stage builds).</td><td><code>FROM maven:3.9-eclipse-temurin-17 AS build</code></td></tr>
+    <tr><td><code>WORKDIR</code></td><td>Set the working directory.</td><td><code>WORKDIR /app</code></td></tr>
+    <tr><td><code>COPY</code></td><td>Copy files from the build context (or from another stage with <code>--from</code>).</td><td><code>COPY --from=build /workspace/target/x.jar app.jar</code></td></tr>
+    <tr><td><code>RUN</code></td><td>Run a command <em>while building</em> the image (creates a layer).</td><td><code>RUN mvn -B package</code></td></tr>
+    <tr><td><code>ENV</code></td><td>Environment variable available at build and run time.</td><td><code>ENV SPRING_PROFILES_ACTIVE=docker</code></td></tr>
+    <tr><td><code>ARG</code></td><td>Variable only during the build (<code>docker build --build-arg</code>).</td><td><code>ARG JAR_FILE=target/*.jar</code></td></tr>
+    <tr><td><code>EXPOSE</code></td><td>Document the port.</td><td><code>EXPOSE 8080</code></td></tr>
+    <tr><td><code>USER</code></td><td>Run following steps and the container as this user.</td><td><code>USER spring</code></td></tr>
+    <tr><td><code>HEALTHCHECK</code></td><td>Command Docker runs regularly to check the app is healthy.</td><td><code>HEALTHCHECK CMD wget -qO- http://localhost:8080/actuator/health</code></td></tr>
+    <tr><td><code>ENTRYPOINT</code></td><td>The main command of the container.</td><td><code>ENTRYPOINT ["java","-jar","app.jar"]</code></td></tr>
+    <tr><td><code>CMD</code></td><td>Default arguments (or default command) — easy to override on <code>docker run</code>.</td><td><code>CMD ["--server.port=8080"]</code></td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 ENTRYPOINT vs CMD, and why the JSON array form</strong>
+    <code>ENTRYPOINT</code> = <em>what</em> runs; <code>CMD</code> = default extra arguments that the user can replace:
+    <code>docker run docker-demo:1.0 --debug</code> replaces CMD. Always use the <strong>exec form</strong> (JSON array). With the shell form
+    (<code>ENTRYPOINT java -jar app.jar</code>) Java runs as a child of <code>/bin/sh</code>, does not receive the stop signal from
+    <code>docker stop</code> and is killed hard after 10 s — no graceful shutdown.</div>
+
+  <h3>3.5 Layers and the build cache</h3>
+  <p>Every <code>FROM</code>, <code>COPY</code> and <code>RUN</code> creates a <strong>layer</strong>. An image is a stack of layers. When you
+    rebuild, Docker reuses (caches) every layer whose inputs did not change — <strong>until the first changed layer; everything after it is rebuilt</strong>.</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 660 270" width="660" role="img" aria-label="Image layers of the Spring Boot image">
+      <g style="font: 12px sans-serif; fill: currentColor">
+        <text x="10" y="18" style="font-weight:700">Runtime image layers (bottom = first)</text>
+        <rect x="10" y="220" width="400" height="34" rx="4" style="fill: var(--surface-2); stroke: var(--border)"/>
+        <text x="20" y="241">alpine Linux base (~8 MB)</text>
+        <rect x="10" y="182" width="400" height="34" rx="4" style="fill: var(--surface-2); stroke: var(--border)"/>
+        <text x="20" y="203">Java 17 JRE (~150 MB)</text>
+        <rect x="10" y="144" width="400" height="34" rx="4" style="fill: var(--info-soft); stroke: var(--info)"/>
+        <text x="20" y="165">dependencies/ — Spring, Tomcat, Jackson jars (~20 MB)</text>
+        <rect x="10" y="106" width="400" height="34" rx="4" style="fill: var(--info-soft); stroke: var(--info)"/>
+        <text x="20" y="127">spring-boot-loader/ (tiny)</text>
+        <rect x="10" y="68" width="400" height="34" rx="4" style="fill: var(--info-soft); stroke: var(--info)"/>
+        <text x="20" y="89">snapshot-dependencies/ (usually empty)</text>
+        <rect x="10" y="30" width="400" height="34" rx="4" style="fill: var(--accent-soft); stroke: var(--accent); stroke-width:2"/>
+        <text x="20" y="51" style="font-weight:700">application/ — YOUR classes (~10 KB)</text>
+        <text x="430" y="51" style="font-size:12px; fill: var(--accent)">← changes on every commit</text>
+        <text x="430" y="67" style="font-size:11px">only THIS layer is rebuilt,</text>
+        <text x="430" y="82" style="font-size:11px">pushed and pulled again</text>
+        <text x="430" y="165" style="font-size:12px">← changes when pom.xml changes</text>
+        <text x="430" y="222" style="font-size:12px">← changes almost never</text>
+      </g>
+    </svg>
+    <figcaption>Order layers from “rarely changes” (bottom) to “often changes” (top) to get the most out of the cache.</figcaption>
+  </figure>
+  <p>That is why our Dockerfile copies <code>pom.xml</code> and downloads dependencies <em>before</em> copying <code>src</code>: editing a Java file
+    does not invalidate the slow “download dependencies” layer.</p>
+
+  <h3>3.6 <code>.dockerignore</code></h3>
+  <p>Before building, Docker sends the whole build context folder to the engine. <code>.dockerignore</code> (same idea as <code>.gitignore</code>)
+    excludes files: faster builds, smaller context, and no secrets (like <code>.env</code>) sneaking into the image.</p>
+  <pre><span class="file">.dockerignore (part)</span><code>target/*
+!target/docker-demo.jar     # "!" = but DO include this one (needed by Dockerfile.simple)
+.vscode/
+.git/
+*.md
+.env</code></pre>
+
+  <h3>3.7 Multi-stage builds</h3>
+  <p>The simple Dockerfile needs Java and Maven on the machine that builds it, and you must remember to run
+    <code>mvn package</code> first. A <strong>multi-stage</strong> Dockerfile does the build <em>inside</em> Docker:</p>
+  <div class="flow">
+    <span class="box alt">Stage 1 “build”<br><small>maven + JDK (~500 MB)<br>compiles the jar</small></span><span class="arrow">→ jar →</span>
+    <span class="box info">Stage 2 “extract”<br><small>splits jar into layers</small></span><span class="arrow">→ layers →</span>
+    <span class="box">Stage 3 runtime<br><small>JRE only (~200 MB)<br>this is the final image</small></span>
+  </div>
+  <p>Only the <strong>last</strong> stage becomes the image. Maven, the JDK and your source code stay behind in the throw-away stages —
+    a smaller image and a smaller attack surface.</p>
+
+  <h3>3.8 Spring Boot layered jars</h3>
+  <p>A Spring Boot “fat jar” contains your classes <em>and</em> ~20 MB of dependencies. If you <code>COPY</code> the whole jar, every code
+    change creates a new 20 MB layer. Since Boot 2.3 the jar contains a <code>layers.idx</code> file, and Boot 3.3+ offers the
+    <strong>tools</strong> jar mode to extract it into folders:</p>
+  <pre class="terminal"><code>java -Djarmode=tools -jar target/docker-demo.jar extract --layers --destination extracted
+
+extracted/
+  application/            app.jar (your classes; its manifest points to ../lib)
+  dependencies/           lib/*.jar
+  snapshot-dependencies/
+  spring-boot-loader/</code></pre>
+  <p>(I ran exactly this command on the project in this folder: the four folders appear, and <code>java -jar app.jar</code> started from the
+    merged folders works.) In the Dockerfile each folder becomes its own <code>COPY</code> → its own layer. You can list the layers with
+    <code>java -Djarmode=tools -jar target/docker-demo.jar list-layers</code>.</p>
+
+  <h3>3.9 Everyday Docker commands</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Command</th><th>What it does</th></tr>
+    <tr><td><code>docker build -t docker-demo:1.0 .</code></td><td>Build an image from <code>./Dockerfile</code>, tag it <code>docker-demo:1.0</code>.</td></tr>
+    <tr><td><code>docker images</code></td><td>List local images.</td></tr>
+    <tr><td><code>docker run -d --name demo -p 8080:8080 docker-demo:1.0</code></td><td>Start a container in the background (<code>-d</code> detached), named <code>demo</code>, with port mapping.</td></tr>
+    <tr><td><code>docker run --rm -it ...</code></td><td><code>--rm</code> delete the container when it stops; <code>-it</code> interactive terminal.</td></tr>
+    <tr><td><code>docker ps</code> / <code>docker ps -a</code></td><td>Running containers / all containers incl. stopped.</td></tr>
+    <tr><td><code>docker logs demo</code> / <code>docker logs -f demo</code></td><td>Show the app's console output / follow it live.</td></tr>
+    <tr><td><code>docker exec -it demo sh</code></td><td>Open a shell <em>inside</em> the running container (look around, then <code>exit</code>).</td></tr>
+    <tr><td><code>docker stop demo</code></td><td>Send SIGTERM (graceful stop), after 10 s SIGKILL. <code>-t 30</code> waits 30 s.</td></tr>
+    <tr><td><code>docker start demo</code></td><td>Start a stopped container again.</td></tr>
+    <tr><td><code>docker rm demo</code> / <code>docker rm -f demo</code></td><td>Remove a stopped container / force-remove a running one.</td></tr>
+    <tr><td><code>docker rmi docker-demo:1.0</code></td><td>Remove an image.</td></tr>
+    <tr><td><code>docker inspect demo</code></td><td>All details as JSON (IP, env, health status…).</td></tr>
+    <tr><td><code>docker history docker-demo:1.0</code></td><td>Show the layers of an image and their sizes.</td></tr>
+    <tr><td><code>docker stats</code></td><td>Live CPU / memory per container.</td></tr>
+    <tr><td><code>docker system prune</code></td><td>Clean up stopped containers, unused networks and dangling images.</td></tr>
+  </table></div>
+
+  <h3>3.10 Port mapping</h3>
+  <p>A container has its own network. The app listens on port 8080 <em>inside</em> it. To reach it from your browser you
+    <strong>publish</strong> a host port: <code>-p HOST:CONTAINER</code>.</p>
+  <div class="flow">
+    <span class="box">Browser<br><small>localhost:9090</small></span><span class="arrow">→ -p 9090:8080 →</span>
+    <span class="box info">container port 8080</span><span class="arrow">→</span>
+    <span class="box alt">Spring Boot (Tomcat :8080)</span>
+  </div>
+  <pre class="terminal"><code>docker run -d --name demo1 -p 8080:8080 docker-demo:1.0
+docker run -d --name demo2 -p 9090:8080 docker-demo:1.0   # second copy: same image, other host port</code></pre>
+  <div class="callout warn"><strong>⚠️ <code>localhost</code> inside a container means the container itself</strong>
+    If your app in a container uses <code>jdbc:mysql://localhost:3306</code>, it looks for MySQL <em>inside its own container</em> — and fails.
+    Use <code>host.docker.internal</code> to reach your PC from Docker Desktop, or (better) Docker Compose service names (topic 67).</div>
+
+  <h3>3.11 Environment variables → Spring configuration</h3>
+  <p>One image must run in dev, test and prod with different settings. You never rebuild for that — you pass
+    <strong>environment variables</strong>, which Spring Boot reads with <em>higher priority</em> than <code>application.yml</code> (topic 29).
+    Names are converted by “relaxed binding”: UPPER CASE, dots → underscores, dashes removed.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Property</th><th>Environment variable</th></tr>
+    <tr><td><code>server.port</code></td><td><code>SERVER_PORT</code></td></tr>
+    <tr><td><code>spring.profiles.active</code></td><td><code>SPRING_PROFILES_ACTIVE</code></td></tr>
+    <tr><td><code>spring.datasource.url</code></td><td><code>SPRING_DATASOURCE_URL</code></td></tr>
+    <tr><td><code>app.greeting</code></td><td><code>APP_GREETING</code></td></tr>
+    <tr><td><code>app.environment-name</code></td><td><code>APP_ENVIRONMENTNAME</code></td></tr>
+  </table></div>
+  <pre class="terminal"><code>docker run -d --name demo -p 8080:8080 ^
+  -e APP_GREETING="Hello from Docker" ^
+  -e SPRING_PROFILES_ACTIVE=docker ^
+  docker-demo:1.0
+
+# or put them in a file (one VAR=value per line) - keep it out of Git!
+docker run -d --name demo -p 8080:8080 --env-file .env docker-demo:1.0</code></pre>
+  <p>(<code>^</code> continues a line in <strong>cmd</strong>; in PowerShell use a backtick <code>`</code>, in Git Bash <code>\</code> — or simply write everything on one line.)</p>
+  <div class="callout danger"><strong>🚨 Never bake secrets into the image</strong>
+    <code>ENV DB_PASSWORD=secret</code> in a Dockerfile is visible to anyone who can pull the image (<code>docker history</code>, <code>docker inspect</code>).
+    Pass secrets at run time (env vars, Docker/Kubernetes secrets, a vault).</div>
+
+  <h3>3.12 Java in a container: memory</h3>
+  <p>Modern JVMs (Java 10+) understand container limits. By default the heap may use only 25 % of the container memory — often too little.
+    Set a percentage instead of a fixed <code>-Xmx</code>:</p>
+  <pre class="terminal"><code>docker run -d -m 512m -e JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0" -p 8080:8080 docker-demo:1.0
+curl.exe http://localhost:8080/api/info      # "maxHeapMb": about 375</code></pre>
+  <p><code>JAVA_TOOL_OPTIONS</code> is read automatically by every JVM (you will see “Picked up JAVA_TOOL_OPTIONS…” in the log). Our Dockerfile sets it by default.</p>
+
+  <h3>3.13 Buildpacks — an image without a Dockerfile</h3>
+  <p><strong>Cloud Native Buildpacks</strong> look at your project and build a good, layered, non-root image automatically. Spring Boot's Maven plugin supports them:</p>
+  <pre class="terminal"><code>mvn spring-boot:build-image
+# image name configured in pom.xml: docker-demo-buildpacks:1.0.0
+docker run --rm -p 8080:8080 docker-demo-buildpacks:1.0.0</code></pre>
+  <pre><span class="file">pom.xml (plugin configuration)</span><code class="lang-xml">&lt;plugin&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-maven-plugin&lt;/artifactId&gt;
+    &lt;configuration&gt;
+        &lt;image&gt;
+            &lt;name&gt;docker-demo-buildpacks:${project.version}&lt;/name&gt;
+            &lt;env&gt;
+                &lt;BP_JVM_VERSION&gt;17&lt;/BP_JVM_VERSION&gt;
+            &lt;/env&gt;
+        &lt;/image&gt;
+    &lt;/configuration&gt;
+&lt;/plugin&gt;</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Own Dockerfile</th><th>Buildpacks</th></tr>
+    <tr><td>Control</td><td>Full — you decide everything</td><td>Less — conventions decide</td></tr>
+    <tr><td>Effort</td><td>Write and maintain the file</td><td>Zero files</td></tr>
+    <tr><td>Best practices</td><td>Your responsibility</td><td>Built in (layers, non-root, memory calculator)</td></tr>
+    <tr><td>First build</td><td>Downloads base images</td><td>Downloads large builder images (slow the first time)</td></tr>
+  </table></div>
+
+  <h3>3.14 Pushing to Docker Hub</h3>
+  <p>A <strong>registry</strong> lets other machines (servers, colleagues, CI) pull your image. Docker Hub is free for public images.</p>
+  <pre class="terminal"><code>docker login                                          # your Docker Hub username + password/token
+docker tag docker-demo:1.0 yourname/docker-demo:1.0    # name must start with your username
+docker push yourname/docker-demo:1.0
+# on any other machine:
+docker pull yourname/docker-demo:1.0</code></pre>
+  <p>In companies you usually push to a private registry (GitHub Container Registry <code>ghcr.io</code>, AWS ECR, Azure ACR, Harbor, Nexus) from the CI pipeline (topic 68).</p>
+
+  <h3>3.15 Choosing a base image</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Image</th><th>Size (approx.)</th><th>Notes</th></tr>
+    <tr><td><code>eclipse-temurin:17-jdk</code></td><td>~400 MB</td><td>Full JDK — for <em>building</em>, not for running.</td></tr>
+    <tr><td><code>eclipse-temurin:17-jre</code></td><td>~270 MB</td><td>Ubuntu based, has bash; works on Intel and ARM (Apple Silicon).</td></tr>
+    <tr><td><code>eclipse-temurin:17-jre-alpine</code></td><td>~190 MB</td><td>Small, uses musl libc; mainly x86-64 (Intel/AMD). Our choice.</td></tr>
+    <tr><td>Distroless (<code>gcr.io/distroless/java17-debian12</code>)</td><td>~230 MB</td><td>No shell, no package manager — very secure, harder to debug.</td></tr>
+  </table></div>
+
+  <!-- ============================================================ -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>src/main/java/com/course/docker/HelloController.java</code></td><td><code>/api/hello</code> (greeting + host name = container id) and <code>/api/info</code> (Java version, user, max heap, profiles).</td></tr>
+    <tr><td><code>src/main/java/com/course/docker/AppProperties.java</code></td><td>Record with <code>@ConfigurationProperties("app")</code> — overridden by env vars.</td></tr>
+    <tr><td><code>src/main/resources/application.yml</code></td><td>Graceful shutdown, health probes, a <code>docker</code> profile.</td></tr>
+    <tr><td><code>pom.xml</code></td><td><code>finalName</code> = <code>docker-demo</code>, Buildpacks image config, layers.</td></tr>
+    <tr><td><code>Dockerfile</code></td><td>Production style: 3 stages, layered, non-root, health check.</td></tr>
+    <tr><td><code>Dockerfile.simple</code></td><td>5-line version for understanding.</td></tr>
+    <tr><td><code>.dockerignore</code></td><td>Keeps the build context small.</td></tr>
+    <tr><td><code>requests.http</code></td><td>Sample requests.</td></tr>
+  </table></div>
+
+  <h3>4.1 The production Dockerfile</h3>
+  <pre><span class="file">Dockerfile</span><code># ---------- Stage 1: BUILD the jar with Maven + JDK 17 ----------
+FROM maven:3.9-eclipse-temurin-17 AS build
+WORKDIR /workspace
+COPY pom.xml .
+RUN mvn -B -q dependency:go-offline          # cached until pom.xml changes
+COPY src ./src
+RUN mvn -B -q package -DskipTests
+
+# ---------- Stage 2: SPLIT the fat jar into layers ----------
+FROM eclipse-temurin:17-jre-alpine AS extract
+WORKDIR /extract
+COPY --from=build /workspace/target/docker-demo.jar app.jar
+RUN java -Djarmode=tools -jar app.jar extract --layers --destination extracted
+
+# ---------- Stage 3: the small RUNTIME image ----------
+FROM eclipse-temurin:17-jre-alpine
+RUN addgroup -S spring &amp;&amp; adduser -S spring -G spring
+WORKDIR /app
+COPY --from=extract /extract/extracted/dependencies/ ./
+COPY --from=extract /extract/extracted/spring-boot-loader/ ./
+COPY --from=extract /extract/extracted/snapshot-dependencies/ ./
+COPY --from=extract /extract/extracted/application/ ./
+USER spring
+EXPOSE 8080
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0" \
+    SPRING_PROFILES_ACTIVE=docker
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+  CMD wget -qO- http://localhost:8080/actuator/health || exit 1
+ENTRYPOINT ["java", "-jar", "app.jar"]</code></pre>
+  <ul>
+    <li><strong>Stage 1</strong> uses the official Maven image, so the build machine needs nothing but Docker. <code>-B</code> = batch mode (no colours/progress bars), <code>-q</code> = quiet.</li>
+    <li><strong>Stage 2</strong> extracts the layers (section 3.8).</li>
+    <li><strong>Stage 3</strong>: <code>addgroup</code>/<code>adduser -S</code> create a <em>system</em> user without password; <code>USER spring</code> means the JVM does <strong>not run as root</strong>. If an attacker breaks into the app, they are a powerless user.</li>
+    <li>Four <code>COPY</code>s = four layers, ordered from rarely to often changed. They all land in <code>/app</code>; <code>app.jar</code>'s manifest finds the jars in <code>/app/lib</code>.</li>
+    <li><code>HEALTHCHECK</code> uses BusyBox <code>wget</code> (included in Alpine) against Actuator. <code>docker ps</code> then shows <code>(healthy)</code>. <code>--start-period</code> gives Spring time to boot.</li>
+  </ul>
+
+  <h3>4.2 Configuration made for containers</h3>
+  <pre><span class="file">src/main/resources/application.yml (parts)</span><code class="lang-yaml">server:
+  port: 8080
+  shutdown: graceful              # on "docker stop": finish running requests first
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+app:
+  greeting: Hello from your laptop
+  environment-name: local
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true             # /actuator/health/liveness and /readiness (Kubernetes, topic 69)
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+app:
+  environment-name: docker</code></pre>
+  <pre><span class="file">AppProperties.java</span><code class="lang-java">@ConfigurationProperties(prefix = "app")
+public record AppProperties(String greeting, String environmentName) { }</code></pre>
+
+  <h3>4.3 The controller proves where it runs</h3>
+  <pre><span class="file">HelloController.java (part)</span><code class="lang-java">@GetMapping("/info")
+public Map&lt;String, Object&gt; info() {
+    Runtime rt = Runtime.getRuntime();
+    Map&lt;String, Object&gt; info = new LinkedHashMap&lt;&gt;();
+    info.put("host", hostName());                                 // container id inside Docker
+    info.put("javaVersion", System.getProperty("java.version"));
+    info.put("runningAsUser", System.getProperty("user.name"));   // "spring", not "root"
+    info.put("maxHeapMb", rt.maxMemory() / (1024 * 1024));
+    info.put("activeProfiles", Arrays.asList(environment.getActiveProfiles()));
+    info.put("greeting", props.greeting());
+    return info;
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 Without Docker (sanity check)</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\66-Docker-For-Spring-Boot"
+mvn spring-boot:run
+curl.exe http://localhost:8080/api/hello
+{"environment":"local","host":"YOUR-PC-NAME","message":"Hello from your laptop"}</code></pre>
+
+  <h3>5.2 Build the image</h3>
+  <p>Start <strong>Docker Desktop</strong> and wait until it says “Engine running”. Then:</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\66-Docker-For-Spring-Boot"
+docker build -t docker-demo:1.0 .</code></pre>
+  <p>The first build downloads the Maven and Temurin images and all Maven dependencies (a few minutes). You will see the steps of each stage:</p>
+  <pre class="terminal"><code>[+] Building ...
+ =&gt; [build 1/6] FROM docker.io/library/maven:3.9-eclipse-temurin-17
+ =&gt; [build 4/6] RUN mvn -B -q dependency:go-offline
+ =&gt; [build 6/6] RUN mvn -B -q package -DskipTests
+ =&gt; [extract 4/4] RUN java -Djarmode=tools -jar app.jar extract --layers --destination extracted
+ =&gt; [stage-2 4/8] COPY --from=extract /extract/extracted/dependencies/ ./
+ ...
+ =&gt; naming to docker.io/library/docker-demo:1.0</code></pre>
+  <p>Now change one line in <code>HelloController</code> and build again: the dependency steps say <code>CACHED</code> and the build takes seconds. That is the layer cache at work.</p>
+  <pre class="terminal"><code>docker images docker-demo
+docker history docker-demo:1.0        # see the layers and their sizes</code></pre>
+
+  <h3>5.3 Run, test, inspect, stop</h3>
+  <pre class="terminal"><code>docker run -d --name demo -p 8080:8080 -e APP_GREETING="Hello from Docker" docker-demo:1.0
+docker ps                              # STATUS: Up 20 seconds (healthy)
+curl.exe http://localhost:8080/api/hello
+{"environment":"docker","host":"3f2a9c1b7e44","message":"Hello from Docker"}
+
+curl.exe http://localhost:8080/api/info
+{"host":"3f2a9c1b7e44","javaVersion":"17.0.x","javaVendor":"Eclipse Adoptium","osName":"Linux",
+ "runningAsUser":"spring","availableProcessors":..., "maxHeapMb":...,"activeProfiles":["docker"],...}
+
+docker logs -f demo                    # Spring Boot banner and log lines; Ctrl + C stops following
+docker exec -it demo sh                # look inside: ls /app ; whoami ; exit
+docker stop demo                       # graceful shutdown, see "Commencing graceful shutdown" in logs
+docker rm demo</code></pre>
+  <p>Notice: <code>host</code> is the short container id, the OS is <strong>Linux</strong> even though you are on Windows, and the user is <code>spring</code>.</p>
+  <div class="callout info"><strong>ℹ️ Same test without Docker</strong>
+    The env-var override does not need Docker. In PowerShell: <code>$env:APP_GREETING="Hi"; mvn spring-boot:run</code> — the greeting changes. Docker's <code>-e</code> just sets env vars for the container's process.</div>
+
+  <h3>5.4 Try the simple Dockerfile and Buildpacks</h3>
+  <pre class="terminal"><code>mvn clean package -DskipTests
+docker build -f Dockerfile.simple -t docker-demo:simple .
+docker images                          # compare the sizes
+mvn spring-boot:build-image            # Buildpacks (slow the first time)</code></pre>
+
+  <h3>5.5 Clean up</h3>
+  <pre class="terminal"><code>docker rm -f demo
+docker rmi docker-demo:1.0 docker-demo:simple docker-demo-buildpacks:1.0.0
+docker system prune                    # optional: removes stopped containers / dangling images</code></pre>
+
+  <!-- ============================================================ -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ “failed to connect to the docker API … dockerDesktopLinuxEngine … The system cannot find the file specified”</strong>
+    Docker Desktop is not running.<br><strong>Fix:</strong> start Docker Desktop, wait for “Engine running”, try again.</div>
+  <div class="callout warn"><strong>⚠️ “Bind for 0.0.0.0:8080 failed: port is already allocated”</strong>
+    Another container or your <code>mvn spring-boot:run</code> already uses 8080.<br><strong>Fix:</strong> stop it, or map another host port: <code>-p 9090:8080</code>.</div>
+  <div class="callout warn"><strong>⚠️ The app runs but the browser cannot reach it</strong>
+    You forgot <code>-p 8080:8080</code> (EXPOSE alone does not publish).</div>
+  <div class="callout warn"><strong>⚠️ “COPY failed: file not found … target/docker-demo.jar”</strong>
+    With <code>Dockerfile.simple</code>: you did not run <code>mvn package</code> first, or <code>.dockerignore</code> excludes the jar. Also check you passed the build context <code>.</code>.</div>
+  <div class="callout warn"><strong>⚠️ Container exits immediately</strong>
+    <code>docker ps</code> shows nothing. <strong>Fix:</strong> <code>docker ps -a</code> to see it, then <code>docker logs &lt;name&gt;</code> — usually a Spring startup error (wrong profile, missing DB).</div>
+  <div class="callout warn"><strong>⚠️ Database at <code>localhost</code> from inside a container</strong>
+    Fails because <code>localhost</code> is the container. <strong>Fix:</strong> <code>host.docker.internal</code> or Compose service names (topic 67).</div>
+  <div class="callout warn"><strong>⚠️ “no matching manifest for linux/arm64” on Apple Silicon</strong>
+    Some <code>-alpine</code> JRE tags are x86-64 only. <strong>Fix:</strong> use <code>eclipse-temurin:17-jre</code> (Ubuntu based) — then create the user with <code>groupadd</code>/<code>useradd</code> and install <code>curl</code> for the health check (see exercise 5).</div>
+  <div class="callout danger"><strong>🚨 Running as root, using <code>:latest</code>, secrets in ENV</strong>
+    All three are classic security-review findings. Add <code>USER</code>, pin versions, pass secrets at runtime.</div>
+  <div class="callout warn"><strong>⚠️ Shell-form ENTRYPOINT</strong>
+    <code>ENTRYPOINT java -jar app.jar</code> → Java does not receive SIGTERM, <code>docker stop</code> waits 10 s and kills it. Use the JSON array form.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Multi-stage builds</strong>: build tools stay out of the runtime image.</li>
+    <li><strong>JRE, not JDK</strong>, in the runtime stage; small base images; consider distroless for high security.</li>
+    <li><strong>Layered jars</strong> + order instructions from rarely to often changed → fast builds, small pushes.</li>
+    <li><strong>Non-root user</strong> (<code>USER spring</code>).</li>
+    <li><strong>Pin versions</strong> of base images (<code>eclipse-temurin:17.0.x_y-jre-alpine</code> or even a digest) for reproducible builds; update them regularly for security patches.</li>
+    <li><strong>One process per container</strong>; log to stdout/stderr.</li>
+    <li><strong>Health checks</strong> via Actuator; graceful shutdown (<code>server.shutdown=graceful</code>) and exec-form ENTRYPOINT.</li>
+    <li><strong>Configuration via env vars</strong>, secrets from a secret store — never in the image.</li>
+    <li><strong>Container-aware JVM flags</strong>: <code>-XX:MaxRAMPercentage</code> instead of fixed <code>-Xmx</code>; always set a memory limit in production.</li>
+    <li><strong>.dockerignore</strong> to keep the context small and secret-free.</li>
+    <li><strong>Scan images</strong> for known vulnerabilities (<code>docker scout cves docker-demo:1.0</code>, Trivy, Snyk) in CI.</li>
+    <li><strong>Meaningful tags</strong>: version and/or Git commit SHA (<code>1.4.2</code>, <code>1.4.2-3f2a9c1</code>), not just <code>latest</code>.</li>
+    <li>Optional extras: CDS / AOT cache to speed up startup, labels (<code>LABEL org.opencontainers.image.source=...</code>).</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>A container packages the app with its runtime; it shares the host kernel → small and fast compared to a VM.</li>
+    <li>Dockerfile → <code>docker build</code> → image → <code>docker run</code> → container; registries store images.</li>
+    <li>Each instruction = a layer; Docker caches layers until the first change.</li>
+    <li>Multi-stage + Spring Boot layered jar (<code>-Djarmode=tools extract --layers</code>) = small image, fast rebuilds.</li>
+    <li><code>-p HOST:CONTAINER</code> publishes ports; <code>-e VAR=value</code> overrides Spring properties (relaxed binding).</li>
+    <li>Run as non-root, use exec-form ENTRYPOINT, health checks, graceful shutdown, MaxRAMPercentage.</li>
+    <li>Buildpacks (<code>mvn spring-boot:build-image</code>) build a good image without a Dockerfile.</li>
+    <li><code>docker login / tag / push</code> to share images through Docker Hub or a private registry.</li>
+  </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Two copies.</strong> Run the image twice on host ports 8081 and 8082 with different greetings. Call both <code>/api/hello</code> endpoints — what is different?</p>
+    <details><summary>Hint / solution</summary><pre class="terminal"><code>docker run -d --name a -p 8081:8080 -e APP_GREETING="I am A" docker-demo:1.0
+docker run -d --name b -p 8082:8080 -e APP_GREETING="I am B" docker-demo:1.0
+curl.exe localhost:8081/api/hello      # message "I am A", host = container id of a
+curl.exe localhost:8082/api/hello      # message "I am B", other host id
+docker rm -f a b</code></pre><p>Same image, two isolated containers with their own configuration and host names.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Change the port inside.</strong> Make the app listen on 9000 <em>inside</em> the container without rebuilding, and reach it from your browser on 7000.</p>
+    <details><summary>Hint / solution</summary><pre class="terminal"><code>docker run -d --name p -e SERVER_PORT=9000 -p 7000:9000 docker-demo:1.0
+curl.exe localhost:7000/api/hello
+docker rm -f p</code></pre><p>Note: the HEALTHCHECK still checks 8080, so the status becomes <em>unhealthy</em> — a good reason to make the health URL configurable (e.g. use <code>${SERVER_PORT:-8080}</code> in a shell-form HEALTHCHECK).</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Memory limit.</strong> Run with <code>-m 300m</code> and compare <code>maxHeapMb</code> with and without <code>JAVA_TOOL_OPTIONS</code> (override it with <code>-e JAVA_TOOL_OPTIONS=</code>).</p>
+    <details><summary>Hint / solution</summary><p>With 75 %: ≈ 225 MB. With the variable emptied the JVM default (25 % of the limit) applies: ≈ 75 MB. Low heap → more garbage collection or OutOfMemoryError under load, which is why the percentage flag is common practice.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Measure the cache.</strong> Build once, then change only a log message and rebuild. Then add a dependency (e.g. <code>spring-boot-starter-validation</code>) and rebuild. Which steps were <code>CACHED</code> each time and why?</p>
+    <details><summary>Hint / solution</summary><p>Code change: <code>COPY pom.xml</code> and <code>dependency:go-offline</code> are cached; <code>COPY src</code> and everything after re-run. In the runtime stage only the <code>application/</code> layer is new. Dependency change: <code>pom.xml</code> changed → the download step and everything after re-run, and the <code>dependencies/</code> layer changes too.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Ubuntu-based runtime.</strong> Rewrite stage 3 using <code>eclipse-temurin:17-jre</code> (Ubuntu). Keep non-root and the health check.</p>
+    <details><summary>Hint / solution</summary><pre><code>FROM eclipse-temurin:17-jre
+RUN groupadd --system spring &amp;&amp; useradd --system --gid spring spring \
+    &amp;&amp; apt-get update &amp;&amp; apt-get install -y --no-install-recommends curl \
+    &amp;&amp; rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=extract /extract/extracted/dependencies/ ./
+COPY --from=extract /extract/extracted/spring-boot-loader/ ./
+COPY --from=extract /extract/extracted/snapshot-dependencies/ ./
+COPY --from=extract /extract/extracted/application/ ./
+USER spring
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s \
+  CMD curl -fs http://localhost:8080/actuator/health || exit 1
+ENTRYPOINT ["java", "-jar", "app.jar"]</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Containerize another topic.</strong> Write a Dockerfile for topic 64's <code>inventory-service</code> and run it; then run <code>store-service</code> on your PC with <code>--inventory.base-url=http://localhost:8083</code>. Does the circuit breaker demo still work?</p>
+    <details><summary>Hint / solution</summary><p>Copy this topic's Dockerfile, change the jar name (or add <code>&lt;finalName&gt;inventory-service&lt;/finalName&gt;</code>) and <code>EXPOSE 8083</code>; remove the actuator HEALTHCHECK (that service has no actuator) or add actuator. Run with <code>-p 8083:8083</code>. Yes — store-service talks to <code>localhost:8083</code>, which Docker forwards into the container. <code>docker stop</code> it and watch the fallback kick in!</p></details>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between an image and a container?</summary>
+    <p>An image is a read-only template (layers of filesystem changes + metadata like the start command). A container is a runnable instance of an image with its own writable layer, process space and network. Many containers can run from one image — like objects from a class.</p></details>
+  <details><summary>Q2. How do containers differ from virtual machines?</summary>
+    <p>VMs virtualize hardware and each runs a full guest OS on a hypervisor. Containers virtualize at the OS level: they share the host kernel and are isolated with namespaces and cgroups. Containers are much smaller and start faster; VMs offer stronger isolation.</p></details>
+  <details><summary>Q3. What is a multi-stage build and why use it?</summary>
+    <p>A Dockerfile with several FROM stages where later stages copy artifacts from earlier ones (COPY --from). You build with a JDK/Maven image and ship only a JRE image with the jar, giving smaller, more secure images and builds that need only Docker.</p></details>
+  <details><summary>Q4. What are Spring Boot layered jars?</summary>
+    <p>The fat jar includes a layers.idx describing layers (dependencies, spring-boot-loader, snapshot-dependencies, application). With <code>java -Djarmode=tools -jar app.jar extract --layers</code> (Boot 3.3+; earlier <code>-Djarmode=layertools</code>) you extract them and COPY each into its own image layer, so code changes only rebuild and push the small application layer.</p></details>
+  <details><summary>Q5. ENTRYPOINT vs CMD? Exec form vs shell form?</summary>
+    <p>ENTRYPOINT defines the executable; CMD gives default arguments (or a default command) that can be overridden at docker run. Exec form (JSON array) runs the process directly as PID 1 so it receives signals (graceful shutdown); shell form wraps it in /bin/sh -c, which doesn't forward SIGTERM.</p></details>
+  <details><summary>Q6. How do you pass configuration to a Spring Boot app in a container?</summary>
+    <p>Environment variables (relaxed binding: SPRING_DATASOURCE_URL ↔ spring.datasource.url), SPRING_PROFILES_ACTIVE, command-line args after the image name, mounted config files (spring.config.additional-location), or Kubernetes ConfigMaps/Secrets. Secrets are never baked into the image.</p></details>
+  <details><summary>Q7. How do you handle JVM memory in containers?</summary>
+    <p>Set a container memory limit and use container-aware percentage flags like <code>-XX:MaxRAMPercentage=75</code> (Java 10+ detects cgroup limits), leaving headroom for metaspace, threads and native memory. Avoid hard-coded -Xmx that ignores the limit.</p></details>
+  <details><summary>Q8. List Dockerfile best practices for Java apps.</summary>
+    <p>Multi-stage builds, JRE/small base image, pinned versions, layered jars and cache-friendly ordering, .dockerignore, non-root USER, exec-form ENTRYPOINT, HEALTHCHECK, graceful shutdown, no secrets, image scanning, meaningful tags.</p></details>
+  <details><summary>Q9. What are Cloud Native Buildpacks?</summary>
+    <p>A way to turn source/jars into OCI images without a Dockerfile. Builders detect the app type and assemble layers (JRE, dependencies, app) with best practices. Spring Boot supports them via <code>mvn spring-boot:build-image</code> / Gradle <code>bootBuildImage</code>.</p></details>
+  <details><summary>Q10. What does EXPOSE do? How do you reach a container port from the host?</summary>
+    <p>EXPOSE only documents which port the app listens on (and is used by some tools). To reach it from the host you publish it with <code>-p hostPort:containerPort</code> (or <code>-P</code> to publish all exposed ports to random host ports).</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../65-Distributed-Tracing-And-Centralized-Logging/lesson.html"><small>← Previous</small>65. Distributed Tracing &amp; Centralized Logging</a>
+    <a class="next" href="../67-Docker-Compose-Multi-Container-Apps/lesson.html"><small>Next →</small>67. Docker Compose Multi-Container Apps</a>
+  </nav>
+</main>
+</body>
+</html>

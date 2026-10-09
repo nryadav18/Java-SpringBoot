@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>51 · Caching with Redis</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part E · Advanced Spring Boot › Topic 51</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part E · Advanced Spring Boot</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>51. Caching with Redis</h1>
+  <p class="subtitle">Make slow endpoints fast by remembering answers: Spring's cache annotations first with a simple in-memory cache, then with a real Redis server, TTLs and JSON values.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="51-Caching-With-Redis"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What a cache is, and the words <em>hit</em>, <em>miss</em>, <em>TTL</em> and <em>eviction</em>.</li>
+      <li>The <strong>cache-aside</strong> pattern, the most common caching pattern.</li>
+      <li>Spring's cache abstraction: <code>@EnableCaching</code>, <code>@Cacheable</code>, <code>@CachePut</code>, <code>@CacheEvict</code>, <code>@Caching</code>.</li>
+      <li>Cache keys, <code>condition</code> and <code>unless</code> with SpEL.</li>
+      <li>The default in-memory cache (works with no extra software) and its limits.</li>
+      <li>Redis as a shared cache: <code>spring-boot-starter-data-redis</code>, a <code>redis</code> profile and <code>docker-compose.yml</code>.</li>
+      <li>Setting a TTL, storing values as JSON, and the classic cache invalidation traps.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../27-Spring-AOP/lesson.html">Topic 27 · Spring AOP</a> (proxies),
+    <a href="../29-Configuration-Properties-And-Profiles/lesson.html">Topic 29 · Profiles</a> and
+    <a href="../31-Spring-MVC-And-REST-Fundamentals/lesson.html">Topic 31 · REST basics</a>. Docker is only needed for the Redis part.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1 -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Imagine your online shop has a product page. Every time someone opens it, your app runs a database query. The query takes 50 ms.
+    That sounds fast. But on a sale day, 2,000 people open the same page every second. Now your database runs the <em>same</em> query
+    2,000 times per second and gives the <em>same</em> answer every time. The database gets tired, everything slows down, and customers leave.</p>
+  <p>A <strong>cache</strong> fixes this. The first time, you ask the database and you <em>remember</em> the answer in a fast place.
+    The next 1,999 times, you give the remembered answer. The database relaxes, and the page loads in about 1 ms.</p>
+  <p>Caching gives you three wins:</p>
+  <ul>
+    <li><strong>Lower latency</strong> – latency means "how long one request waits". Reading from memory is thousands of times faster than a database or a remote API.</li>
+    <li><strong>Less load</strong> – your database, or an external API you pay for per call, gets far fewer requests.</li>
+    <li><strong>Better resilience</strong> – if a slow service has a short hiccup, recently cached data can still be served.</li>
+  </ul>
+  <p>How big is the difference? Rough numbers that every backend developer keeps in mind:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Where the data comes from</th><th>Typical time</th><th>Compared with RAM</th></tr>
+    <tr><td>A Java object already in memory (RAM)</td><td>~0.0001 ms (100 nanoseconds)</td><td>1×</td></tr>
+    <tr><td>Redis on the same network</td><td>~0.2 – 1 ms</td><td>thousands of times slower than RAM, but still very fast</td></tr>
+    <tr><td>A simple SQL query</td><td>~2 – 50 ms</td><td>much slower</td></tr>
+    <tr><td>A remote HTTP API (e.g. currency rates)</td><td>~100 – 500 ms</td><td>very slow</td></tr>
+  </table></div>
+  <p>Where you will meet caching at work: product catalogs, user profiles and permissions, currency exchange rates, country/city lists,
+    configuration values, results of expensive reports, tokens from an external login provider, and session data. Redis is one of the most popular
+    tools in the world for this, and "Have you used Redis caching?" is a very common interview question.</p>
+
+  <!-- ===================================================== 2 -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>👩‍🍳 The chef's counter and the storeroom</strong>
+    A chef in a busy restaurant keeps salt, oil and chopped onions <em>on the counter</em> right next to the stove. The full stock lives in the
+    storeroom at the back of the building. Walking to the storeroom takes 2 minutes; grabbing from the counter takes 2 seconds.
+    <ul>
+      <li>The <strong>storeroom</strong> is your database – complete and reliable, but slow to reach.</li>
+      <li>The <strong>counter</strong> is your cache – small, fast, holds only the things used most often.</li>
+      <li>"Onions are on the counter" = a <strong>cache hit</strong>. "No onions here, walk to the storeroom" = a <strong>cache miss</strong>.</li>
+      <li>Chopped onions go bad after a few hours, so the chef throws them away = <strong>TTL</strong> (time to live) and <strong>expiry</strong>.</li>
+      <li>The counter is small; when it is full, the least-used item goes back = <strong>eviction</strong>.</li>
+      <li>If the storeroom gets a new, better oil, the old bottle on the counter must be replaced, or the chef keeps using the old one = <strong>cache invalidation</strong>, the hard part!</li>
+    </ul>
+    If there are <em>three</em> chefs, each with their own counter, they may have different onions. A <em>shared</em> counter in the middle that all
+    chefs use is what <strong>Redis</strong> gives you: one cache shared by many copies of your application.
+  </div>
+
+  <!-- ===================================================== 3 -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The vocabulary of caching</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Word</th><th>Simple meaning</th></tr>
+    <tr><td><strong>Cache</strong></td><td>A fast key → value store that keeps copies of data that is slow to get.</td></tr>
+    <tr><td><strong>Key</strong></td><td>The "label" used to find a value, e.g. <code>1</code> for product 1, or <code>laptops</code> for a search.</td></tr>
+    <tr><td><strong>Cache hit</strong></td><td>The key was found in the cache. Fast answer, the slow source is not touched.</td></tr>
+    <tr><td><strong>Cache miss</strong></td><td>The key was not found. We must load from the slow source (and usually store it).</td></tr>
+    <tr><td><strong>Hit ratio</strong></td><td>hits ÷ (hits + misses). 0.95 means 95% of reads were served from the cache. Higher is better.</td></tr>
+    <tr><td><strong>TTL</strong> (time to live)</td><td>How long an entry may stay before it expires automatically, e.g. 10 minutes.</td></tr>
+    <tr><td><strong>Eviction</strong></td><td>Removing entries – because the TTL ran out, the cache is full, or we removed it on purpose.</td></tr>
+    <tr><td><strong>Stale data</strong></td><td>A cached value that is older than the real data in the database. The main risk of caching.</td></tr>
+    <tr><td><strong>Invalidation</strong></td><td>Removing or refreshing cache entries when the real data changes, so they are not stale.</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ A famous joke</strong>"There are only two hard things in computer science: cache invalidation and naming things." – Phil Karlton.
+    You will see why in section 3.12.</div>
+
+  <h3>3.2 What should (and should not) be cached?</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Good to cache ✅</th><th>Bad to cache ❌</th></tr>
+    <tr><td>Read often, changes rarely (product details, categories, country list)</td><td>Changes every second (live stock count during a flash sale, a bank balance)</td></tr>
+    <tr><td>Expensive to compute (reports, recommendations)</td><td>Cheap to compute (adding two numbers)</td></tr>
+    <tr><td>Slow external APIs (exchange rates, weather)</td><td>Data that must be 100% correct right now (payment status)</td></tr>
+    <tr><td>Same answer for many users</td><td>Unique per request with almost no repeats (the cache only fills up)</td></tr>
+  </table></div>
+  <p>Rule of thumb: <strong>measure first</strong>. Cache the things that are actually slow and actually repeated.</p>
+
+  <h3>3.3 The cache-aside pattern</h3>
+  <p>"Cache-aside" (also called "lazy loading") is the pattern you will use 90% of the time. The cache sits <em>beside</em> the database.
+    The application does the work:</p>
+  <ol>
+    <li>Look in the cache using the key.</li>
+    <li><strong>Hit?</strong> Return the cached value. Done.</li>
+    <li><strong>Miss?</strong> Load from the database, <em>put</em> the value into the cache, then return it.</li>
+    <li>When data is <em>changed</em>, update or remove the cache entry.</li>
+  </ol>
+  <figure class="diagram">
+    <svg viewBox="0 0 720 230" width="720" role="img" aria-label="Cache-aside flow">
+      <defs><marker id="ar51" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L9,3 L0,6 z" fill="currentColor"/></marker></defs>
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="10" y="85" width="120" height="50" rx="8"/>
+        <rect x="290" y="10" width="140" height="50" rx="8" stroke="var(--accent)"/>
+        <rect x="290" y="160" width="140" height="50" rx="8" stroke="var(--java)"/>
+        <rect x="560" y="85" width="150" height="50" rx="8" stroke="var(--info)"/>
+        <path d="M130 100 L288 40" marker-end="url(#ar51)"/>
+        <path d="M130 120 L288 180" marker-end="url(#ar51)"/>
+        <path d="M430 185 L558 120" marker-end="url(#ar51)"/>
+        <path d="M430 175 Q 470 110 432 55" stroke-dasharray="5 4" marker-end="url(#ar51)"/>
+      </g>
+      <g fill="currentColor" font-size="14" text-anchor="middle" font-family="Segoe UI, sans-serif">
+        <text x="70" y="115">Your service</text>
+        <text x="360" y="40">Cache (fast)</text>
+        <text x="360" y="190">Cache MISS path</text>
+        <text x="635" y="115">Database (slow)</text>
+        <text x="190" y="55">1. look up key</text>
+        <text x="200" y="175">3. miss → load</text>
+        <text x="505" y="170">4. query</text>
+        <text x="500" y="95">5. store result</text>
+        <text x="360" y="80" font-size="12">2. hit → return at once</text>
+      </g>
+    </svg>
+    <figcaption>Cache-aside: the application checks the cache first and fills it on a miss.</figcaption>
+  </figure>
+  <p>Other patterns exist. You do not need them today, but know their names for interviews:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Pattern</th><th>How it works</th><th>Note</th></tr>
+    <tr><td><strong>Cache-aside</strong></td><td>App reads cache, on miss loads DB and fills cache.</td><td>Most common. Spring's <code>@Cacheable</code> does exactly this.</td></tr>
+    <tr><td>Read-through</td><td>App only talks to the cache; the cache itself loads from the DB on a miss.</td><td>Needs a cache product with a "loader".</td></tr>
+    <tr><td>Write-through</td><td>Every write goes to cache AND database at the same time.</td><td>Cache always fresh, writes a bit slower. <code>@CachePut</code> is similar.</td></tr>
+    <tr><td>Write-behind (write-back)</td><td>Write to the cache now, write to the DB later in batches.</td><td>Fast but risky: data can be lost if the cache crashes.</td></tr>
+  </table></div>
+
+  <h3>3.4 Caching by hand – and why we don't</h3>
+  <p>You could write cache-aside yourself with a <code>Map</code>:</p>
+  <pre><code class="lang-java">private final Map&lt;Long, Product&gt; cache = new ConcurrentHashMap&lt;&gt;();
+
+public Product getProduct(Long id) {
+    Product cached = cache.get(id);
+    if (cached != null) {
+        return cached;                       // HIT
+    }
+    Product loaded = repository.findById(id) // MISS -&gt; slow database
+            .orElseThrow();
+    cache.put(id, loaded);                   // remember it
+    return loaded;
+}</code></pre>
+  <p>It works, but look at the problems: caching code is mixed with business code, it is repeated in every method, there is no TTL,
+    no size limit, and switching to Redis means rewriting everything. This is a <em>cross-cutting concern</em> – exactly what AOP (topic 27) is for.</p>
+
+  <h3>3.5 Spring's cache abstraction</h3>
+  <p>Spring gives you a <strong>cache abstraction</strong>: you put annotations on methods, and Spring does the cache-aside work for you.
+    "Abstraction" means your code does not care <em>which</em> cache product is used. Two interfaces make this possible:</p>
+  <ul>
+    <li><code>Cache</code> – one named cache, e.g. <code>"products"</code>. It has <code>get(key)</code>, <code>put(key, value)</code>, <code>evict(key)</code>, <code>clear()</code>.</li>
+    <li><code>CacheManager</code> – owns all the caches and gives you one by name: <code>cacheManager.getCache("products")</code>.</li>
+  </ul>
+  <p>Spring Boot picks a <code>CacheManager</code> implementation for you, based on what is on the classpath and the property <code>spring.cache.type</code>:</p>
+  <div class="table-wrap"><table>
+    <tr><th><code>spring.cache.type</code></th><th>CacheManager</th><th>Where data lives</th><th>When to use</th></tr>
+    <tr><td><code>simple</code></td><td><code>ConcurrentMapCacheManager</code></td><td>A <code>ConcurrentHashMap</code> inside your JVM</td><td>Learning, tests, tiny apps. Default if nothing else is found.</td></tr>
+    <tr><td><code>caffeine</code></td><td><code>CaffeineCacheManager</code></td><td>Inside your JVM, with size limit &amp; TTL</td><td>Fast local cache for a single instance.</td></tr>
+    <tr><td><code>redis</code></td><td><code>RedisCacheManager</code></td><td>A separate Redis server</td><td>Several app instances need one shared cache.</td></tr>
+    <tr><td><code>jcache</code></td><td><code>JCacheCacheManager</code></td><td>Ehcache 3, Hazelcast…</td><td>Standard JSR-107 providers.</td></tr>
+    <tr><td><code>none</code></td><td><code>NoOpCacheManager</code></td><td>Nowhere</td><td>Switch caching off (e.g. in some tests).</td></tr>
+  </table></div>
+  <p>The starter is <code>spring-boot-starter-cache</code>:</p>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-cache&lt;/artifactId&gt;
+&lt;/dependency&gt;</code></pre>
+
+  <h3>3.6 Step 1: switch caching on with <code>@EnableCaching</code></h3>
+  <pre><code class="lang-java">@Configuration
+@EnableCaching          // without this line, every cache annotation is silently IGNORED
+public class CacheConfig { }</code></pre>
+  <p>What happens behind the scenes? Spring wraps every bean that has cache annotations in a <strong>proxy</strong> (a "stand-in" object, topic 27).
+    Callers talk to the proxy. The proxy checks the cache and only calls the real method on a miss.</p>
+  <div class="flow">
+    <span class="box">Controller</span><span class="arrow">→</span>
+    <span class="box info">Cache proxy<br><small>key in cache?</small></span><span class="arrow">→ miss →</span>
+    <span class="box alt">Real ProductService method</span><span class="arrow">→</span>
+    <span class="box">Database</span>
+  </div>
+  <p>On a <em>hit</em>, the proxy returns the cached value and the real method is never called – you will not even see its log line.</p>
+
+  <h3>3.7 <code>@Cacheable</code> – "remember the answer"</h3>
+  <pre><code class="lang-java">@Cacheable(cacheNames = "products", key = "#id")
+public Product getProductById(Long id) {
+    return repository.findById(id).orElseThrow(() -&gt; new ProductNotFoundException(id));
+}</code></pre>
+  <ul>
+    <li><code>cacheNames = "products"</code> – which cache to use (<code>value</code> is an alias for the same thing).</li>
+    <li><code>key = "#id"</code> – the key is the value of the parameter called <code>id</code>. Call with 1 → key <code>1</code>.</li>
+    <li>First call with id 1: miss → method runs → result stored under key 1.</li>
+    <li>Second call with id 1: hit → method <strong>skipped</strong> → cached product returned.</li>
+    <li>If the method <strong>throws an exception</strong>, nothing is cached. A "not found" is asked again next time.</li>
+  </ul>
+
+  <h4>How keys are made</h4>
+  <p>If you do not write a <code>key</code>, Spring builds one from <em>all</em> parameters (the default <code>SimpleKeyGenerator</code>):</p>
+  <div class="table-wrap"><table>
+    <tr><th>Method parameters</th><th>Default key</th></tr>
+    <tr><td>none</td><td><code>SimpleKey.EMPTY</code></td></tr>
+    <tr><td>one parameter, e.g. <code>(Long id)</code></td><td>the parameter itself: <code>1</code></td></tr>
+    <tr><td>several, e.g. <code>(String category, int page)</code></td><td><code>SimpleKey [laptops, 0]</code></td></tr>
+  </table></div>
+  <p>The <code>key</code> attribute uses <strong>SpEL</strong> (Spring Expression Language, topic 26). The most useful expressions:</p>
+  <div class="table-wrap"><table>
+    <tr><th>SpEL</th><th>Meaning</th><th>Example</th></tr>
+    <tr><td><code>#id</code></td><td>the parameter named <code>id</code></td><td><code>key = "#id"</code></td></tr>
+    <tr><td><code>#p0</code> / <code>#a0</code></td><td>the first parameter (by position)</td><td><code>key = "#p0"</code></td></tr>
+    <tr><td><code>#request.email</code></td><td>a property of a parameter object</td><td><code>key = "#request.email"</code></td></tr>
+    <tr><td><code>#category.toLowerCase()</code></td><td>call a method on a parameter</td><td>normalise keys</td></tr>
+    <tr><td><code>#id + '-' + #lang</code></td><td>combine several values</td><td><code>"1-en"</code></td></tr>
+    <tr><td><code>#root.methodName</code></td><td>the method's name</td><td>useful for shared caches</td></tr>
+    <tr><td><code>#result</code></td><td>the return value (only in <code>unless</code>, <code>@CachePut</code> key, and <code>@CacheEvict</code> after the call)</td><td><code>key = "#result.id"</code></td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Why can Spring see the name "id"?</strong>Java normally forgets parameter names after compiling.
+    The Spring Boot parent POM compiles with the <code>-parameters</code> flag, which keeps them. That is why <code>#id</code> works. If you ever
+    see "Null key returned for cache operation", the names were lost – use <code>#p0</code> or check the compiler settings.</div>
+
+  <h4><code>condition</code> and <code>unless</code></h4>
+  <pre><code class="lang-java">@Cacheable(cacheNames = "productSearch",
+           key = "#category.toLowerCase()",
+           condition = "#category.length() &gt;= 3",   // checked BEFORE the call
+           unless = "#result.isEmpty()")             // checked AFTER the call
+public List&lt;Product&gt; searchByCategory(String category) { ... }</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Attribute</th><th>Evaluated</th><th>If true…</th><th>Can use <code>#result</code>?</th></tr>
+    <tr><td><code>condition</code></td><td>before the method runs</td><td>caching is <strong>used</strong> (look up + store)</td><td>No</td></tr>
+    <tr><td><code>unless</code></td><td>after the method runs</td><td>the result is <strong>not stored</strong></td><td>Yes</td></tr>
+  </table></div>
+  <p>So: searching <code>"ph"</code> (2 letters) is never cached; a search that finds nothing is not cached either.</p>
+
+  <h4><code>sync = true</code> – protecting against a stampede</h4>
+  <p>Imagine the cache entry for a very popular product expires, and 500 requests arrive in the same millisecond. All 500 see a miss and all 500
+    query the database. This is a <strong>cache stampede</strong> (also "thundering herd"). With <code>@Cacheable(cacheNames = "products", sync = true)</code>,
+    only one thread loads the value; the others wait for it. (<code>sync</code> cannot be combined with <code>unless</code>.)</p>
+
+  <h3>3.8 <code>@CachePut</code> – "always run, then refresh the cache"</h3>
+  <pre><code class="lang-java">@CachePut(cacheNames = "products", key = "#id")
+public Product updatePrice(Long id, BigDecimal newPrice) {
+    ...                       // ALWAYS runs
+    return updatedProduct;    // the return value REPLACES the cache entry for key id
+}</code></pre>
+  <p>Use it on <strong>update</strong> methods. After the update, readers immediately get the new value from the cache, with no extra database call.
+    Important: the method must <em>return</em> the object you want cached. A <code>void</code> method with <code>@CachePut</code> would cache <code>null</code>.</p>
+  <div class="callout warn"><strong>⚠️ Never put @Cacheable and @CachePut on the same method</strong>They want opposite things (skip vs always run).</div>
+
+  <h3>3.9 <code>@CacheEvict</code> – "forget it"</h3>
+  <pre><code class="lang-java">@CacheEvict(cacheNames = "products", key = "#id")                // remove ONE entry
+public void deleteProduct(Long id) { ... }
+
+@CacheEvict(cacheNames = "productSearch", allEntries = true)     // empty the WHOLE cache
+public void importNewCatalog() { ... }
+
+@CacheEvict(cacheNames = "products", key = "#id", beforeInvocation = true)
+public void riskyDelete(Long id) { ... }   // evict even if the method throws</code></pre>
+  <p>By default eviction happens <em>after</em> the method finishes successfully. If the method throws, the entry stays. <code>beforeInvocation = true</code> changes that.</p>
+
+  <h3>3.10 <code>@Caching</code> and <code>@CacheConfig</code></h3>
+  <p>Java does not allow the same annotation twice in this case, so to do several cache operations on one method, group them with <code>@Caching</code>:</p>
+  <pre><code class="lang-java">@Caching(
+    put   = @CachePut(cacheNames = "products", key = "#id"),
+    evict = @CacheEvict(cacheNames = "productSearch", allEntries = true)
+)
+public Product updatePrice(Long id, BigDecimal newPrice) { ... }</code></pre>
+  <p><code>@CacheConfig</code> on the class sets defaults for every method so you don't repeat yourself:</p>
+  <pre><code class="lang-java">@Service
+@CacheConfig(cacheNames = "products")
+public class ProductService {
+    @Cacheable(key = "#id")   // uses "products" from @CacheConfig
+    public Product get(Long id) { ... }
+}</code></pre>
+
+  <h3>3.11 The default in-memory cache – great for learning, limited in production</h3>
+  <p>With only <code>spring-boot-starter-cache</code> and <code>@EnableCaching</code>, Spring Boot uses <code>ConcurrentMapCacheManager</code>.
+    It needs no installation, which is why our project uses it by default. But it has real limits:</p>
+  <ul>
+    <li><strong>No TTL</strong> – entries live until the app stops or you evict them.</li>
+    <li><strong>No size limit</strong> – it can grow until you run out of memory.</li>
+    <li><strong>Per instance</strong> – if you run 3 copies of the app behind a load balancer, there are 3 separate caches. You evict in one copy; the other two still serve the old price.</li>
+    <li><strong>Lost on restart</strong> – a restart empties it ("cold cache").</li>
+  </ul>
+  <p>Caffeine fixes the first two (local, with TTL and size). <strong>Redis fixes all four.</strong></p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 250" width="720" role="img" aria-label="Local caches versus shared Redis cache">
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="10" y="20" width="320" height="220" rx="10" stroke-dasharray="6 4"/>
+        <rect x="30" y="60" width="130" height="60" rx="8"/>
+        <rect x="180" y="60" width="130" height="60" rx="8"/>
+        <rect x="30" y="140" width="130" height="35" rx="6" stroke="var(--java)"/>
+        <rect x="180" y="140" width="130" height="35" rx="6" stroke="var(--java)"/>
+        <rect x="390" y="20" width="320" height="220" rx="10" stroke-dasharray="6 4"/>
+        <rect x="410" y="60" width="130" height="60" rx="8"/>
+        <rect x="560" y="60" width="130" height="60" rx="8"/>
+        <rect x="485" y="170" width="130" height="50" rx="8" stroke="var(--accent)"/>
+        <path d="M475 120 L530 168"/><path d="M625 120 L570 168"/>
+      </g>
+      <g fill="currentColor" font-size="13" text-anchor="middle" font-family="Segoe UI, sans-serif">
+        <text x="170" y="42" font-weight="bold">Local cache (per instance)</text>
+        <text x="95" y="95">App instance A</text><text x="245" y="95">App instance B</text>
+        <text x="95" y="162">price = 999</text><text x="245" y="162">price = 1199 ❌</text>
+        <text x="170" y="210">Each has its own copy → can disagree</text>
+        <text x="550" y="42" font-weight="bold">Shared cache (Redis)</text>
+        <text x="475" y="95">App instance A</text><text x="625" y="95">App instance B</text>
+        <text x="550" y="200">Redis: price = 999</text>
+      </g>
+    </svg>
+    <figcaption>With several instances, a shared cache keeps everyone in agreement.</figcaption>
+  </figure>
+
+  <h3>3.12 What is Redis?</h3>
+  <p><strong>Redis</strong> (REmote DIctionary Server) is an open-source, <em>in-memory</em> key-value data store. Think of it as a giant
+    <code>HashMap</code> that runs as its own server, which all your app instances can share over the network. It is extremely fast
+    because data lives in RAM, and it supports expiry (TTL) on every key out of the box. It is also used for sessions, rate limiting,
+    leaderboards and queues – but here we use it as a cache.</p>
+  <p>Some Redis commands you will use (run them in <code>redis-cli</code>):</p>
+  <div class="table-wrap"><table>
+    <tr><th>Command</th><th>What it does</th></tr>
+    <tr><td><code>PING</code></td><td>Health check – answers <code>PONG</code>.</td></tr>
+    <tr><td><code>SET name "Asha"</code> / <code>GET name</code></td><td>Store / read a value.</td></tr>
+    <tr><td><code>KEYS *</code></td><td>List all keys (fine for learning; <strong>never</strong> in production – it blocks Redis. Use <code>SCAN</code>).</td></tr>
+    <tr><td><code>TTL products::1</code></td><td>Seconds left before the key expires (<code>-1</code> = never, <code>-2</code> = gone).</td></tr>
+    <tr><td><code>DEL products::1</code></td><td>Delete one key.</td></tr>
+    <tr><td><code>FLUSHALL</code></td><td>Delete everything (local learning only!).</td></tr>
+  </table></div>
+
+  <h3>3.13 Adding Redis to Spring Boot</h3>
+  <p><strong>Step 1 – dependency.</strong> <code>spring-boot-starter-data-redis</code> brings the <em>Lettuce</em> Redis client, <code>RedisTemplate</code> and <code>RedisCacheManager</code>.</p>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-data-redis&lt;/artifactId&gt;
+&lt;/dependency&gt;</code></pre>
+  <p><strong>Step 2 – a Redis server.</strong> The easiest way is Docker. Our <code>docker-compose.yml</code>:</p>
+  <pre><span class="file">docker-compose.yml</span><code class="lang-yaml">services:
+  redis:
+    image: redis:7
+    container_name: course-redis
+    ports:
+      - "6379:6379"        # host port : container port
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s</code></pre>
+  <p><strong>Step 3 – tell Spring where Redis is and to use it for caching.</strong> We do this only in a <code>redis</code> profile (topic 29),
+    so the default profile keeps working without Docker:</p>
+  <pre><span class="file">src/main/resources/application-redis.properties</span><code class="lang-properties">spring.cache.type=redis
+spring.data.redis.host=localhost
+spring.data.redis.port=6379
+spring.data.redis.timeout=2s
+# spring.data.redis.password=${REDIS_PASSWORD}   # secrets come from environment variables</code></pre>
+  <div class="callout warn"><strong>⚠️ Why we set <code>spring.cache.type=simple</code> in the default profile</strong>
+    When <code>spring-boot-starter-data-redis</code> is on the classpath, Spring Boot's auto-configuration sees a Redis connection factory and
+    chooses <code>RedisCacheManager</code> automatically. Without Redis running, the first cached call would fail with
+    <code>RedisConnectionFailureException</code>. Setting <code>spring.cache.type=simple</code> explicitly keeps the default profile Redis-free.
+    (The app still <em>starts</em> without Redis, because the Lettuce client only connects when it is first used.)</div>
+  <p>That's it – your <code>@Cacheable</code> code does not change at all. That is the power of the abstraction.</p>
+
+  <h3>3.14 TTL – making entries expire</h3>
+  <p>There are two ways to set a TTL for Redis caches.</p>
+  <p><strong>Option A – a property</strong> (simple, same TTL for every cache):</p>
+  <pre><code class="lang-properties">spring.cache.redis.time-to-live=10m
+spring.cache.redis.cache-null-values=false
+spring.cache.redis.key-prefix=shop:
+spring.cache.redis.use-key-prefix=true</code></pre>
+  <p><strong>Option B – a <code>RedisCacheConfiguration</code> bean</strong> (full control; what our project does):</p>
+  <pre><span class="file">config/CacheConfig.java</span><code class="lang-java">@Bean
+@Profile("redis")
+public RedisCacheConfiguration redisCacheConfiguration() {
+    return RedisCacheConfiguration.defaultCacheConfig()
+            .entryTtl(Duration.ofMinutes(10))
+            .disableCachingNullValues()
+            .serializeKeysWith(SerializationPair.fromSerializer(new StringRedisSerializer()))
+            .serializeValuesWith(SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+}
+
+@Bean
+@Profile("redis")
+public RedisCacheManagerBuilderCustomizer perCacheTtlCustomizer(RedisCacheConfiguration defaults) {
+    return builder -&gt; builder
+            .withCacheConfiguration("productSearch", defaults.entryTtl(Duration.ofMinutes(1)))
+            .withCacheConfiguration("products", defaults);
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ Bean beats property</strong>Once you define your own <code>RedisCacheConfiguration</code> bean, the
+    <code>spring.cache.redis.*</code> properties are no longer applied. Pick one approach and stick with it.</div>
+  <p>How to choose a TTL? Ask: "How old may this data be before a customer notices or it causes harm?" Product descriptions: maybe an hour.
+    Prices: a few minutes (and evict on change). Exchange rates: 1 minute. There is no magic number – it's a business decision.</p>
+
+  <h3>3.15 Serialization – how Java objects become bytes in Redis</h3>
+  <p>Redis stores bytes, not Java objects. <strong>Serialization</strong> = turning an object into bytes; <strong>deserialization</strong> = the reverse.</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>JDK serialization (default)</th><th>JSON (<code>GenericJackson2JsonRedisSerializer</code>)</th></tr>
+    <tr><td>Needs <code>implements Serializable</code>?</td><td>Yes – otherwise an error at runtime</td><td>No</td></tr>
+    <tr><td>Readable in <code>redis-cli</code>?</td><td>No – binary garbage like <code>\xac\xed\x00\x05sr...</code></td><td>Yes – <code>{"@class":"...Product","id":1,...}</code></td></tr>
+    <tr><td>Other languages can read it?</td><td>No (Java only)</td><td>Yes</td></tr>
+    <tr><td>Rename/move a class?</td><td>Old entries break</td><td>Old entries break too (class name stored), but easier to debug</td></tr>
+  </table></div>
+  <p>With JSON, a cached product looks something like this in Redis (shortened):</p>
+  <pre class="terminal"><code>127.0.0.1:6379&gt; GET products::1
+"{\"@class\":\"com.course.caching.product.Product\",\"id\":1,\"name\":\"Dell XPS 13\",\"category\":\"laptops\",\"price\":...}"
+127.0.0.1:6379&gt; TTL products::1
+(integer) 583</code></pre>
+  <p>The <code>@class</code> field is <em>type information</em>. <code>GenericJackson2JsonRedisSerializer</code> stores it so it knows which Java class to create when reading back.
+    Notice the key format: <code>cacheName::key</code> → <code>products::1</code>.</p>
+
+  <h3>3.16 Cache invalidation pitfalls (read this twice!)</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Pitfall</th><th>What goes wrong</th><th>Fix</th></tr>
+    <tr><td>Forgetting to evict on update/delete</td><td>Users see old prices for hours</td><td><code>@CachePut</code> / <code>@CacheEvict</code> on every write path + a TTL as safety net</td></tr>
+    <tr><td>Forgetting related caches</td><td>Single product refreshed, but the <em>search list</em> still shows the old price</td><td>Evict dependent caches too (<code>allEntries = true</code> on search lists)</td></tr>
+    <tr><td>Data changed outside the app</td><td>A DBA runs an SQL UPDATE; your cache never hears about it</td><td>TTL; or an admin "clear cache" endpoint</td></tr>
+    <tr><td>Local caches with many instances</td><td>Instance A evicts; instance B still serves stale data</td><td>Use a shared cache (Redis)</td></tr>
+    <tr><td>Self-invocation</td><td><code>this.getProductById()</code> inside the same class never hits the cache</td><td>Call through another bean (the proxy)</td></tr>
+    <tr><td>Caching mutable objects (local cache)</td><td>Someone changes the returned object → the cached copy changes too</td><td>Cache immutable objects (records) or copies</td></tr>
+    <tr><td>Bad keys</td><td>Two different methods share a cache with the same key → wrong type returned</td><td>One cache per kind of data; explicit keys</td></tr>
+    <tr><td>Stampede after expiry</td><td>Hundreds of threads reload the same entry</td><td><code>sync = true</code>; slightly random TTLs</td></tr>
+  </table></div>
+
+  <!-- ===================================================== 4 -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>The project is a small <strong>Product Catalog</strong> API. The "database" is deliberately slow (2 seconds per query) so you can feel the cache.
+    Package: <code>com.course.caching</code>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>Starters: web, cache, data-redis, test.</td></tr>
+    <tr><td><code>CachingApplication.java</code></td><td>The <code>main</code> class.</td></tr>
+    <tr><td><code>config/CacheConfig.java</code></td><td><code>@EnableCaching</code>; Redis TTL + JSON serialization beans (<code>redis</code> profile only).</td></tr>
+    <tr><td><code>config/CacheNames.java</code></td><td>Cache names as constants to avoid typos.</td></tr>
+    <tr><td><code>product/Product.java</code></td><td>An immutable record – ideal for caching.</td></tr>
+    <tr><td><code>product/ProductRepository.java</code></td><td>The slow fake database; counts real "database hits".</td></tr>
+    <tr><td><code>product/ProductService.java</code></td><td>All cache annotations.</td></tr>
+    <tr><td><code>product/ProductNotFoundException.java</code></td><td>404 – and proof that exceptions are not cached.</td></tr>
+    <tr><td><code>web/ProductController.java</code></td><td>REST endpoints + <code>X-Response-Time-Ms</code> header.</td></tr>
+    <tr><td><code>web/CacheAdminController.java</code></td><td>Uses <code>CacheManager</code> to list and clear caches.</td></tr>
+    <tr><td><code>application.properties</code></td><td>Default profile: <code>spring.cache.type=simple</code>, TRACE logging of cache decisions.</td></tr>
+    <tr><td><code>application-redis.properties</code></td><td><code>redis</code> profile: Redis host/port.</td></tr>
+    <tr><td><code>src/test/.../ProductServiceCachingTest.java</code></td><td>Proves hits by counting database calls.</td></tr>
+    <tr><td><code>docker-compose.yml</code>, <code>requests.http</code></td><td>Redis server; sample requests.</td></tr>
+  </table></div>
+
+  <h3>4.1 The slow repository</h3>
+  <pre><span class="file">product/ProductRepository.java (key parts)</span><code class="lang-java">public ProductRepository(@Value("${app.slow-database.delay-ms:2000}") long delayMs) { ... }
+
+public Optional&lt;Product&gt; findById(Long id) {
+    simulateSlowQuery("SELECT * FROM product WHERE id = " + id);
+    return Optional.ofNullable(table.get(id));
+}
+
+private void simulateSlowQuery(String sql) {
+    int hit = databaseHits.incrementAndGet();          // count every REAL call
+    log.info("DATABASE HIT #{} -&gt; {} (takes {} ms)", hit, sql, delayMs);
+    Thread.sleep(delayMs);                              // pretend to be slow (inside try/catch)
+}</code></pre>
+  <p>The delay comes from a property (<code>app.slow-database.delay-ms</code>) so the test can set it to 0. The counter <code>databaseHits</code>
+    lets us <em>prove</em> that a cache hit never reaches the repository. Also note <code>findByCategory</code> returns a plain <code>ArrayList</code> – see "Common mistakes" for why.</p>
+
+  <h3>4.2 The service – where caching happens</h3>
+  <pre><span class="file">product/ProductService.java (key parts)</span><code class="lang-java">@Cacheable(cacheNames = CacheNames.PRODUCTS, key = "#id")
+public Product getProductById(Long id) {
+    log.info("Cache MISS for product {} - loading from the database", id);
+    return repository.findById(id).orElseThrow(() -&gt; new ProductNotFoundException(id));
+}
+
+@Cacheable(cacheNames = CacheNames.PRODUCT_SEARCH, key = "#category.toLowerCase()",
+           condition = "#category.length() &gt;= 3", unless = "#result.isEmpty()")
+public List&lt;Product&gt; searchByCategory(String category) { ... }
+
+@Caching(
+    put   = @CachePut(cacheNames = CacheNames.PRODUCTS, key = "#result.id"),
+    evict = @CacheEvict(cacheNames = CacheNames.PRODUCT_SEARCH, allEntries = true))
+public Product createProduct(String name, String category, BigDecimal price) { ... }
+
+@Caching(
+    put   = @CachePut(cacheNames = CacheNames.PRODUCTS, key = "#id"),
+    evict = @CacheEvict(cacheNames = CacheNames.PRODUCT_SEARCH, allEntries = true))
+public Product updatePrice(Long id, BigDecimal newPrice) { ... }
+
+@Caching(evict = {
+    @CacheEvict(cacheNames = CacheNames.PRODUCTS, key = "#id"),
+    @CacheEvict(cacheNames = CacheNames.PRODUCT_SEARCH, allEntries = true) })
+public void deleteProduct(Long id) { ... }</code></pre>
+  <p>Read it like a story:</p>
+  <ul>
+    <li><strong>Read one</strong> – remember it under its id. The log line "Cache MISS…" only appears on a miss, because on a hit the method body never runs.</li>
+    <li><strong>Search</strong> – remember the list under the lower-case category, but not for short terms and not when empty.</li>
+    <li><strong>Create</strong> – the new id is only known <em>after</em> saving, so the key is <code>#result.id</code>. Every search list might now be missing the new product, so we clear the whole <code>productSearch</code> cache.</li>
+    <li><strong>Update</strong> – overwrite the cached product with the new one and clear the search lists (they contain the old price).</li>
+    <li><strong>Delete</strong> – remove the product and the search lists.</li>
+  </ul>
+  <p>Notice inside <code>updatePrice</code> we call <code>repository.findById(id)</code>, <em>not</em> <code>this.getProductById(id)</code>. A call through <code>this</code> skips the proxy, so it would never use the cache.</p>
+
+  <h3>4.3 The controller – measuring the speed-up</h3>
+  <pre><span class="file">web/ProductController.java (key parts)</span><code class="lang-java">@GetMapping("/{id}")
+public ResponseEntity&lt;Product&gt; getOne(@PathVariable Long id) {
+    return timed(() -&gt; productService.getProductById(id));
+}
+
+private &lt;T&gt; ResponseEntity&lt;T&gt; timed(Supplier&lt;T&gt; call) {
+    long start = System.nanoTime();
+    T body = call.get();
+    long tookMs = (System.nanoTime() - start) / 1_000_000;
+    return ResponseEntity.ok().header("X-Response-Time-Ms", String.valueOf(tookMs)).body(body);
+}</code></pre>
+  <p><code>timed</code> is a small generic helper (topic 12) that takes a <code>Supplier</code> (topic 13), runs it, and adds the time as a response header.
+    <code>GET /api/products/stats</code> returns the real database-hit counter.</p>
+
+  <h3>4.4 Looking inside the caches with <code>CacheManager</code></h3>
+  <pre><span class="file">web/CacheAdminController.java (key parts)</span><code class="lang-java">for (String name : cacheManager.getCacheNames()) {
+    Cache cache = cacheManager.getCache(name);
+    Object nativeCache = cache == null ? null : cache.getNativeCache();
+    if (nativeCache instanceof ConcurrentMap&lt;?, ?&gt; map) {   // in-memory cache: show keys
+        result.put(name, map.keySet());
+    } else {                                               // Redis: look with redis-cli
+        result.put(name, "stored in Redis - inspect with: docker exec -it course-redis redis-cli KEYS '*'");
+    }
+}</code></pre>
+  <p>You can inject <code>CacheManager</code> anywhere and work with caches by code – useful for an admin "clear cache" button.
+    <code>getNativeCache()</code> returns the real underlying store (a <code>ConcurrentMap</code> for the simple cache).</p>
+
+  <h3>4.5 The test</h3>
+  <pre><span class="file">src/test/java/com/course/caching/ProductServiceCachingTest.java</span><code class="lang-java">@SpringBootTest(properties = "app.slow-database.delay-ms=0")
+class ProductServiceCachingTest {
+
+    @Test
+    void secondReadComesFromTheCache() {
+        int before = productService.databaseHits();
+        productService.getProductById(1L);   // MISS
+        productService.getProductById(1L);   // HIT
+        productService.getProductById(1L);   // HIT
+        assertThat(productService.databaseHits() - before).isEqualTo(1);
+    }
+}</code></pre>
+  <p>We need <code>@SpringBootTest</code> (a real Spring context, topic 46) because caching only works through the Spring proxy – a plain
+    <code>new ProductService(...)</code> would have no caching at all.</p>
+
+  <!-- ===================================================== 5 -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 Default profile – no Redis needed</h3>
+  <p><strong>VS Code:</strong> open the folder <code>51-Caching-With-Redis</code>, open <code>CachingApplication.java</code> and click <em>Run</em> above <code>main</code>
+    (or use the Spring Boot Dashboard). <strong>Terminal:</strong></p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\51-Caching-With-Redis"
+mvn spring-boot:run</code></pre>
+  <p>Now call product 1 twice (<code>-i</code> shows the headers; in PowerShell use <code>curl.exe</code> instead of <code>curl</code>):</p>
+  <pre class="terminal"><code>curl -i http://localhost:8080/api/products/1
+curl -i http://localhost:8080/api/products/1</code></pre>
+  <p>Expected (times will differ slightly):</p>
+  <pre class="terminal"><code>HTTP/1.1 200
+X-Response-Time-Ms: 2103
+{"id":1,"name":"Dell XPS 13","category":"laptops","price":1199.00}
+
+HTTP/1.1 200
+X-Response-Time-Ms: 2
+{"id":1,"name":"Dell XPS 13","category":"laptops","price":1199.00}</code></pre>
+  <p>And in the application log:</p>
+  <pre class="terminal"><code>TRACE ... CacheInterceptor : No cache entry for key '1' in cache(s) [products]
+INFO  ... ProductService   : Cache MISS for product 1 - loading from the database
+INFO  ... ProductRepository: DATABASE HIT #1 -&gt; SELECT * FROM product WHERE id = 1 (takes 2000 ms)
+TRACE ... CacheInterceptor : Creating cache entry for key '1' in cache(s) [products]
+TRACE ... CacheInterceptor : Cache entry for key '1' found in cache(s) [products]</code></pre>
+  <p>More requests to try (all also in <code>requests.http</code> – open it and click "Send Request"):</p>
+  <pre class="terminal"><code>curl "http://localhost:8080/api/products?category=laptops"
+curl -X PUT -H "Content-Type: application/json" -d "{\"price\":999}" http://localhost:8080/api/products/1/price
+curl http://localhost:8080/api/products/1          # fast AND shows 999 (thanks to @CachePut)
+curl http://localhost:8080/api/products/stats      # {"databaseHits":3}
+curl http://localhost:8080/api/caches              # {"cacheManager":"ConcurrentMapCacheManager","productSearch":[],"products":[1]}
+curl -X DELETE http://localhost:8080/api/caches    # clear everything</code></pre>
+  <p>Run the tests:</p>
+  <pre class="terminal"><code>mvn test</code></pre>
+
+  <h3>5.2 With a real Redis server</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\51-Caching-With-Redis"
+docker compose up -d                                   # start Redis 7
+docker exec -it course-redis redis-cli PING            # PONG
+mvn spring-boot:run -Dspring-boot.run.profiles=redis</code></pre>
+  <p>Call the same endpoints. Then look inside Redis:</p>
+  <pre class="terminal"><code>docker exec -it course-redis redis-cli
+127.0.0.1:6379&gt; KEYS *
+1) "products::1"
+2) "productSearch::laptops"
+127.0.0.1:6379&gt; TTL productSearch::laptops
+(integer) 52
+127.0.0.1:6379&gt; GET products::1</code></pre>
+  <p>Now <strong>restart the application</strong> and call product 1 again – it is still fast! The cache lives in Redis, not in the JVM, so it survives restarts.
+    Stop Redis with <code>docker compose down</code> when you are finished.</p>
+
+  <!-- ===================================================== 6 -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting <code>@EnableCaching</code></strong>The app runs, no error, but every call is slow. The annotations are simply ignored.
+    <br><strong>Fix:</strong> add <code>@EnableCaching</code> to a <code>@Configuration</code> class (or the main class).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: calling a cached method from the same class</strong>
+    <pre><code class="lang-java">public Product getWithDiscount(Long id) {
+    Product p = getProductById(id);   // "this.getProductById" - NO cache, proxy is bypassed!
+    ...
+}</code></pre>
+    <strong>Fix:</strong> put the cached method in another bean and inject it, so the call goes through the proxy. The same rule applies to <code>@Transactional</code> and <code>@Async</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: caching <code>private</code> methods</strong>Proxies can only intercept <code>public</code> methods called from outside. Annotations on private methods do nothing.
+    <br><strong>Fix:</strong> cache public service methods.</div>
+  <div class="callout danger"><strong>🛑 Mistake: Redis says "Could not read JSON ... ImmutableCollections$ListN"</strong>
+    Lists created by <code>stream().toList()</code> or <code>List.of(...)</code> are hidden JDK classes with no public constructor. They can be <em>written</em> to Redis as JSON,
+    but Jackson cannot <em>create</em> them when reading back.
+    <br><strong>Fix:</strong> return a normal <code>new ArrayList&lt;&gt;(...)</code> from cached methods (our repository does), or use a typed serializer.</div>
+  <div class="callout danger"><strong>🛑 Mistake: <code>SerializationException ... DefaultSerializer requires a Serializable payload</code></strong>
+    You use Redis with the default JDK serializer and your class does not implement <code>Serializable</code>.
+    <br><strong>Fix:</strong> configure JSON serialization (<code>GenericJackson2JsonRedisSerializer</code>) as in <code>CacheConfig</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>RedisConnectionFailureException: Unable to connect to Redis</code></strong>
+    You started with the <code>redis</code> profile but Redis is not running – or you forgot <code>spring.cache.type=simple</code> in the default profile while the Redis starter is present.
+    <br><strong>Fix:</strong> <code>docker compose up -d</code>, check with <code>docker ps</code>, or run without the profile.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: updating data but not the cache</strong>A new endpoint updates the product name, but nobody added <code>@CachePut</code>/<code>@CacheEvict</code> to it. Users see the old name until restart.
+    <br><strong>Fix:</strong> every write path must touch the cache, and always set a TTL as a safety net.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: changing a cached class and reading old entries</strong>You rename a field or move the <code>Product</code> class; old JSON in Redis no longer matches and reading fails.
+    <br><strong>Fix:</strong> clear the cache on deployment (or change the key prefix/cache name for the new version).</div>
+
+  <!-- ===================================================== 7 -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Measure before caching.</strong> Cache what is slow and repeated. Every cache adds complexity and a risk of stale data.</li>
+    <li><strong>Always set a TTL</strong> for Redis caches. Even with perfect eviction code, a TTL saves you when data changes outside the app.</li>
+    <li><strong>Cache at the service layer</strong>, not in controllers or repositories – the service knows the business meaning of the data.</li>
+    <li><strong>Cache DTOs / immutable records</strong>, not JPA entities. Entities have lazy relationships and Hibernate proxies that do not serialize well.</li>
+    <li><strong>Use JSON serialization</strong> in Redis – readable, debuggable, no <code>Serializable</code> requirement.</li>
+    <li><strong>Keep cache names in constants</strong> and use explicit, readable keys.</li>
+    <li><strong>Use different TTLs per cache</strong> depending on how fast the data changes.</li>
+    <li><strong>Never cache secrets or personal data</strong> without thinking about who can read Redis. Protect Redis with a password/ACL and never expose port 6379 to the internet.</li>
+    <li><strong>The app must survive a cache outage.</strong> Redis down should mean "slower", not "broken". (Spring lets you register a <code>CacheErrorHandler</code> that logs errors and falls back to the method.)</li>
+    <li><strong>Monitor the hit ratio</strong> with Actuator's cache metrics (topic 53). A cache with a 5% hit ratio is just overhead.</li>
+    <li>In production, use a <strong>managed Redis</strong> (AWS ElastiCache, Azure Cache for Redis, Redis Cloud) rather than running your own.</li>
+  </ul>
+
+  <!-- ===================================================== 8 -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>A cache keeps copies of slow-to-get data in a fast place. Hit = fast; miss = load and store.</li>
+    <li>Cache-aside is the standard pattern, and <code>@Cacheable</code> implements it for you.</li>
+    <li><code>@EnableCaching</code> turns caching on; Spring uses AOP proxies, so self-calls and private methods are not cached.</li>
+    <li><code>@Cacheable</code> = read-through-the-cache; <code>@CachePut</code> = always run &amp; refresh; <code>@CacheEvict</code> = remove; <code>@Caching</code> = combine.</li>
+    <li>Keys are SpEL expressions (<code>#id</code>, <code>#result.id</code>); <code>condition</code> is checked before, <code>unless</code> after the call.</li>
+    <li>The default <code>ConcurrentMapCache</code> needs no setup but has no TTL, no size limit and is per instance.</li>
+    <li>Redis is a shared, in-memory key-value server; add <code>spring-boot-starter-data-redis</code> and set <code>spring.cache.type=redis</code>.</li>
+    <li>Configure TTL and JSON serialization with a <code>RedisCacheConfiguration</code> bean (or <code>spring.cache.redis.*</code> properties).</li>
+    <li>Invalidation is the hard part: evict on every write, evict related caches, and keep a TTL as a safety net.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9 -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>See the hit ratio yourself.</strong> Start the app, call <code>/api/products/2</code> five times and <code>/api/products/3</code> twice. Before calling <code>/api/products/stats</code>, predict the number of database hits.</p>
+    <details><summary>Hint / solution</summary><p>Only the first call for each id is a miss: 2 database hits (one for id 2, one for id 3). Hit ratio = 5 hits ÷ 7 calls ≈ 71%.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Prove that exceptions are not cached.</strong> Call <code>/api/products/99</code> twice. How long does each call take and why?</p>
+    <details><summary>Hint / solution</summary><p>Both take ~2 seconds and both log a "DATABASE HIT". The method throws <code>ProductNotFoundException</code>, and <code>@Cacheable</code> never stores anything when the method throws. (If you wanted to cache "not found", you would return <code>Optional</code> or <code>null</code> and allow null values – usually not worth it.)</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Add a cached "all categories" method.</strong> Add <code>List&lt;String&gt; getAllCategories()</code> to the service (it calls a new slow repository method) and an endpoint <code>GET /api/products/categories</code>. Make sure creating or deleting a product clears it.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// CacheNames
+public static final String CATEGORIES = "categories";
+
+// ProductService
+@Cacheable(cacheNames = CacheNames.CATEGORIES, key = "'all'")   // a constant key: note the quotes inside!
+public List&lt;String&gt; getAllCategories() {
+    return repository.findAllCategories();                       // return new ArrayList&lt;&gt;(...) in the repository
+}
+
+// add to the evict list of createProduct and deleteProduct:
+@CacheEvict(cacheNames = CacheNames.CATEGORIES, allEntries = true)</code></pre>
+    <p>Because <code>@Caching</code> takes arrays, write <code>evict = { @CacheEvict(...productSearch...), @CacheEvict(...categories...) }</code>.
+    Also add <code>categories</code> to <code>spring.cache.cache-names</code> if you list caches there.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Stampede protection.</strong> Change <code>getProductById</code> to use <code>sync = true</code>. Clear the caches, then fire 5 requests for product 4 at the same time (open 5 terminals, or use a small loop with <code>start</code> in PowerShell). How many database hits do you see with and without <code>sync</code>?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Cacheable(cacheNames = CacheNames.PRODUCTS, key = "#id", sync = true)</code></pre>
+    <pre class="terminal"><code>1..5 | ForEach-Object { Start-Job { curl.exe -s http://localhost:8080/api/products/4 } } | Wait-Job | Receive-Job</code></pre>
+    <p>Without <code>sync</code>, up to 5 database hits (all threads miss at the same time). With <code>sync</code>, exactly 1 – the other threads wait for the first one to fill the cache.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Survive a Redis outage.</strong> Run with the <code>redis</code> profile, then stop Redis (<code>docker compose stop</code>). Calls now fail with 500. Make the app fall back to the database instead, logging a warning.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Configuration
+@EnableCaching
+public class CacheConfig implements CachingConfigurer {
+
+    private static final Logger log = LoggerFactory.getLogger(CacheConfig.class);
+
+    @Override
+    public CacheErrorHandler errorHandler() {
+        return new SimpleCacheErrorHandler() {
+            @Override
+            public void handleCacheGetError(RuntimeException e, Cache cache, Object key) {
+                log.warn("Cache GET failed for {}::{} - using the database. {}", cache.getName(), key, e.getMessage());
+            }
+            @Override
+            public void handleCachePutError(RuntimeException e, Cache cache, Object key, Object value) {
+                log.warn("Cache PUT failed for {}::{}", cache.getName(), key);
+            }
+            @Override
+            public void handleCacheEvictError(RuntimeException e, Cache cache, Object key) {
+                log.warn("Cache EVICT failed for {}::{}", cache.getName(), key);
+            }
+        };
+    }
+    // ... existing beans ...
+}</code></pre>
+    <p>When a cache GET fails and the handler does not rethrow, Spring treats it as a miss and calls the real method. Lower <code>spring.data.redis.timeout</code> (e.g. <code>500ms</code>) so the fallback is quick.
+    Careful: a failed EVICT means stale data may remain in Redis when it comes back – a short TTL limits the damage.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Switch the local cache to Caffeine.</strong> Add <code>com.github.ben-manes.caffeine:caffeine</code> (version managed by Spring Boot) and configure a maximum of 100 entries and a 5-minute TTL in the default profile.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;com.github.ben-manes.caffeine&lt;/groupId&gt;
+    &lt;artifactId&gt;caffeine&lt;/artifactId&gt;
+&lt;/dependency&gt;</code></pre>
+    <pre><code class="lang-properties">spring.cache.type=caffeine
+spring.cache.caffeine.spec=maximumSize=100,expireAfterWrite=5m</code></pre>
+    <p><code>GET /api/caches</code> will now show <code>CaffeineCacheManager</code>. No Java code changes – the abstraction at work.</p></details>
+  </div>
+
+  <!-- ===================================================== 10 -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is caching and why do we use it?</summary>
+    <p>Caching stores copies of data that is slow or expensive to get (DB queries, remote APIs, heavy calculations) in a fast store, usually memory.
+    It reduces latency, reduces load on the database or external services, and can improve resilience. The cost is complexity and the risk of stale data.</p></details>
+  <details><summary>Q2. Explain the cache-aside pattern.</summary>
+    <p>The application checks the cache first. On a hit it returns the cached value. On a miss it loads from the database, stores the value in the cache, then returns it.
+    On writes the application updates or evicts the cache entry. Spring's <code>@Cacheable</code> + <code>@CacheEvict</code> implement this pattern.</p></details>
+  <details><summary>Q3. Difference between @Cacheable, @CachePut and @CacheEvict?</summary>
+    <p><code>@Cacheable</code> skips the method if the key is in the cache, otherwise runs it and stores the result. <code>@CachePut</code> always runs the method and puts the result into the cache (used for updates).
+    <code>@CacheEvict</code> removes one entry (by key) or all entries (<code>allEntries = true</code>), after the method by default or before with <code>beforeInvocation = true</code>.</p></details>
+  <details><summary>Q4. How does Spring caching work internally? Why does a call from the same class not use the cache?</summary>
+    <p><code>@EnableCaching</code> registers an AOP interceptor (<code>CacheInterceptor</code>). Spring creates a proxy around beans with cache annotations; the proxy checks the cache before delegating to the real object.
+    A call like <code>this.method()</code> happens inside the real object, so it never passes through the proxy, and caching (like <code>@Transactional</code>) is skipped. Fix: call through another bean.</p></details>
+  <details><summary>Q5. What is the difference between condition and unless?</summary>
+    <p><code>condition</code> is evaluated before the method call; if false, the cache is not used at all for that call. <code>unless</code> is evaluated after the call and can use <code>#result</code>; if true, the result is not stored.
+    Example: <code>condition = "#name.length() &gt; 2"</code>, <code>unless = "#result == null"</code>.</p></details>
+  <details><summary>Q6. Why use Redis instead of the default in-memory cache?</summary>
+    <p>The default <code>ConcurrentMapCache</code> lives in one JVM: no TTL, no size limit, lost on restart, and each instance has its own copy, so instances can disagree.
+    Redis is a separate shared server: all instances see the same data, entries can have TTLs, data survives app restarts, and it has eviction policies and monitoring.</p></details>
+  <details><summary>Q7. How do you configure TTL for Redis caches in Spring Boot?</summary>
+    <p>Either with <code>spring.cache.redis.time-to-live=10m</code>, or with a <code>RedisCacheConfiguration</code> bean using <code>entryTtl(Duration.ofMinutes(10))</code>. Per-cache TTLs are set with a
+    <code>RedisCacheManagerBuilderCustomizer</code> and <code>withCacheConfiguration("name", config)</code>. If you define the bean, the properties are ignored.</p></details>
+  <details><summary>Q8. What serialization does RedisCacheManager use and why would you change it?</summary>
+    <p>By default, JDK serialization: binary, Java-only, unreadable in redis-cli, and objects must implement <code>Serializable</code>. Most teams switch to JSON with
+    <code>GenericJackson2JsonRedisSerializer</code> (stores type info in <code>@class</code>) or a typed <code>Jackson2JsonRedisSerializer</code>, which is readable and language-neutral.</p></details>
+  <details><summary>Q9. What is a cache stampede and how do you prevent it?</summary>
+    <p>When a popular entry expires, many concurrent requests miss at the same time and all hit the database. Prevent it with <code>@Cacheable(sync = true)</code> (one thread loads, others wait),
+    randomised TTLs so entries do not all expire together, or refreshing hot entries before they expire.</p></details>
+  <details><summary>Q10. What are common cache invalidation problems?</summary>
+    <p>Forgetting to evict on some write path, not evicting dependent caches (lists/aggregates), data changed outside the application, local caches in multi-instance deployments,
+    and serialized class changes after a deploy. Mitigations: evict/put on every write, TTL as a safety net, shared cache, clear caches on deploy, and cache only data that tolerates slight staleness.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../50-OAuth2-And-OpenID-Connect/lesson.html"><small>← Previous</small>50. OAuth2 &amp; OpenID Connect</a>
+    <a class="next" href="../52-Scheduling-Async-And-Events/lesson.html"><small>Next →</small>52. Scheduling, Async &amp; Events</a>
+  </nav>
+</main>
+</body>
+</html>

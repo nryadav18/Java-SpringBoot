@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>43 · MySQL &amp; Database Migrations with Flyway</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 43</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>43. MySQL &amp; Database Migrations with Flyway</h1>
+  <p class="subtitle">Move your app from the toy H2 database to a real MySQL server, and let Flyway build and change your tables safely with versioned SQL scripts.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="43-MySQL-And-Database-Migrations-Flyway"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Why H2 is great for learning, and why real apps use a real database server like MySQL.</li>
+      <li>How to start MySQL 8.4 with one command using <code>docker-compose.yml</code>.</li>
+      <li>The MySQL connection properties and the <code>mysql-connector-j</code> driver.</li>
+      <li>How to keep <strong>two profiles</strong>: default = H2, <code>mysql</code> = MySQL, with zero Java changes.</li>
+      <li>Why <code>spring.jpa.hibernate.ddl-auto=update</code> is dangerous in production.</li>
+      <li>Flyway: migration files (<code>V1__create_tables.sql</code>), naming rules, the <code>flyway_schema_history</code> table, the <code>flyway-mysql</code> module.</li>
+      <li>What Testcontainers is and why teams use it for database tests.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../38-Spring-Data-JPA-Fundamentals/lesson.html">Topic 38 · Spring Data JPA</a>, <a href="../29-Configuration-Properties-And-Profiles/lesson.html">Topic 29 · Profiles</a> and <a href="../42-Transactions/lesson.html">Topic 42 · Transactions</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1 -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Until now, every project used <strong>H2</strong>. H2 is a database that lives <em>inside</em> your Java program, in memory. It is perfect for learning: nothing to install, and it starts in a second. But it has one big problem: <strong>when the app stops, all data is gone</strong>.</p>
+  <p>Real companies keep their data in a <strong>database server</strong>: a separate program, often on a separate machine, that keeps data on disk for years. Popular choices are <strong>MySQL</strong>, <strong>PostgreSQL</strong>, Oracle and SQL Server. In this lesson we use MySQL because it is free, very popular, and you will see it in many job descriptions.</p>
+  <p>As soon as data must live for years, a second question appears: <em>"How do we change the tables safely?"</em> Your app version 1 has a <code>books</code> table. Version 2 needs a new <code>isbn</code> column. The production database already has 2 million books in it. You cannot drop the table and create it again! You need a tool that applies <strong>small, ordered, recorded changes</strong> to the database. That tool is a <strong>database migration tool</strong>, and the most popular one in the Spring world is <strong>Flyway</strong>.</p>
+  <div class="callout info"><strong>ℹ️ Where you will see this at work</strong>
+    Almost every Spring Boot project in a company has a folder <code>src/main/resources/db/migration</code> full of files like <code>V1__init.sql</code>, <code>V2__add_orders.sql</code>, ... and a <code>docker-compose.yml</code> so developers can start the database locally. After this lesson, those folders will look familiar.</div>
+
+  <!-- ===================================================== 2 -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏠 Think of renovating a house with a logbook</strong>
+    <p>Your database is a house where people already live (the data). You cannot knock it down every time you want a change.</p>
+    <ul>
+      <li><strong>H2</strong> is a <em>tent</em>: quick to set up, great for a weekend trip, but it disappears when you leave.</li>
+      <li><strong>MySQL</strong> is the <em>real house</em>: solid, permanent, people live in it for years.</li>
+      <li><strong>Flyway migrations</strong> are numbered <em>work orders</em>: "Order 1: build the walls. Order 2: put in furniture. Order 3: add a window."</li>
+      <li><strong><code>flyway_schema_history</code></strong> is the <em>logbook</em> on the wall. The builder writes down every order that is finished. When the builder arrives, he reads the logbook and only does the orders that are not done yet.</li>
+      <li><strong><code>ddl-auto=update</code></strong> is like letting a stranger walk in and "fix things as he thinks best", with no logbook. Maybe fine for a tent — scary for a house full of people.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== 3 -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 H2 vs MySQL — what really changes?</h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>H2 (in-memory)</th><th>MySQL (server)</th></tr>
+    <tr><td>Where it runs</td><td>Inside your Java process</td><td>A separate program (here: a Docker container)</td></tr>
+    <tr><td>Data after restart</td><td>Gone</td><td>Kept on disk</td></tr>
+    <tr><td>Install needed?</td><td>No — just a Maven dependency</td><td>Yes — a server (Docker makes it 1 command)</td></tr>
+    <tr><td>Used for</td><td>Learning, demos, quick tests</td><td>Real apps, production</td></tr>
+    <tr><td>Many apps can share it?</td><td>No</td><td>Yes, over the network</td></tr>
+    <tr><td>JDBC URL</td><td><code>jdbc:h2:mem:librarydb</code></td><td><code>jdbc:mysql://localhost:3306/librarydb</code></td></tr>
+  </table></div>
+  <p>The good news: thanks to JPA and Spring Data, <strong>your Java code does not change</strong>. Hibernate speaks the right "dialect" of SQL for each database. You only change <em>configuration</em>.</p>
+
+  <div class="flow">
+    <span class="box">BookService</span><span class="arrow">→</span>
+    <span class="box alt">BookRepository (Spring Data)</span><span class="arrow">→</span>
+    <span class="box alt">Hibernate</span><span class="arrow">→</span>
+    <span class="box info">JDBC driver</span><span class="arrow">→</span>
+    <span class="box">H2 <em>or</em> MySQL</span>
+  </div>
+  <p>Only the last two boxes change. Everything you wrote before stays the same.</p>
+
+  <h3>3.2 Starting MySQL with Docker Compose</h3>
+  <p>Installing MySQL directly on Windows works, but it is slow and messy. <strong>Docker</strong> lets us run MySQL in a "container" — a small, isolated box that has MySQL already installed inside. (We study Docker deeply in topics 66–67. For now, you only need 3 commands.)</p>
+  <p>A <code>docker-compose.yml</code> file describes which containers we want. Here is ours, line by line:</p>
+  <pre><span class="file">docker-compose.yml</span><code class="lang-yaml">services:
+  mysql:                                  # a name we choose for this container
+    image: mysql:8.4                      # the official MySQL image, version 8.4 (LTS)
+    container_name: course-mysql-43
+    environment:
+      MYSQL_ROOT_PASSWORD: root_pass      # password for the admin user "root"
+      MYSQL_DATABASE: librarydb           # create this database on first start
+      MYSQL_USER: library_user            # create an app user ...
+      MYSQL_PASSWORD: library_pass        # ... with this password
+    ports:
+      - "3306:3306"                       # &lt;your PC port&gt;:&lt;container port&gt;
+    volumes:
+      - mysql-data:/var/lib/mysql         # keep the data even if the container is removed
+    healthcheck:                          # Docker checks: "is MySQL ready?"
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot_pass"]
+      interval: 10s
+      retries: 10
+
+volumes:
+  mysql-data:</code></pre>
+  <pre class="terminal"><code>docker compose up -d        # start in the background (-d = detached)
+docker compose ps           # wait until STATUS shows (healthy)
+docker compose down         # stop (data is kept in the volume)
+docker compose down -v      # stop AND delete the data</code></pre>
+  <div class="callout tip"><strong>💡 Tip</strong> Port 3306 is MySQL's default port. If you already have MySQL installed on Windows, port 3306 is busy. Change the left side, e.g. <code>"3307:3306"</code>, and use <code>localhost:3307</code> in the URL.</div>
+
+  <h3>3.3 The MySQL driver: <code>mysql-connector-j</code></h3>
+  <p>A <strong>JDBC driver</strong> is a translator library that lets Java talk to one kind of database (we met drivers in topic 19). For MySQL the official driver is:</p>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;com.mysql&lt;/groupId&gt;
+    &lt;artifactId&gt;mysql-connector-j&lt;/artifactId&gt;
+    &lt;scope&gt;runtime&lt;/scope&gt;   &lt;!-- needed only when the app RUNS, not to compile --&gt;
+&lt;/dependency&gt;</code></pre>
+  <p>No <code>&lt;version&gt;</code> tag: the Spring Boot parent already knows a tested version. Old tutorials use <code>mysql:mysql-connector-java</code> — that is the <em>old</em> name. Use <code>com.mysql:mysql-connector-j</code>.</p>
+
+  <h3>3.4 Connection properties</h3>
+  <pre><span class="file">application-mysql.properties</span><code class="lang-properties">spring.datasource.url=jdbc:mysql://localhost:3306/librarydb?useSSL=false&amp;allowPublicKeyRetrieval=true&amp;serverTimezone=UTC
+spring.datasource.username=${DB_USERNAME:library_user}
+spring.datasource.password=${DB_PASSWORD:library_pass}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Part</th><th>Meaning</th></tr>
+    <tr><td><code>jdbc:mysql://</code></td><td>"Use the MySQL driver"</td></tr>
+    <tr><td><code>localhost:3306</code></td><td>Host and port of the MySQL server</td></tr>
+    <tr><td><code>/librarydb</code></td><td>Database (schema) name</td></tr>
+    <tr><td><code>useSSL=false</code></td><td>No encryption — OK on your laptop only. Production uses SSL.</td></tr>
+    <tr><td><code>allowPublicKeyRetrieval=true</code></td><td>Needed for MySQL 8 password login without SSL in local setups</td></tr>
+    <tr><td><code>serverTimezone=UTC</code></td><td>Avoid time-zone surprises with dates</td></tr>
+    <tr><td><code>${DB_USERNAME:library_user}</code></td><td>Read the environment variable <code>DB_USERNAME</code>; if it does not exist, use <code>library_user</code></td></tr>
+  </table></div>
+  <p>Spring Boot sees <code>jdbc:mysql:</code> in the URL and picks the driver class <code>com.mysql.cj.jdbc.Driver</code> and the Hibernate MySQL dialect automatically. You don't write them.</p>
+
+  <h3>3.5 Profiles: H2 by default, MySQL on demand</h3>
+  <p>Remember profiles from topic 29? A profile is a named set of settings that you switch on when starting the app. We use:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>When it is used</th><th>Database</th></tr>
+    <tr><td><code>application.properties</code></td><td>Always (the base)</td><td>H2 in-memory</td></tr>
+    <tr><td><code>application-mysql.properties</code></td><td>Only with profile <code>mysql</code>; its values <strong>override</strong> the base</td><td>MySQL</td></tr>
+  </table></div>
+  <pre class="terminal"><code>mvn spring-boot:run                                        # H2
+mvn spring-boot:run -Dspring-boot.run.profiles=mysql       # MySQL
+java -jar target/flyway-mysql-1.0.0.jar --spring.profiles.active=mysql</code></pre>
+  <div class="callout info"><strong>ℹ️ dev / prod naming</strong> Many teams call the profiles <code>dev</code> (H2 or a local DB) and <code>prod</code> (the real server). We named ours <code>mysql</code> so it is obvious what it does. The idea is identical.</div>
+
+  <h3>3.6 Why <code>ddl-auto=update</code> is dangerous</h3>
+  <p>In topic 38 we used <code>spring.jpa.hibernate.ddl-auto</code>. Quick reminder of its values:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Value</th><th>What Hibernate does at startup</th><th>Safe for production?</th></tr>
+    <tr><td><code>create-drop</code></td><td>Create tables, drop them at shutdown</td><td>❌ Never</td></tr>
+    <tr><td><code>create</code></td><td>Drop and re-create tables (all data lost!)</td><td>❌ Never</td></tr>
+    <tr><td><code>update</code></td><td>Try to change tables to match entities</td><td>❌ No</td></tr>
+    <tr><td><code>validate</code></td><td>Only check that tables match entities; fail if not</td><td>✅ Yes (with Flyway)</td></tr>
+    <tr><td><code>none</code></td><td>Do nothing</td><td>✅ Yes</td></tr>
+  </table></div>
+  <p>Why is <code>update</code> bad?</p>
+  <ul>
+    <li><strong>It never deletes or renames.</strong> Rename the field <code>name</code> → <code>fullName</code> and you get a <em>new empty column</em>; the old data stays in the old column, forgotten.</li>
+    <li><strong>No history.</strong> Nobody knows which change happened when, or on which server.</li>
+    <li><strong>No review.</strong> The SQL is invented at runtime. Your team never reads it before it touches production.</li>
+    <li><strong>Different results on different machines.</strong> Two servers may end up with slightly different tables.</li>
+    <li><strong>It cannot move data</strong> (e.g. "split <code>full_name</code> into <code>first_name</code> and <code>last_name</code>").</li>
+  </ul>
+  <div class="callout danger"><strong>🛑 Rule of thumb</strong> <code>create</code>/<code>update</code> are for experiments only. Real projects use <strong>Flyway (or Liquibase) + <code>ddl-auto=validate</code></strong>.</div>
+
+  <h3>3.7 What is Flyway?</h3>
+  <p><strong>Flyway</strong> is a library that runs SQL scripts against your database <strong>in version order, exactly once each</strong>, and records what it did. Spring Boot runs Flyway automatically at startup when <code>flyway-core</code> is on the classpath — <em>before</em> Hibernate starts. So by the time Hibernate validates, the tables already exist.</p>
+  <div class="flow">
+    <span class="box">App starts</span><span class="arrow">→</span>
+    <span class="box alt">DataSource ready</span><span class="arrow">→</span>
+    <span class="box info">Flyway: run new V-files</span><span class="arrow">→</span>
+    <span class="box alt">Hibernate: validate</span><span class="arrow">→</span>
+    <span class="box">App ready ✅</span>
+  </div>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.flywaydb&lt;/groupId&gt;
+    &lt;artifactId&gt;flyway-core&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;!-- Since Flyway 10, MySQL support is a separate module --&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.flywaydb&lt;/groupId&gt;
+    &lt;artifactId&gt;flyway-mysql&lt;/artifactId&gt;
+&lt;/dependency&gt;</code></pre>
+  <div class="callout warn"><strong>⚠️ Don't forget <code>flyway-mysql</code></strong> Without it, the H2 profile works but MySQL fails with <code>Unsupported Database: MySQL 8.4</code>. (PostgreSQL needs <code>flyway-database-postgresql</code> in the same way.)</div>
+
+  <h3>3.8 Migration file naming rules</h3>
+  <p>Flyway looks in <code>src/main/resources/db/migration</code> (the default location). The file name is very strict:</p>
+  <pre><code class="lang-properties">V3__add_isbn_column.sql
+│ │ │                 └── extension: .sql
+│ │ └── description: underscores become spaces ("add isbn column")
+│ └── TWO underscores (separator)
+└── V + version number (1, 2, 3 ... or 1.1, 2025.01.15 ...)</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Prefix</th><th>Type</th><th>Runs</th></tr>
+    <tr><td><code>V</code></td><td>Versioned migration</td><td>Exactly once, in version order</td></tr>
+    <tr><td><code>R</code></td><td>Repeatable migration (e.g. <code>R__create_views.sql</code>)</td><td>Again every time its content changes; after all V-files</td></tr>
+    <tr><td><code>U</code></td><td>Undo migration</td><td>Only in paid Flyway editions — ignore it</td></tr>
+  </table></div>
+  <p>Good names: <code>V1__create_books_table.sql</code>, <code>V2__insert_sample_books.sql</code>, <code>V3__add_isbn_column.sql</code>. Bad names: <code>V1_create.sql</code> (one underscore — silently ignored!), <code>v1__create.sql</code> (lowercase v), <code>create_tables.sql</code> (no version).</p>
+
+  <h3>3.9 The <code>flyway_schema_history</code> table — Flyway's logbook</h3>
+  <p>The first time Flyway runs, it creates a table called <code>flyway_schema_history</code>. After each script it adds one row:</p>
+  <div class="table-wrap"><table>
+    <tr><th>installed_rank</th><th>version</th><th>description</th><th>script</th><th>checksum</th><th>success</th></tr>
+    <tr><td>1</td><td>1</td><td>create books table</td><td>V1__create_books_table.sql</td><td>-1203984711</td><td>true</td></tr>
+    <tr><td>2</td><td>2</td><td>insert sample books</td><td>V2__insert_sample_books.sql</td><td>584930210</td><td>true</td></tr>
+    <tr><td>3</td><td>3</td><td>add isbn column</td><td>V3__add_isbn_column.sql</td><td>99887766</td><td>true</td></tr>
+  </table></div>
+  <p>Next startup, Flyway compares the files with this table:</p>
+  <ul>
+    <li>Versions already in the table → <strong>skipped</strong> (already done).</li>
+    <li>New versions (say you add <code>V4__...</code>) → <strong>run now</strong>, then recorded.</li>
+    <li>A file whose content changed after it ran → the <strong>checksum</strong> (a fingerprint number of the file) no longer matches → Flyway <strong>stops the app</strong> with a "checksum mismatch" error. This protects you from editing history.</li>
+  </ul>
+  <div class="callout danger"><strong>🛑 Golden rule of migrations</strong> Once a migration has run on <em>any</em> shared database (test server, production), <strong>never edit it</strong>. If it was wrong, write a new migration that fixes it.</div>
+
+  <h3>3.10 One set of scripts for H2 <em>and</em> MySQL</h3>
+  <p>Our H2 URL has <code>MODE=MySQL;DATABASE_TO_LOWER=TRUE</code>. This asks H2 to accept MySQL-style SQL (like <code>AUTO_INCREMENT</code>) and to keep names lower-case like MySQL. Then the same V-files work on both. Keep the SQL simple and standard (<code>CREATE TABLE</code>, <code>ALTER TABLE ... ADD COLUMN</code>, <code>INSERT</code>, <code>CREATE INDEX</code>).</p>
+  <div class="callout info"><strong>ℹ️ When SQL must differ</strong> If a script truly needs MySQL-only syntax, you can use vendor folders: <code>spring.flyway.locations=classpath:db/migration/{vendor}</code> — Spring replaces <code>{vendor}</code> with <code>h2</code> or <code>mysql</code>. Most teams instead test against the <em>real</em> database using Testcontainers (below).</div>
+
+  <h3>3.11 Useful Flyway properties</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Property</th><th>Default</th><th>Meaning</th></tr>
+    <tr><td><code>spring.flyway.enabled</code></td><td>true</td><td>Turn Flyway on/off</td></tr>
+    <tr><td><code>spring.flyway.locations</code></td><td>classpath:db/migration</td><td>Where the scripts are</td></tr>
+    <tr><td><code>spring.flyway.baseline-on-migrate</code></td><td>false</td><td>For an <em>existing</em> database that already has tables: mark it as "version 1" and continue from there</td></tr>
+    <tr><td><code>spring.flyway.validate-on-migrate</code></td><td>true</td><td>Check checksums before migrating</td></tr>
+    <tr><td><code>spring.flyway.clean-disabled</code></td><td>true</td><td>Keep it true! <code>clean</code> drops everything</td></tr>
+    <tr><td><code>spring.flyway.out-of-order</code></td><td>false</td><td>Allow running an older missing version later (team branches)</td></tr>
+  </table></div>
+
+  <h3>3.12 Testcontainers (a mention)</h3>
+  <p><strong>Testcontainers</strong> is a Java library that starts a real Docker container (e.g. MySQL 8.4) <em>from inside a JUnit test</em>, and throws it away after the test. So your tests run against the same database as production, not against H2. Spring Boot supports it with <code>@ServiceConnection</code>:</p>
+  <pre><code class="lang-java">@SpringBootTest
+@Testcontainers
+class BookRepositoryMySqlTest {
+
+    @Container
+    @ServiceConnection   // Spring Boot reads URL/user/password from the container automatically
+    static MySQLContainer&lt;?&gt; mysql = new MySQLContainer&lt;&gt;("mysql:8.4");
+
+    // ... tests run on a real MySQL, Flyway migrations included
+}</code></pre>
+  <p>You need Docker running and the <code>org.testcontainers:mysql</code> + <code>junit-jupiter</code> test dependencies. We will touch testing in topic 46; for now just remember the name.</p>
+
+  <!-- ===================================================== 4 -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>The project is a small <strong>Library API</strong>. Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>web, data-jpa, validation, <code>flyway-core</code>, <code>flyway-mysql</code>, <code>h2</code>, <code>mysql-connector-j</code></td></tr>
+    <tr><td><code>docker-compose.yml</code></td><td>MySQL 8.4 server with a volume and a health check</td></tr>
+    <tr><td><code>application.properties</code></td><td>Default profile: H2 in MySQL mode, <code>ddl-auto=validate</code>, Flyway settings</td></tr>
+    <tr><td><code>application-mysql.properties</code></td><td><code>mysql</code> profile: MySQL URL, user, password from env vars</td></tr>
+    <tr><td><code>db/migration/V1__create_books_table.sql</code></td><td>Creates the <code>books</code> table</td></tr>
+    <tr><td><code>db/migration/V2__insert_sample_books.sql</code></td><td>Inserts 4 sample books</td></tr>
+    <tr><td><code>db/migration/V3__add_isbn_column.sql</code></td><td>Evolves the table: new column, data update, index</td></tr>
+    <tr><td><code>book/Book.java</code></td><td>JPA entity that must match the migrated table</td></tr>
+    <tr><td><code>book/BookRepository.java</code>, <code>BookService.java</code>, <code>BookController.java</code></td><td>Usual layers (topics 33 &amp; 38)</td></tr>
+    <tr><td><code>book/BookRequest.java</code>, <code>BookResponse.java</code></td><td>DTO records with validation</td></tr>
+    <tr><td><code>config/DatabaseInfoController.java</code></td><td><code>GET /api/db-info</code>: which DB you are on + applied migrations</td></tr>
+    <tr><td><code>requests.http</code></td><td>Sample requests for VS Code REST Client</td></tr>
+  </table></div>
+
+  <h3>4.1 The migrations</h3>
+  <pre><span class="file">src/main/resources/db/migration/V1__create_books_table.sql</span><code class="lang-sql">CREATE TABLE books (
+    id             BIGINT        NOT NULL AUTO_INCREMENT,
+    title          VARCHAR(200)  NOT NULL,
+    author         VARCHAR(100)  NOT NULL,
+    price          DECIMAL(10,2) NOT NULL,
+    published_year INT,
+    created_at     TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id)
+);</code></pre>
+  <p><code>AUTO_INCREMENT</code> lets the database pick the next id. That matches <code>@GeneratedValue(strategy = GenerationType.IDENTITY)</code> in the entity. <code>DECIMAL(10,2)</code> stores money exactly (10 digits, 2 after the dot) — matching a Java <code>BigDecimal</code>.</p>
+  <pre><span class="file">V2__insert_sample_books.sql</span><code class="lang-sql">INSERT INTO books (title, author, price, published_year) VALUES ('Clean Code', 'Robert C. Martin', 450.00, 2008);
+INSERT INTO books (title, author, price, published_year) VALUES ('Effective Java', 'Joshua Bloch', 599.00, 2018);
+-- ... 2 more</code></pre>
+  <pre><span class="file">V3__add_isbn_column.sql</span><code class="lang-sql">ALTER TABLE books ADD COLUMN isbn VARCHAR(20);
+
+UPDATE books SET isbn = '978-0132350884' WHERE title = 'Clean Code';
+UPDATE books SET isbn = '978-0134685991' WHERE title = 'Effective Java';
+
+CREATE INDEX idx_books_author ON books (author);</code></pre>
+  <p>V3 shows the real power: the table <strong>already has data</strong>, and we change it without losing anything. That is a "schema evolution".</p>
+
+  <h3>4.2 The entity must match the tables</h3>
+  <pre><span class="file">book/Book.java</span><code class="lang-java">@Entity
+@Table(name = "books")
+public class Book {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)   // AUTO_INCREMENT
+    private Long id;
+
+    @Column(nullable = false, length = 200)
+    private String title;
+    // ...
+    @Column(nullable = false, precision = 10, scale = 2)  // DECIMAL(10,2)
+    private BigDecimal price;
+
+    @Column(name = "published_year")
+    private Integer publishedYear;
+
+    @Column(length = 20)
+    private String isbn;                                 // added by V3
+
+    @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
+    private LocalDateTime createdAt;
+    // constructors, getters, setters ...
+}</code></pre>
+  <p>With <code>ddl-auto=validate</code>, Hibernate checks at startup that table <code>books</code> exists and that each field has a matching column with a compatible type. Try deleting <code>V3</code> (on H2): the app fails with <em>"Schema-validation: missing column [isbn] in table [books]"</em>. That early failure is a feature, not a bug.</p>
+
+  <h3>4.3 The two property files</h3>
+  <pre><span class="file">application.properties</span><code class="lang-properties">spring.datasource.url=jdbc:h2:mem:librarydb;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+spring.datasource.username=sa
+spring.datasource.password=
+spring.h2.console.enabled=true
+
+spring.jpa.hibernate.ddl-auto=validate     # Flyway owns the schema
+spring.jpa.open-in-view=false
+
+spring.flyway.enabled=true                 # default, shown for learning
+spring.flyway.locations=classpath:db/migration</code></pre>
+  <pre><span class="file">application-mysql.properties</span><code class="lang-properties">spring.datasource.url=jdbc:mysql://localhost:3306/librarydb?useSSL=false&amp;allowPublicKeyRetrieval=true&amp;serverTimezone=UTC
+spring.datasource.username=${DB_USERNAME:library_user}
+spring.datasource.password=${DB_PASSWORD:library_pass}
+spring.datasource.hikari.maximum-pool-size=5
+spring.h2.console.enabled=false</code></pre>
+  <p>Notice what is <em>not</em> repeated: <code>ddl-auto</code> and the Flyway settings come from the base file for both profiles.</p>
+
+  <h3>4.4 <code>DatabaseInfoController</code> — see it with your own eyes</h3>
+  <pre><span class="file">config/DatabaseInfoController.java</span><code class="lang-java">@GetMapping("/api/db-info")
+public Map&lt;String, Object&gt; dbInfo() throws SQLException {
+    Map&lt;String, Object&gt; info = new LinkedHashMap&lt;&gt;();
+    info.put("activeProfiles", Arrays.asList(environment.getActiveProfiles()));
+
+    try (Connection connection = dataSource.getConnection()) {      // borrow from the pool
+        DatabaseMetaData meta = connection.getMetaData();
+        info.put("database", meta.getDatabaseProductName() + " " + meta.getDatabaseProductVersion());
+        info.put("jdbcUrl", meta.getURL());
+    }                                                                // ... and give it back
+
+    List&lt;String&gt; applied = Arrays.stream(flyway.info().applied())    // rows of flyway_schema_history
+            .map(DatabaseInfoController::describe)
+            .toList();
+    info.put("appliedMigrations", applied);
+    return info;
+}</code></pre>
+  <p>Spring Boot creates the <code>DataSource</code> and the <code>Flyway</code> objects as beans, so we just ask for them in the constructor (constructor injection, topic 24).</p>
+
+  <h3>4.5 Service and controller</h3>
+  <p>The <code>BookService</code> and <code>BookController</code> are the same style you know from topics 33–38: DTOs in and out, <code>@Transactional(readOnly = true)</code> at class level, <code>@Transactional</code> on write methods, <code>BookNotFoundException</code> → 404. The important lesson: <strong>none of them knows which database is used.</strong></p>
+
+  <!-- ===================================================== 5 -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 Default profile (H2) — nothing to install</h3>
+  <p><strong>VS Code:</strong> open the folder <code>43-MySQL-And-Database-Migrations-Flyway</code>, open <code>FlywayMysqlApplication.java</code> and click <strong>Run</strong> above <code>main</code>. Or use the terminal:</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\43-MySQL-And-Database-Migrations-Flyway"
+mvn spring-boot:run</code></pre>
+  <p>Look for Flyway in the log:</p>
+  <pre class="terminal"><code>Migrating schema "public" to version "1 - create books table"
+Migrating schema "public" to version "2 - insert sample books"
+Migrating schema "public" to version "3 - add isbn column"
+Successfully applied 3 migrations to schema "public", now at version v3
+Started FlywayMysqlApplication in 4.1 seconds</code></pre>
+  <pre class="terminal"><code>curl http://localhost:8080/api/db-info</code></pre>
+  <pre class="terminal"><code>{"activeProfiles":[],"database":"H2 2.3.232 (2024-08-11)","jdbcUrl":"jdbc:h2:mem:librarydb",
+ "appliedMigrations":["V1 - create books table (SUCCESS)","V2 - insert sample books (SUCCESS)","V3 - add isbn column (SUCCESS)"]}</code></pre>
+  <pre class="terminal"><code>curl "http://localhost:8080/api/books?author=martin"</code></pre>
+  <pre class="terminal"><code>[{"id":1,"title":"Clean Code","author":"Robert C. Martin","price":450.00,"publishedYear":2008,"isbn":"978-0132350884","createdAt":"..."},
+ {"id":4,"title":"Clean Architecture","author":"Robert C. Martin","price":480.00,"publishedYear":2017,"isbn":null,"createdAt":"..."}]</code></pre>
+  <p>Open the H2 console at <code>http://localhost:8080/h2-console</code> (JDBC URL <code>jdbc:h2:mem:librarydb</code>, user <code>sa</code>, empty password) and run <code>SELECT * FROM flyway_schema_history;</code> to see the logbook.</p>
+
+  <h3>5.2 MySQL profile</h3>
+  <p>Make sure Docker Desktop is running, then:</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\43-MySQL-And-Database-Migrations-Flyway"
+docker compose up -d
+docker compose ps                       # wait for "(healthy)" - takes ~20-40 seconds the first time
+mvn spring-boot:run -Dspring-boot.run.profiles=mysql</code></pre>
+  <pre class="terminal"><code>curl http://localhost:8080/api/db-info</code></pre>
+  <pre class="terminal"><code>{"activeProfiles":["mysql"],"database":"MySQL 8.4.x","jdbcUrl":"jdbc:mysql://localhost:3306/librarydb?...",
+ "appliedMigrations":["V1 - create books table (SUCCESS)", "...V2...", "...V3..."]}</code></pre>
+  <p>Now <strong>stop the app and start it again</strong> with the mysql profile. This time the log says:</p>
+  <pre class="terminal"><code>Current version of schema `librarydb`: 3
+Schema `librarydb` is up to date. No migration necessary.</code></pre>
+  <p>And the book you POSTed earlier is still there — the data survived the restart. That never happens with H2 in-memory.</p>
+  <p>Peek inside MySQL directly:</p>
+  <pre class="terminal"><code>docker exec -it course-mysql-43 mysql -ulibrary_user -plibrary_pass librarydb
+mysql&gt; SHOW TABLES;
+mysql&gt; SELECT version, description, success FROM flyway_schema_history;
+mysql&gt; exit</code></pre>
+
+  <h3>5.3 All the requests (curl)</h3>
+  <pre class="terminal"><code>curl http://localhost:8080/api/books
+curl http://localhost:8080/api/books/1
+curl -X POST http://localhost:8080/api/books -H "Content-Type: application/json" -d "{\"title\":\"Spring in Action\",\"author\":\"Craig Walls\",\"price\":650.00,\"publishedYear\":2022,\"isbn\":\"978-1617297571\"}"
+curl -X DELETE http://localhost:8080/api/books/4
+curl -i http://localhost:8080/api/books/999          # 404</code></pre>
+  <p>Or open <code>requests.http</code> in VS Code and click <strong>Send Request</strong> above each one.</p>
+  <p>When done: <code>docker compose down</code> (keeps data) or <code>docker compose down -v</code> (wipes data, Flyway will run V1–V3 again next time).</p>
+
+  <!-- ===================================================== 6 -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: one underscore in the file name</strong> <code>V4_add_stock.sql</code> is silently <em>ignored</em> by Flyway. Your new column never appears and Hibernate validation fails.<br><strong>Fix:</strong> always two underscores: <code>V4__add_stock.sql</code>.</div>
+  <div class="callout danger"><strong>🛑 Mistake: editing a migration that already ran</strong> You fix a typo in <code>V2__...</code> and restart: <em>"Validate failed: Migration checksum mismatch for migration version 2"</em>.<br><strong>Fix:</strong> undo your edit and write <code>V4__fix_typo.sql</code>. On your own throw-away database only, you may also <code>docker compose down -v</code> to start fresh.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting <code>flyway-mysql</code></strong> Error: <code>Unsupported Database: MySQL 8.4</code>.<br><strong>Fix:</strong> add the <code>org.flywaydb:flyway-mysql</code> dependency.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "Communications link failure" / "Connection refused"</strong> The app cannot reach MySQL.<br><strong>Fix:</strong> is Docker Desktop running? Did you run <code>docker compose up -d</code>? Is the container <code>(healthy)</code>? Is the port right (3306 vs 3307)?</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "Access denied for user"</strong> Wrong username/password, or the volume was created earlier with different passwords (MySQL reads the <code>MYSQL_*</code> variables <em>only on the very first start</em>).<br><strong>Fix:</strong> check the properties; if you changed passwords in compose, run <code>docker compose down -v</code> and start again.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: keeping <code>ddl-auto=update</code> together with Flyway</strong> Now two tools change the schema and you never know who did what.<br><strong>Fix:</strong> Flyway creates and changes, Hibernate only <code>validate</code>s.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "Schema-validation: missing column"</strong> You added a field to the entity but no migration.<br><strong>Fix:</strong> add a new <code>V&lt;n&gt;__...sql</code> with <code>ALTER TABLE ... ADD COLUMN ...</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: using MySQL-only SQL in a migration that also runs on H2</strong> e.g. <code>ENGINE=InnoDB</code> or backticks in some places may fail on H2.<br><strong>Fix:</strong> keep scripts portable, use vendor folders, or test on real MySQL with Testcontainers.</div>
+
+  <!-- ===================================================== 7 -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Flyway owns the schema; Hibernate only validates.</strong> <code>ddl-auto=validate</code> (or <code>none</code>) everywhere except quick experiments.</li>
+    <li><strong>Migrations are immutable.</strong> Once merged and run, never edit — add a new version.</li>
+    <li><strong>Small migrations, one purpose each:</strong> <code>V7__add_orders_table.sql</code>, not <code>V7__lots_of_changes.sql</code>.</li>
+    <li><strong>Review migrations in pull requests</strong> like Java code — they touch the most valuable thing you have: data.</li>
+    <li><strong>Backward compatible changes</strong> for zero-downtime deploys: add a column first (nullable), deploy code, then remove the old one in a later release ("expand and contract").</li>
+    <li><strong>Never put real passwords in properties files</strong> or Git. Use environment variables (<code>${DB_PASSWORD}</code>) or a secrets manager.</li>
+    <li><strong>Use a dedicated app user</strong> (not <code>root</code>) with only the permissions it needs.</li>
+    <li><strong>Test against the real database</strong> (Testcontainers) in CI, because H2 is "almost" MySQL, not exactly MySQL.</li>
+    <li><strong>Keep <code>spring.flyway.clean-disabled=true</code></strong> (the default) — <code>clean</code> drops all objects.</li>
+    <li><strong>Tune the connection pool</strong> (<code>spring.datasource.hikari.*</code>) only after measuring; defaults are good.</li>
+    <li>Alternative tool: <strong>Liquibase</strong> (XML/YAML/SQL changelogs). Same idea; Flyway is simpler because it is plain SQL.</li>
+  </ul>
+
+  <!-- ===================================================== 8 -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>H2 in-memory is for learning; real apps use a database server such as MySQL.</li>
+    <li><code>docker compose up -d</code> gives you MySQL 8.4 in seconds; <code>down -v</code> wipes it.</li>
+    <li>MySQL needs <code>com.mysql:mysql-connector-j</code> and a <code>jdbc:mysql://host:port/db</code> URL.</li>
+    <li>Profiles let one codebase run on H2 (default) and MySQL (<code>--spring.profiles.active=mysql</code>).</li>
+    <li><code>ddl-auto=update</code> is unsafe for production: no history, no review, never drops/renames.</li>
+    <li>Flyway runs <code>V&lt;n&gt;__description.sql</code> files once each, in order, before Hibernate starts.</li>
+    <li><code>flyway_schema_history</code> records what ran, with checksums; editing old files breaks startup on purpose.</li>
+    <li>For MySQL you also need the <code>flyway-mysql</code> module.</li>
+    <li>Testcontainers runs a real database in Docker for your tests.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9 -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>See the logbook.</strong> Start the app with H2, open the H2 console and run a query that shows the version, description, script and success columns of Flyway's history table.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-sql">SELECT version, description, script, success
+FROM flyway_schema_history
+ORDER BY installed_rank;</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Add a migration.</strong> Add a <code>stock</code> column (integer, not null, default 0) to <code>books</code>, and set stock 10 for "Clean Code". Add the field to the entity and the response DTO.</p>
+    <details><summary>Hint / solution</summary><pre><span class="file">V4__add_stock_column.sql</span><code class="lang-sql">ALTER TABLE books ADD COLUMN stock INT NOT NULL DEFAULT 0;
+UPDATE books SET stock = 10 WHERE title = 'Clean Code';</code></pre>
+<pre><span class="file">Book.java</span><code class="lang-java">@Column(nullable = false)
+private int stock;
+
+public int getStock() { return stock; }</code></pre>
+<p>Then add <code>int stock</code> to <code>BookResponse</code> and pass <code>book.getStock()</code> in <code>from(...)</code>. Restart: the log shows "Migrating ... to version 4".</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Break it on purpose.</strong> (a) Change a price inside <code>V2__insert_sample_books.sql</code> and restart <em>with the mysql profile</em> (data persisted). What happens? (b) Why does the same edit <em>not</em> fail on H2?</p>
+    <details><summary>Hint / solution</summary><p>(a) Flyway stops with <em>"Migration checksum mismatch for migration version 2"</em> because the file's fingerprint differs from the one stored in <code>flyway_schema_history</code>. Revert the edit (or, on a throw-away DB, <code>docker compose down -v</code>). (b) H2 in-memory starts empty every time, so there is no history to compare with — Flyway simply runs all scripts again. This is exactly why H2-only testing can hide problems.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>New table with a foreign key.</strong> Add a <code>reviews</code> table (id, book_id → books.id, rating 1–5, comment) with a migration that works on both H2 and MySQL. Add a <code>Review</code> entity with <code>@ManyToOne Book book</code>.</p>
+    <details><summary>Hint / solution</summary><pre><span class="file">V5__create_reviews_table.sql</span><code class="lang-sql">CREATE TABLE reviews (
+    id       BIGINT       NOT NULL AUTO_INCREMENT,
+    book_id  BIGINT       NOT NULL,
+    rating   INT          NOT NULL,
+    comment  VARCHAR(500),
+    PRIMARY KEY (id),
+    CONSTRAINT fk_reviews_book FOREIGN KEY (book_id) REFERENCES books (id)
+);</code></pre>
+<pre><code class="lang-java">@Entity
+@Table(name = "reviews")
+public class Review {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "book_id")
+    private Book book;
+
+    private int rating;
+    private String comment;
+    protected Review() { }
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Rename a column safely.</strong> The business wants <code>author</code> renamed to <code>author_name</code>. Write the migration and the entity change. Then explain how you would do it with <em>zero downtime</em> when old and new app versions run at the same time.</p>
+    <details><summary>Hint / solution</summary><pre><span class="file">V6__rename_author_column.sql</span><code class="lang-sql">ALTER TABLE books RENAME COLUMN author TO author_name;   -- works on MySQL 8 and H2</code></pre>
+<pre><code class="lang-java">@Column(name = "author_name", nullable = false, length = 100)
+private String author;   // the Java name can stay the same!</code></pre>
+<p>Also update the derived query only if you rename the Java field. Zero downtime ("expand and contract"): release 1 adds <code>author_name</code> and copies data (<code>UPDATE books SET author_name = author</code>), code writes to both columns; release 2 reads only <code>author_name</code>; release 3 drops <code>author</code>. Each step is its own migration.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Secrets from environment variables.</strong> Start the app with the mysql profile, but give the username and password through environment variables in PowerShell instead of the defaults.</p>
+    <details><summary>Hint / solution</summary><pre class="terminal"><code>$env:DB_USERNAME = "library_user"
+$env:DB_PASSWORD = "library_pass"
+mvn spring-boot:run "-Dspring-boot.run.profiles=mysql"</code></pre>
+<p>Because the properties use <code>${DB_USERNAME:library_user}</code>, Spring reads the variable first. In production you would remove the default values completely so a missing secret fails fast.</p></details>
+  </div>
+
+  <!-- ===================================================== 10 -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is a database migration tool and why do we need one?</summary><p>It applies versioned, ordered schema changes (SQL scripts) to a database and records which ones ran. It gives us a repeatable, reviewable history of the schema, so every environment (dev, test, prod) ends up identical, and changes can be applied to databases that already contain data.</p></details>
+  <details><summary>Q2. Why shouldn't we use <code>spring.jpa.hibernate.ddl-auto=update</code> in production?</summary><p>It generates SQL at runtime with no review and no history; it never drops or renames columns (renames create new empty columns); it can't migrate data; and results can differ between environments. Use Flyway/Liquibase for changes and <code>validate</code> or <code>none</code> for Hibernate.</p></details>
+  <details><summary>Q3. How does Flyway know which migrations to run?</summary><p>It reads the <code>flyway_schema_history</code> table in the target database. Any migration version not recorded there (and newer than the current version) is executed in version order, then recorded with its checksum, execution time and success flag.</p></details>
+  <details><summary>Q4. What is the naming convention for Flyway migrations?</summary><p><code>V&lt;version&gt;__&lt;description&gt;.sql</code> — capital V, a version (1, 2, 1.1 ...), two underscores, a description with underscores for spaces. <code>R__name.sql</code> are repeatable migrations re-run when their checksum changes. Default location: <code>classpath:db/migration</code>.</p></details>
+  <details><summary>Q5. What happens if you modify a migration that has already been applied?</summary><p>On the next start, validation detects a checksum mismatch and Flyway fails the startup. The fix is to revert the change and create a new migration. (<code>flyway repair</code> exists to realign checksums, but it should be used carefully and rarely.)</p></details>
+  <details><summary>Q6. How do you run the same Spring Boot app against H2 locally and MySQL in another environment?</summary><p>Put shared settings and H2 in <code>application.properties</code>, MySQL settings in <code>application-mysql.properties</code> (or <code>-prod</code>), include both drivers, and activate with <code>--spring.profiles.active=mysql</code> or the <code>SPRING_PROFILES_ACTIVE</code> environment variable. JPA code doesn't change because Hibernate picks the dialect from the connection.</p></details>
+  <details><summary>Q7. In what order do Flyway and Hibernate run at startup?</summary><p>Spring Boot makes the <code>EntityManagerFactory</code> depend on Flyway, so Flyway migrates first, then Hibernate starts and (with <code>validate</code>) checks entities against the migrated schema.</p></details>
+  <details><summary>Q8. How do you introduce Flyway into a project whose production database already has tables?</summary><p>Create a baseline: write <code>V1__baseline.sql</code> that matches the current schema (for new environments) and set <code>spring.flyway.baseline-on-migrate=true</code> (with <code>baseline-version=1</code>) so Flyway marks the existing database as version 1 and only runs V2+ there.</p></details>
+  <details><summary>Q9. What is Testcontainers and why prefer it over H2 for repository tests?</summary><p>A library that starts real services (MySQL, PostgreSQL, Kafka...) in Docker containers during tests. Tests then run against the same database engine as production, catching SQL dialect differences, constraint behaviour and migration issues that H2 might hide. With Spring Boot, <code>@ServiceConnection</code> wires the connection automatically.</p></details>
+  <details><summary>Q10. Flyway vs Liquibase?</summary><p>Both version database changes. Flyway uses plain SQL files and a simple versioning model — easy to learn. Liquibase uses changelogs (XML/YAML/JSON/SQL) with database-independent change types, rollbacks and preconditions — more features, more complexity. Both integrate with Spring Boot out of the box.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../42-Transactions/lesson.html"><small>← Previous</small>42. Transactions</a>
+    <a class="next" href="../44-REST-API-Best-Practices-And-OpenAPI/lesson.html"><small>Next →</small>44. REST API Best Practices &amp; OpenAPI</a>
+  </nav>
+</main>
+</body>
+</html>

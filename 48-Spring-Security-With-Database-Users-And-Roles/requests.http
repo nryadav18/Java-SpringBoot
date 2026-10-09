@@ -1,0 +1,78 @@
+### Topic 48 - Spring Security with Database Users and Roles
+### VS Code "REST Client" extension. Start the app first: mvn spring-boot:run
+### Seeded users: admin / admin123 (ADMIN, USER)   alice / alice123 (USER)
+
+@host = http://localhost:8080
+
+### 1. Register a new user (public) -> 201
+POST {{host}}/api/auth/register
+Content-Type: application/json
+
+{
+  "username": "bob",
+  "password": "bob12345"
+}
+
+### 2. Register the same username again -> 409 Conflict
+POST {{host}}/api/auth/register
+Content-Type: application/json
+
+{
+  "username": "bob",
+  "password": "bob12345"
+}
+
+### 3. Invalid registration (short password) -> 400
+POST {{host}}/api/auth/register
+Content-Type: application/json
+
+{
+  "username": "x",
+  "password": "123"
+}
+
+### 4. Who am I? (@AuthenticationPrincipal) -> 200
+GET {{host}}/api/me
+Authorization: Basic bob bob12345
+
+### 5. Who am I? (SecurityContextHolder) -> 200
+GET {{host}}/api/me/context
+Authorization: Basic admin admin123
+
+### 6. Create a note as alice -> 201
+POST {{host}}/api/notes
+Authorization: Basic alice alice123
+Content-Type: application/json
+
+{
+  "title": "Groceries",
+  "content": "Milk, eggs, bread"
+}
+
+### 7. alice reads HER notes -> 200
+GET {{host}}/api/users/alice/notes
+Authorization: Basic alice alice123
+
+### 8. alice tries to read admin's notes -> 403 (@PreAuthorize owner check)
+GET {{host}}/api/users/admin/notes
+Authorization: Basic alice alice123
+
+### 9. admin reads alice's notes -> 200 (hasRole('ADMIN'))
+GET {{host}}/api/users/alice/notes
+Authorization: Basic admin admin123
+
+### 10. Admin URL as USER -> 403
+GET {{host}}/api/admin/users
+Authorization: Basic alice alice123
+
+### 11. Admin URL as ADMIN -> 200
+GET {{host}}/api/admin/users
+Authorization: Basic admin admin123
+
+### 12. Permission-based URL (hasAuthority('REPORT_READ')) as ADMIN -> 200
+GET {{host}}/api/reports/summary
+Authorization: Basic admin admin123
+
+### 13. Delete user 3 (bob) as ADMIN -> 204
+DELETE {{host}}/api/admin/users/3
+Authorization: Basic admin admin123

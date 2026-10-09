@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Topic 22 - Why Spring? IoC and DI concepts.
+
+  This is a PLAIN Spring project (no Spring Boot yet).
+  We only need ONE Spring library: spring-context (the IoC container).
+  It automatically pulls in spring-core, spring-beans, spring-aop and spring-expression.
+
+  Run it with:   mvn -q compile exec:java
+  Run tests:     mvn -q test
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.course</groupId>
+    <artifactId>why-spring-ioc-di</artifactId>
+    <version>1.0.0</version>
+    <name>22 - Why Spring, IoC and DI</name>
+
+    <properties>
+        <!-- Compile for Java 17 -->
+        <maven.compiler.release>17</maven.compiler.release>
+        <!-- Keep constructor/method parameter names in the .class files.
+             Spring 6.1+ needs this when it matches beans by parameter name. -->
+        <maven.compiler.parameters>true</maven.compiler.parameters>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring.version>6.2.11</spring.version>
+        <junit.version>5.11.4</junit.version>
+    </properties>
+
+    <dependencies>
+        <!-- The Spring IoC container: ApplicationContext, @Configuration, @Bean, @Component ... -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+            <version>${spring.version}</version>
+        </dependency>
+
+        <!-- JUnit 5 - only for tests (scope test = not shipped with the app) -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- exec-maven-plugin lets us run a main() method with: mvn compile exec:java -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <mainClass>com.course.whyspring.App</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

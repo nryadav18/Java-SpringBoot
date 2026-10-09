@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>36 · Thymeleaf Server-Side Web Apps</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 36</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>36. Thymeleaf — Server-Side Web Apps</h1>
+  <p class="subtitle">Build a complete Todo web application where Spring Boot itself produces the HTML pages — with lists, links, forms, validation messages, a shared layout and CSS.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="36-Thymeleaf-Server-Side-Web-Apps"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li><b>Server-side rendering</b> vs <b>REST API + SPA</b> — how each works and when to choose which.</li>
+      <li>Adding <code>spring-boot-starter-thymeleaf</code> and where templates live.</li>
+      <li><code>@Controller</code> methods that return <b>view names</b>, and the <b>Model</b> that carries data to the page.</li>
+      <li>The core Thymeleaf attributes: <code>th:text</code>, <code>th:each</code>, <code>th:if</code>/<code>th:unless</code>, <code>th:href</code> with <code>@{...}</code>.</li>
+      <li>HTML <b>forms</b> with <code>th:object</code> and <code>th:field</code>.</li>
+      <li>The <b>POST-Redirect-GET</b> pattern and flash messages.</li>
+      <li>Showing <b>validation errors</b> next to form fields.</li>
+      <li><b>Layout fragments</b> (shared header, navbar, footer) and <b>static resources</b> (CSS).</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../34-Validation/lesson.html">Topic 34 · Validation</a>, <a href="../31-Spring-MVC-And-REST-Fundamentals/lesson.html">Topic 31 · Spring MVC</a> and basic HTML (tags like <code>&lt;p&gt;</code>, <code>&lt;a&gt;</code>, <code>&lt;form&gt;</code>, <code>&lt;input&gt;</code>).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>So far our apps returned <b>JSON</b>. Somebody else (a React app, a mobile app) had to turn that JSON into screens. But many real applications don't need a separate front-end at all:</p>
+  <ul>
+    <li><b>Admin panels</b> and back-office tools ("approve these 20 leave requests").</li>
+    <li><b>Internal company apps</b>: HR forms, inventory screens, reports.</li>
+    <li><b>Simple public sites</b>: a booking form, a blog, a "contact us" page.</li>
+    <li><b>Emails</b>: Thymeleaf is also used to build nice HTML emails (topic 54).</li>
+  </ul>
+  <p>For these, having the server produce finished HTML pages is <b>simpler and faster to build</b>: one project, one language (Java), no JavaScript build tools. Thymeleaf is the template engine recommended by Spring Boot and is used in many companies. Even if you mostly build REST APIs, you will meet Thymeleaf in admin screens and email templates — and this topic teaches the classic Spring MVC request cycle (model, view, forms, redirects) that every Spring developer should know.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>📮 Mail merge for letters</strong>
+    Imagine an office sending 500 letters. Someone writes <b>one letter template</b>: "Dear <u>[name]</u>, your order <u>[order no]</u> ships on <u>[date]</u>." A machine then <b>fills in the blanks</b> for each customer and prints the finished letters.
+    <ul>
+      <li>The <b>template</b> = a Thymeleaf <code>.html</code> file with placeholders like <code>th:text="${todo.title}"</code>.</li>
+      <li>The <b>customer data</b> = the <b>Model</b> your controller fills.</li>
+      <li>The <b>machine</b> = the Thymeleaf engine.</li>
+      <li>The <b>printed letter</b> = the final HTML the browser receives. The customer never sees the placeholders.</li>
+    </ul>
+    With a REST API + SPA, by contrast, the server sends only the <i>data</i> (the customer list) and the customer's own printer (JavaScript in the browser) builds the letter.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Server-side rendering (SSR) vs REST + SPA</h3>
+  <div class="flow">
+    <span class="box">Browser: GET /todos</span><span class="arrow">→</span>
+    <span class="box alt">@Controller fills Model</span><span class="arrow">→</span>
+    <span class="box info">Thymeleaf merges template + Model</span><span class="arrow">→</span>
+    <span class="box">Complete HTML page</span>
+  </div>
+  <div class="flow">
+    <span class="box">Browser loads JS app once</span><span class="arrow">→</span>
+    <span class="box alt">JS calls GET /api/todos</span><span class="arrow">→</span>
+    <span class="box info">@RestController returns JSON</span><span class="arrow">→</span>
+    <span class="box">JS builds the HTML in the browser</span>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Server-side rendering (Thymeleaf)</th><th>REST API + SPA (React/Angular/Vue)</th></tr>
+    <tr><td>Who builds the HTML?</td><td>The server, on every request</td><td>JavaScript in the browser</td></tr>
+    <tr><td>What travels over the network</td><td>Whole HTML pages</td><td>JSON data (after the first page load)</td></tr>
+    <tr><td>Projects / languages</td><td>One project, Java + HTML</td><td>Two projects, Java + JavaScript/TypeScript</td></tr>
+    <tr><td>Feel</td><td>Full page reload on each click/submit</td><td>Smooth, app-like, no reloads</td></tr>
+    <tr><td>SEO &amp; first load</td><td>Excellent (HTML is ready immediately)</td><td>Needs extra work (SSR frameworks)</td></tr>
+    <tr><td>Mobile apps can reuse it?</td><td>No — HTML is for browsers</td><td>Yes — the same JSON API serves web and mobile</td></tr>
+    <tr><td>Best for</td><td>Admin panels, internal tools, forms, simple sites, emails</td><td>Rich interactive apps, multiple clients, separate front-end teams</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ It's not either-or</strong> Many apps mix both: Thymeleaf pages with small bits of JavaScript, or libraries like <b>htmx</b> that update parts of a Thymeleaf page without a full reload. And one Spring Boot app can contain both <code>@Controller</code> (HTML) and <code>@RestController</code> (JSON) classes.</div>
+
+  <h3>3.2 Adding Thymeleaf</h3>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-thymeleaf&lt;/artifactId&gt;
+&lt;/dependency&gt;</code></pre>
+  <p>Spring Boot auto-configures a Thymeleaf view resolver with these conventions:</p>
+  <div class="table-wrap"><table>
+    <tr><th>What</th><th>Where</th><th>URL</th></tr>
+    <tr><td>Templates</td><td><code>src/main/resources/templates/</code></td><td>never served directly</td></tr>
+    <tr><td>View name <code>"todos/list"</code></td><td><code>templates/todos/list.html</code></td><td>—</td></tr>
+    <tr><td>Static files (CSS, JS, images)</td><td><code>src/main/resources/static/</code></td><td><code>static/css/app.css</code> → <code>/css/app.css</code></td></tr>
+    <tr><td>Custom error pages</td><td><code>templates/error/404.html</code>, <code>error/5xx.html</code></td><td>used automatically</td></tr>
+  </table></div>
+
+  <h3>3.3 <code>@Controller</code>, view names and the <code>Model</code></h3>
+  <p>In REST topics we used <code>@RestController</code>: the return value <b>is</b> the response body (JSON). A plain <code>@Controller</code> is different: a returned <code>String</code> is a <b>view name</b>.</p>
+  <pre><code class="lang-java">@Controller                                   // NOT @RestController
+public class TodoController {
+
+    @GetMapping("/todos")
+    public String list(Model model) {
+        model.addAttribute("todos", todoService.findAll("all"));  // put data in the "bag"
+        model.addAttribute("openCount", todoService.countOpen());
+        return "todos/list";                  // view name -&gt; templates/todos/list.html
+    }
+}</code></pre>
+  <div class="flow">
+    <span class="box">GET /todos</span><span class="arrow">→</span>
+    <span class="box alt">DispatcherServlet</span><span class="arrow">→</span>
+    <span class="box info">TodoController.list()<br><small>returns "todos/list" + Model</small></span><span class="arrow">→</span>
+    <span class="box alt">ViewResolver<br><small>finds templates/todos/list.html</small></span><span class="arrow">→</span>
+    <span class="box info">Thymeleaf renders</span><span class="arrow">→</span>
+    <span class="box">HTML response</span>
+  </div>
+  <ul>
+    <li><b>Model</b> is like a <code>Map&lt;String, Object&gt;</code> — a bag of named values. The template reads them with <code>${todos}</code>, <code>${openCount}</code>.</li>
+    <li><b>View name</b> = path inside <code>templates/</code> without <code>.html</code>.</li>
+    <li>Special prefix <code>"redirect:/todos"</code> tells the browser to go to another URL (more in 3.8).</li>
+  </ul>
+  <div class="callout warn"><strong>⚠️ @RestController by mistake</strong> If you write <code>@RestController</code> and return <code>"todos/list"</code>, the browser shows the literal text <i>todos/list</i>. Use <code>@Controller</code> for pages.</div>
+
+  <h3>3.4 Thymeleaf basics: natural templates and expressions</h3>
+  <p>A Thymeleaf template is a <b>normal HTML file</b> with extra <code>th:*</code> attributes. You declare the namespace once so editors don't complain:</p>
+  <pre><code class="lang-html">&lt;html lang="en" xmlns:th="http://www.thymeleaf.org"&gt;</code></pre>
+  <p>Thymeleaf replaces the normal content with dynamic content. Because the file is still valid HTML, you can open it directly in a browser and see sample content — this is called a <b>natural template</b>:</p>
+  <pre><code class="lang-html">&lt;span th:text="${todo.title}"&gt;Buy milk&lt;/span&gt;
+&lt;!-- in the browser file preview: "Buy milk";  when rendered by Spring: the real title --&gt;</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Expression</th><th>Name</th><th>Meaning</th><th>Example</th></tr>
+    <tr><td><code>${...}</code></td><td>Variable</td><td>Read from the Model (dot = getter)</td><td><code>${todo.title}</code> → <code>todo.getTitle()</code></td></tr>
+    <tr><td><code>*{...}</code></td><td>Selection</td><td>Property of the object chosen with <code>th:object</code></td><td><code>*{title}</code></td></tr>
+    <tr><td><code>@{...}</code></td><td>Link URL</td><td>Builds URLs (adds context path, encodes params)</td><td><code>@{/todos/{id}/edit(id=${todo.id})}</code></td></tr>
+    <tr><td><code>~{...}</code></td><td>Fragment</td><td>Refers to a reusable piece of a template</td><td><code>~{fragments/layout :: navbar}</code></td></tr>
+    <tr><td><code>#{...}</code></td><td>Message</td><td>Text from <code>messages.properties</code> (i18n)</td><td><code>#{app.title}</code></td></tr>
+    <tr><td><code>|...|</code></td><td>Literal substitution</td><td>Mix text and expressions easily</td><td><code>|${openCount} open|</code></td></tr>
+  </table></div>
+  <p>Helper objects start with <code>#</code>: <code>#strings</code>, <code>#lists</code>, <code>#numbers</code>, <code>#temporals</code> (for <code>java.time</code>), <code>#fields</code> (form errors), <code>#ids</code>.</p>
+
+  <h3>3.5 <code>th:text</code> — showing values safely</h3>
+  <pre><code class="lang-html">&lt;h1&gt;My Todos &lt;small th:text="|${openCount} open|"&gt;2 open&lt;/small&gt;&lt;/h1&gt;
+&lt;small th:text="|Due ${#temporals.format(todo.dueDate, 'dd MMM yyyy')}|"&gt;Due 01 Jan 2030&lt;/small&gt;</code></pre>
+  <p><code>th:text</code> <b>escapes HTML</b>: if a user types <code>&lt;script&gt;alert(1)&lt;/script&gt;</code> as a title, it is shown as text, not executed. This protects you from <b>XSS (cross-site scripting)</b> attacks. <code>th:utext</code> ("unescaped text") does not escape — only use it for HTML you fully trust.</p>
+
+  <h3>3.6 <code>th:each</code> — loops</h3>
+  <pre><code class="lang-html">&lt;ul&gt;
+  &lt;li th:each="todo, stat : ${todos}" th:classappend="${todo.done} ? 'done'"&gt;
+    &lt;span th:text="${stat.count} + '.'"&gt;1.&lt;/span&gt;
+    &lt;span th:text="${todo.title}"&gt;Buy milk&lt;/span&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;</code></pre>
+  <p>The <code>&lt;li&gt;</code> is repeated once per todo — like a Java for-each loop: <code>for (Todo todo : todos)</code>. The optional second variable (<code>stat</code>) is the <b>iteration status</b>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Property</th><th>Meaning</th></tr>
+    <tr><td><code>stat.index</code> / <code>stat.count</code></td><td>Position starting at 0 / at 1</td></tr>
+    <tr><td><code>stat.size</code></td><td>Total number of items</td></tr>
+    <tr><td><code>stat.first</code> / <code>stat.last</code></td><td>Is this the first / last item?</td></tr>
+    <tr><td><code>stat.odd</code> / <code>stat.even</code></td><td>Handy for striped tables</td></tr>
+  </table></div>
+  <p><code>th:classappend</code> adds a CSS class when a condition is true (the done item gets <code>class="todo done"</code> and is crossed out by the CSS).</p>
+
+  <h3>3.7 <code>th:if</code> / <code>th:unless</code> — conditions</h3>
+  <pre><code class="lang-html">&lt;p th:if="${#lists.isEmpty(todos)}"&gt;Nothing here. Add your first todo 🎉&lt;/p&gt;
+&lt;ul th:unless="${#lists.isEmpty(todos)}"&gt; ... &lt;/ul&gt;
+
+&lt;span class="badge overdue" th:if="${todo.overdue}"&gt;Overdue&lt;/span&gt;   &lt;!-- calls isOverdue() --&gt;</code></pre>
+  <p>If the condition is false, the <b>whole element</b> (and everything inside) is removed from the output. <code>th:unless</code> is simply "if not". There's also <code>th:switch</code>/<code>th:case</code> for several options.</p>
+  <div class="callout tip"><strong>💡 Truthiness</strong> <code>th:if</code> treats <code>null</code>, <code>false</code>, the number <code>0</code> and the strings <code>"false"</code>, <code>"off"</code>, <code>"no"</code> as false. An <b>empty string is true</b>! For optional text use <code>th:unless="${#strings.isEmpty(todo.description)}"</code>.</div>
+
+  <h3>3.8 <code>th:href</code> and <code>@{...}</code> — links</h3>
+  <pre><code class="lang-html">&lt;a th:href="@{/todos/new}"&gt;+ New todo&lt;/a&gt;                               &lt;!-- /todos/new --&gt;
+&lt;a th:href="@{/todos(filter='active')}"&gt;Active&lt;/a&gt;                       &lt;!-- /todos?filter=active --&gt;
+&lt;a th:href="@{/todos/{id}/edit(id=${todo.id})}"&gt;Edit&lt;/a&gt;                &lt;!-- /todos/3/edit --&gt;
+&lt;link rel="stylesheet" th:href="@{/css/app.css}"&gt;                         &lt;!-- static CSS --&gt;</code></pre>
+  <p>Values in parentheses become either <b>path variables</b> (if the URL has a matching <code>{id}</code>) or <b>query parameters</b>. <code>@{...}</code> also adds the application's context path automatically (e.g. if the app is deployed under <code>/shop</code>), so never hard-code <code>href="/todos"</code>.</p>
+
+  <h3>3.9 Forms: <code>th:object</code> and <code>th:field</code></h3>
+  <p>A form needs a <b>form-backing object</b> — a Java object whose properties match the form fields. Ours is <code>TodoForm</code> (a class with a no-arg constructor, getters and setters, plus validation annotations).</p>
+  <pre><code class="lang-java">@GetMapping("/todos/new")
+public String newForm(Model model) {
+    model.addAttribute("todoForm", new TodoForm());   // an empty object to fill the form
+    return "todos/form";
+}</code></pre>
+  <pre><span class="file">templates/todos/form.html (simplified)</span><code class="lang-html">&lt;form th:action="@{/todos}" th:object="${todoForm}" method="post"&gt;
+    &lt;input type="text" th:field="*{title}"&gt;
+    &lt;textarea th:field="*{description}"&gt;&lt;/textarea&gt;
+    &lt;select th:field="*{priority}"&gt;
+        &lt;option th:each="p : ${priorities}" th:value="${p}" th:text="${p.label}"&gt;Medium&lt;/option&gt;
+    &lt;/select&gt;
+    &lt;input type="date" th:field="*{dueDate}"&gt;
+    &lt;button type="submit"&gt;Add todo&lt;/button&gt;
+&lt;/form&gt;</code></pre>
+  <p><code>th:field="*{title}"</code> does three jobs at once. It renders:</p>
+  <pre><code class="lang-html">&lt;input type="text" id="title" name="title" value="(current value of todoForm.title)"&gt;</code></pre>
+  <ul>
+    <li><code>name="title"</code> — so the browser sends <code>title=...</code> when submitting.</li>
+    <li><code>value="..."</code> — so the field is pre-filled (important for <b>edit</b> forms and when re-showing a form after errors).</li>
+    <li>For <code>&lt;select&gt;</code> it marks the right option <code>selected</code>; for checkboxes it adds <code>checked</code> and a hidden <code>_done</code> field so "unchecked" is also detected.</li>
+  </ul>
+  <p>When the user submits, Spring creates a <code>TodoForm</code>, calls <code>setTitle(...)</code>, <code>setPriority(...)</code> etc. (this is called <b>data binding</b>) and passes it to your method:</p>
+  <pre><code class="lang-java">@PostMapping("/todos")
+public String create(@Valid @ModelAttribute("todoForm") TodoForm form, BindingResult bindingResult, ...) { ... }</code></pre>
+  <p>Note: HTML forms send <code>application/x-www-form-urlencoded</code> data (<code>title=Buy+milk&amp;priority=HIGH</code>), <b>not JSON</b>. So we use <code>@ModelAttribute</code>, not <code>@RequestBody</code>.</p>
+  <div class="callout info"><strong>ℹ️ Dates and enums</strong> <code>&lt;input type="date"&gt;</code> sends <code>2026-12-31</code>. <code>@DateTimeFormat(iso = DateTimeFormat.ISO.DATE)</code> on the <code>LocalDate</code> field tells Spring how to convert it (and how to display it again). Enums are converted automatically from their name (<code>"HIGH"</code> → <code>Priority.HIGH</code>).</div>
+
+  <h3>3.10 Validation errors in forms</h3>
+  <p>The same annotations from topic 34 work on <code>TodoForm</code> (<code>@NotBlank</code>, <code>@Size</code>, <code>@FutureOrPresent</code>…). The difference: instead of a 400 JSON response, we want to <b>show the form again</b> with red messages. The key is <code>BindingResult</code>:</p>
+  <pre><code class="lang-java">@PostMapping("/todos")
+public String create(@Valid @ModelAttribute("todoForm") TodoForm form,
+                     BindingResult bindingResult,          // MUST be right after the @Valid parameter
+                     Model model, RedirectAttributes redirectAttributes) {
+    if (bindingResult.hasErrors()) {
+        return "todos/form";        // show the same page; the form + errors are still in the model
+    }
+    todoService.create(form);
+    redirectAttributes.addFlashAttribute("successMessage", "Todo was added.");
+    return "redirect:/todos";
+}</code></pre>
+  <ul>
+    <li>If a <code>BindingResult</code> parameter is present, Spring does <b>not</b> throw an exception on validation failure — it puts the errors into <code>bindingResult</code> and lets <b>you</b> decide.</li>
+    <li>It must come <b>immediately after</b> the validated object; otherwise Spring throws <code>MethodArgumentNotValidException</code>/<code>BindException</code> and you get an error page.</li>
+  </ul>
+  <p>In the template, the <code>#fields</code> helper shows the errors:</p>
+  <pre><code class="lang-html">&lt;input type="text" th:field="*{title}" th:errorclass="invalid"&gt;
+&lt;p class="error" th:if="${#fields.hasErrors('title')}" th:errors="*{title}"&gt;Title is required&lt;/p&gt;</code></pre>
+  <ul>
+    <li><code>th:errors="*{title}"</code> prints the message(s) for that field (e.g. "Please enter a title").</li>
+    <li><code>th:errorclass="invalid"</code> adds a CSS class only when the field has errors → red border.</li>
+    <li><code>${#fields.hasGlobalErrors()}</code> / <code>${#fields.globalErrors()}</code> show errors not tied to one field.</li>
+  </ul>
+  <p>Business rules that need data (e.g. "you already have a todo with this title") can be added manually:</p>
+  <pre><code class="lang-java">if (todoService.titleExists(form.getTitle(), null)) {
+    bindingResult.rejectValue("title", "duplicate", "You already have a todo with this title");
+}</code></pre>
+
+  <h3>3.11 POST-Redirect-GET (PRG)</h3>
+  <p>Problem: after submitting a form, if the server directly returns a page and the user presses <b>F5 (refresh)</b>, the browser asks "Resubmit the form?" — and a second todo (or a second payment!) is created.</p>
+  <p>Solution: after a <b>successful</b> POST, don't render a page — <b>redirect</b>:</p>
+  <div class="flow">
+    <span class="box">1. POST /todos<br><small>form data</small></span><span class="arrow">→</span>
+    <span class="box alt">2. Server saves,<br>answers 302 Location: /todos</span><span class="arrow">→</span>
+    <span class="box info">3. Browser automatically<br>GET /todos</span><span class="arrow">→</span>
+    <span class="box">4. List page shown.<br>F5 only repeats the harmless GET</span>
+  </div>
+  <p>In Spring: <code>return "redirect:/todos";</code></p>
+  <h4>Flash attributes — messages that survive a redirect</h4>
+  <p>A redirect is a brand-new request, so the Model is empty again. To show "Todo was added." on the list page, use a <b>flash attribute</b>: Spring stores it briefly in the HTTP session, puts it into the model of the <i>next</i> request, then deletes it.</p>
+  <pre><code class="lang-java">redirectAttributes.addFlashAttribute("successMessage", "Todo 'Buy milk' was added.");  // survives one redirect
+redirectAttributes.addAttribute("filter", "active");   // becomes a URL parameter: /todos?filter=active</code></pre>
+  <div class="callout tip"><strong>💡 Rule</strong> Validation failed → <b>render</b> the form again (keep the user's input, show errors). Success → <b>redirect</b>.</div>
+  <p>And remember: anything that <b>changes data</b> (create, toggle, delete) must use a <b>POST form</b>, never a plain GET link — browsers, search engines and link previewers follow GET links freely. HTML forms only support GET and POST, so "delete" is <code>POST /todos/{id}/delete</code> here.</p>
+
+  <h3>3.12 Layout fragments — write the header once</h3>
+  <p>Every page needs the same <code>&lt;head&gt;</code>, navbar and footer. Copying them is a maintenance nightmare. Define them once as <b>fragments</b>:</p>
+  <pre><span class="file">templates/fragments/layout.html</span><code class="lang-html">&lt;head th:fragment="head(pageTitle)"&gt;                      &lt;!-- fragment with a parameter --&gt;
+    &lt;meta charset="UTF-8"&gt;
+    &lt;title th:text="${pageTitle} + ' · Todo App'"&gt;Todo App&lt;/title&gt;
+    &lt;link rel="stylesheet" th:href="@{/css/app.css}"&gt;
+&lt;/head&gt;
+
+&lt;nav class="navbar" th:fragment="navbar"&gt;
+    &lt;a class="brand" th:href="@{/todos}"&gt;✅ Todo App&lt;/a&gt;
+    &lt;a class="btn" th:href="@{/todos/new}"&gt;+ New todo&lt;/a&gt;
+&lt;/nav&gt;
+
+&lt;div th:fragment="flash" th:if="${successMessage}" class="flash" th:text="${successMessage}"&gt;Saved!&lt;/div&gt;</code></pre>
+  <p>…and include them in each page:</p>
+  <pre><code class="lang-html">&lt;head th:replace="~{fragments/layout :: head('My Todos')}"&gt;&lt;/head&gt;
+&lt;nav th:replace="~{fragments/layout :: navbar}"&gt;&lt;/nav&gt;
+&lt;div th:replace="~{fragments/layout :: flash}"&gt;&lt;/div&gt;</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Attribute</th><th>Effect</th></tr>
+    <tr><td><code>th:replace</code></td><td>Replaces the host tag completely with the fragment (most common)</td></tr>
+    <tr><td><code>th:insert</code></td><td>Keeps the host tag and puts the fragment inside it</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Layout Dialect</strong> For a "master page" where each page only fills a content area, many projects add the <i>Thymeleaf Layout Dialect</i> library (<code>layout:decorate</code>, <code>layout:fragment</code>). Plain fragments, as shown here, need no extra library and are enough for most apps.</div>
+
+  <h3>3.13 Static resources and error pages</h3>
+  <ul>
+    <li>Anything in <code>src/main/resources/static/</code> is served as-is: <code>static/css/app.css</code> → <code>http://localhost:8080/css/app.css</code>. Same for images and <code>.js</code> files. No controller needed.</li>
+    <li>When a browser request fails with 404, Spring Boot looks for <code>templates/error/404.html</code> (then <code>error/4xx.html</code>, then <code>error.html</code>) before showing the "Whitelabel Error Page". Our <code>TodoNotFoundException</code> has <code>@ResponseStatus(NOT_FOUND)</code>, so <code>/todos/99/edit</code> shows our friendly page.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>src/main/java/com/course/todoweb/TodoWebApplication.java</code></td><td>Entry point.</td></tr>
+    <tr><td><code>controller/TodoController.java</code></td><td>8 handler methods: list, new, create, edit, update, toggle, delete, home redirect. <code>@ModelAttribute</code> method, <code>BindingResult</code>, PRG, flash.</td></tr>
+    <tr><td><code>web/TodoForm.java</code></td><td>Form-backing object with validation and <code>@DateTimeFormat</code>.</td></tr>
+    <tr><td><code>service/TodoService.java</code></td><td>In-memory storage, filtering/sorting, toggle, form ⇄ entity copy.</td></tr>
+    <tr><td><code>model/Todo.java</code>, <code>model/Priority.java</code></td><td>Domain class (with computed <code>isOverdue()</code>) and enum with labels.</td></tr>
+    <tr><td><code>exception/TodoNotFoundException.java</code></td><td>Leads to the custom 404 page.</td></tr>
+    <tr><td><code>resources/templates/fragments/layout.html</code></td><td>Fragments: <code>head(pageTitle)</code>, <code>navbar</code>, <code>flash</code>, <code>footer</code>.</td></tr>
+    <tr><td><code>resources/templates/todos/list.html</code></td><td>The list page.</td></tr>
+    <tr><td><code>resources/templates/todos/form.html</code></td><td>Create/edit form (one template, two modes).</td></tr>
+    <tr><td><code>resources/templates/error/404.html</code></td><td>Custom error page.</td></tr>
+    <tr><td><code>resources/static/css/app.css</code></td><td>Styles, served at <code>/css/app.css</code>.</td></tr>
+    <tr><td><code>resources/application.properties</code></td><td>Thymeleaf prefix/suffix and <code>spring.thymeleaf.cache=false</code> for development.</td></tr>
+    <tr><td><code>src/test/.../TodoControllerTest.java</code></td><td>MockMvc tests for views, model, errors, redirects, 404.</td></tr>
+  </table></div>
+
+  <h3>4.1 The controller</h3>
+  <pre><span class="file">controller/TodoController.java (key parts)</span><code class="lang-java">@Controller
+public class TodoController {
+
+    @ModelAttribute("priorities")             // runs before EVERY handler in this class
+    public Priority[] priorities() {
+        return Priority.values();             // the form's dropdown always has its options
+    }
+
+    @GetMapping("/todos")
+    public String list(@RequestParam(defaultValue = "all") String filter, Model model) {
+        model.addAttribute("todos", todoService.findAll(filter));
+        model.addAttribute("filter", filter);
+        model.addAttribute("openCount", todoService.countOpen());
+        return "todos/list";
+    }
+
+    @GetMapping("/todos/{id}/edit")
+    public String editForm(@PathVariable Long id, Model model) {
+        model.addAttribute("todoForm", todoService.toForm(todoService.findById(id)));  // pre-filled
+        model.addAttribute("editMode", true);
+        return "todos/form";
+    }
+
+    @PostMapping("/todos/{id}/toggle")
+    public String toggle(@PathVariable Long id, @RequestParam(defaultValue = "all") String filter,
+                         RedirectAttributes redirectAttributes) {
+        todoService.toggle(id);
+        redirectAttributes.addAttribute("filter", filter);   // back to the same filter
+        return "redirect:/todos";
+    }
+}</code></pre>
+  <p>Notice how similar this is to a REST controller from topic 33: it calls the same kind of service. Only the output differs (view name + Model instead of a DTO).</p>
+
+  <h3>4.2 The list template (core part)</h3>
+  <pre><span class="file">templates/todos/list.html (simplified)</span><code class="lang-html">&lt;li class="todo" th:each="todo, stat : ${todos}" th:classappend="${todo.done} ? 'done'"&gt;
+    &lt;span class="number" th:text="${stat.count} + '.'"&gt;1.&lt;/span&gt;
+
+    &lt;form class="inline" method="post" th:action="@{/todos/{id}/toggle(id=${todo.id})}"&gt;
+        &lt;input type="hidden" name="filter" th:value="${filter}"&gt;
+        &lt;button type="submit" class="check" th:text="${todo.done} ? '✔' : ''"&gt;&lt;/button&gt;
+    &lt;/form&gt;
+
+    &lt;span class="title" th:text="${todo.title}"&gt;Buy milk&lt;/span&gt;
+    &lt;span class="badge" th:classappend="'p-' + ${#strings.toLowerCase(todo.priority.name())}"
+          th:text="${todo.priority.label}"&gt;Medium&lt;/span&gt;
+    &lt;span class="badge overdue" th:if="${todo.overdue}"&gt;Overdue&lt;/span&gt;
+
+    &lt;a class="btn small" th:href="@{/todos/{id}/edit(id=${todo.id})}"&gt;Edit&lt;/a&gt;
+    &lt;form class="inline" method="post" th:action="@{/todos/{id}/delete(id=${todo.id})}"
+          onsubmit="return confirm('Delete this todo?');"&gt;
+        &lt;button type="submit" class="btn small danger"&gt;Delete&lt;/button&gt;
+    &lt;/form&gt;
+&lt;/li&gt;</code></pre>
+  <p>Rendered HTML for the first todo (what the browser actually receives):</p>
+  <pre><code class="lang-html">&lt;li class="todo"&gt;
+    &lt;span class="number"&gt;1.&lt;/span&gt;
+    &lt;form class="inline" method="post" action="/todos/1/toggle"&gt;
+        &lt;input type="hidden" name="filter" value="all"&gt;
+        &lt;button type="submit" class="check"&gt;&lt;/button&gt;
+    &lt;/form&gt;
+    &lt;span class="title"&gt;Learn Thymeleaf basics&lt;/span&gt;
+    &lt;span class="badge p-high"&gt;High&lt;/span&gt;
+    &lt;a class="btn small" href="/todos/1/edit"&gt;Edit&lt;/a&gt;
+    ...</code></pre>
+  <p>All <code>th:*</code> attributes are gone — the browser just gets plain HTML.</p>
+
+  <h3>4.3 One form template for "new" and "edit"</h3>
+  <pre><span class="file">templates/todos/form.html (key part)</span><code class="lang-html">&lt;form method="post" novalidate th:object="${todoForm}"
+      th:action="${editMode} ? @{/todos/{id}(id=${todoForm.id})} : @{/todos}"&gt;
+    ...
+    &lt;div class="field checkbox" th:if="${editMode}"&gt;
+        &lt;input type="checkbox" th:field="*{done}"&gt;
+        &lt;label th:for="${#ids.prev('done')}"&gt;Done&lt;/label&gt;
+    &lt;/div&gt;
+    &lt;button type="submit" th:text="${editMode} ? 'Save changes' : 'Add todo'"&gt;Add todo&lt;/button&gt;
+&lt;/form&gt;</code></pre>
+  <p>The <code>condition ? a : b</code> syntax works inside Thymeleaf expressions just like in Java. <code>novalidate</code> switches off the browser's own checks so you can see the server-side validation in action.</p>
+
+  <h3>4.4 Testing MVC controllers</h3>
+  <pre><span class="file">src/test/java/com/course/todoweb/TodoControllerTest.java (part)</span><code class="lang-java">@Test
+void invalidFormIsShownAgainWithErrors() throws Exception {
+    mockMvc.perform(post("/todos").param("title", "").param("priority", "HIGH"))
+            .andExpect(status().isOk())                                // NOT a redirect
+            .andExpect(view().name("todos/form"))
+            .andExpect(model().attributeHasFieldErrors("todoForm", "title"))
+            .andExpect(content().string(containsString("Please enter a title")));
+}
+
+@Test
+void validFormRedirectsWithFlashMessage() throws Exception {
+    mockMvc.perform(post("/todos").param("title", "Write tests").param("priority", "LOW"))
+            .andExpect(status().is3xxRedirection())
+            .andExpect(redirectedUrl("/todos"))
+            .andExpect(flash().attribute("successMessage", "Todo 'Write tests' was added."));
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2 id="run">5. How to run</h2>
+  <h3>In VS Code</h3>
+  <ol>
+    <li>Open the folder <code>D:\Java-SpringBoot\36-Thymeleaf-Server-Side-Web-Apps</code>.</li>
+    <li>Run <code>TodoWebApplication.java</code>.</li>
+    <li>Open <b>http://localhost:8080</b> in your browser. You are redirected to <code>/todos</code>.</li>
+  </ol>
+  <h3>From the terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\36-Thymeleaf-Server-Side-Web-Apps"
+mvn spring-boot:run</code></pre>
+  <h3>Things to try in the browser</h3>
+  <ol>
+    <li>See the 3 sample todos. Click <b>Active</b> / <b>Done</b> filters — watch the URL change to <code>?filter=active</code>.</li>
+    <li>Click the circle to mark a todo done (it gets crossed out). Click again to undo.</li>
+    <li>Click <b>+ New todo</b> and press <b>Add todo</b> with an empty title → red border and "Please enter a title". Pick a date in the past → "Due date cannot be in the past". Your other input is kept.</li>
+    <li>Add a valid todo → you land on the list with a green "Todo '…' was added." message. Now press <b>F5</b>: no duplicate is created (PRG!) and the message disappears (flash).</li>
+    <li>Try a title that already exists → "You already have a todo with this title".</li>
+    <li><b>Edit</b> a todo: the form is pre-filled, including the selected priority and date.</li>
+    <li>Visit <code>http://localhost:8080/todos/99/edit</code> → the custom 404 page.</li>
+    <li>Right-click → <b>View Page Source</b>: no <code>th:</code> attributes, just plain HTML.</li>
+  </ol>
+  <h3>With curl (to see the raw HTTP)</h3>
+  <pre class="terminal"><code>curl -i http://localhost:8080/
+HTTP/1.1 302
+Location: http://localhost:8080/todos
+
+curl -i -X POST http://localhost:8080/todos -d "title=Read+chapter+36&amp;priority=HIGH&amp;dueDate=2031-02-03"
+HTTP/1.1 302
+Location: http://localhost:8080/todos;jsessionid=AE99BB60...
+
+curl -s -X POST http://localhost:8080/todos -d "title=&amp;priority=HIGH" | findstr "error"
+            &lt;p class="error"&gt;Please enter a title&lt;/p&gt;</code></pre>
+  <p>(The <code>;jsessionid=...</code> appears only because curl doesn't store cookies — the flash message is kept in the HTTP session. Browsers use a cookie instead. On Git Bash use <code>grep</code> instead of <code>findstr</code>.)</p>
+  <h3>Run the tests</h3>
+  <pre class="terminal"><code>mvn test</code></pre>
+  <pre class="terminal"><code>[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS</code></pre>
+
+  <!-- ============================================================ -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>@RestController</code> instead of <code>@Controller</code></strong> The page shows the text "todos/list".<br><strong>Fix:</strong> Use <code>@Controller</code> for HTML views.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "Error resolving template [todos/lists]"</strong> The view name doesn't match a file, or the file is outside <code>templates/</code>.<br><strong>Fix:</strong> View name = path below <code>src/main/resources/templates/</code> without <code>.html</code>. Check spelling and folders.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>BindingResult</code> in the wrong position</strong> <code>create(@Valid TodoForm form, Model model, BindingResult result)</code> → validation errors cause a 400 error page instead of re-showing the form.<br><strong>Fix:</strong> <code>BindingResult</code> must come <b>directly after</b> the validated parameter.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "Neither BindingResult nor plain target object for bean name 'todoForm' available"</strong> The template uses <code>th:object="${todoForm}"</code> but the controller didn't add a <code>todoForm</code> to the model.<br><strong>Fix:</strong> <code>model.addAttribute("todoForm", new TodoForm())</code> in the GET handler, and use the same name in <code>@ModelAttribute("todoForm")</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: redirecting after a validation error</strong> <code>return "redirect:/todos/new"</code> loses the user's input and the error messages.<br><strong>Fix:</strong> On errors, <b>return the view name</b> (render); redirect only on success.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting the dropdown data when re-rendering</strong> The form works on GET but after an error the priority list is empty.<br><strong>Fix:</strong> Use a <code>@ModelAttribute</code> method (like <code>priorities()</code>) so the data is added for every request.</div>
+  <div class="callout danger"><strong>🛑 Mistake: <code>th:utext</code> with user input</strong> Renders HTML unescaped — a title like <code>&lt;script&gt;...&lt;/script&gt;</code> runs in other users' browsers (XSS).<br><strong>Fix:</strong> Always <code>th:text</code> for user data.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: deleting with a GET link</strong> <code>&lt;a href="/todos/3/delete"&gt;</code> — a browser prefetch or crawler can delete data.<br><strong>Fix:</strong> Use a small POST form. (With Spring Security, POST forms also get a CSRF token automatically when you use <code>th:action</code> — topic 47.)</div>
+  <div class="callout warn"><strong>⚠️ Mistake: changes to templates don't appear</strong> Templates are cached or the old copy in <code>target/classes</code> is used.<br><strong>Fix:</strong> <code>spring.thymeleaf.cache=false</code> in development, save the file (VS Code copies it), refresh. When in doubt, restart. Spring Boot DevTools can automate this.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><b>Thin controllers</b>, logic in services — exactly as in REST apps (topic 33).</li>
+    <li>Use a dedicated <b>form object</b> (<code>TodoForm</code>) instead of binding directly to entities — same "mass assignment" reasons as DTOs.</li>
+    <li><b>Always PRG</b>: render on errors, redirect on success, and show success with flash attributes.</li>
+    <li><b>GET never changes data</b>; use POST forms for create/update/delete.</li>
+    <li>Use <code>@{...}</code> for every URL — never hard-code paths.</li>
+    <li>Keep templates <b>dumb</b>: complex logic belongs in Java (e.g. <code>isOverdue()</code> in the model) rather than long expressions in HTML.</li>
+    <li>Use <b>fragments</b> for repeated layout parts; consider the Layout Dialect for bigger apps.</li>
+    <li>Use <code>th:text</code> (escaped) by default — security first.</li>
+    <li>Keep <b>caching on</b> in production (<code>spring.thymeleaf.cache=true</code> is the default).</li>
+    <li>Put user-visible texts in <code>messages.properties</code> and use <code>#{...}</code> if you need multiple languages.</li>
+    <li>Add Spring Security (topics 47–48) before going live: login, CSRF protection for forms.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Server-side rendering: the server sends finished HTML; great for admin tools, internal apps and simple sites. REST + SPA: server sends JSON; great for rich apps and multiple clients.</li>
+    <li><code>spring-boot-starter-thymeleaf</code>; templates in <code>templates/</code>, static files in <code>static/</code>.</li>
+    <li><code>@Controller</code> methods return a view name; data goes into the <code>Model</code>.</li>
+    <li><code>${...}</code> reads model data, <code>*{...}</code> reads the form object, <code>@{...}</code> builds URLs, <code>~{...}</code> refers to fragments.</li>
+    <li><code>th:text</code> (escaped), <code>th:each</code> (loops + status), <code>th:if</code>/<code>th:unless</code>, <code>th:href</code>, <code>th:classappend</code>.</li>
+    <li>Forms: <code>th:object</code> + <code>th:field</code>; on submit Spring binds fields to the form object (<code>@ModelAttribute</code>).</li>
+    <li><code>@Valid</code> + <code>BindingResult</code> (right after it) lets you re-show the form with <code>th:errors</code>.</li>
+    <li>POST-Redirect-GET prevents double submits; flash attributes carry messages across the redirect.</li>
+    <li>Fragments (<code>th:fragment</code> + <code>th:replace</code>) keep layout in one place.</li>
+  </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Counter in the navbar.</b> Show the total number of todos in the page title area, e.g. "My Todos — 4 total, 2 open".</p>
+    <details><summary>Hint / solution</summary>
+      <p>Either add <code>model.addAttribute("totalCount", ...)</code> in the controller, or use the list size directly in the template when the filter is "all":</p>
+<pre><code class="lang-html">&lt;small th:text="|${#lists.size(todos)} shown, ${openCount} open|"&gt;4 shown, 2 open&lt;/small&gt;</code></pre>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Striped list and "last item" note.</b> Give odd rows a slightly different background and print "— end of list —" after the last item, using the iteration status.</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-html">&lt;li class="todo" th:each="todo, stat : ${todos}"
+    th:classappend="${stat.odd} ? 'odd'"&gt;
+    ...
+    &lt;small th:if="${stat.last}"&gt;— end of list —&lt;/small&gt;
+&lt;/li&gt;</code></pre>
+      <p>Add <code>.todo.odd { background: #f9fafb; }</code> to <code>app.css</code>.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Search box.</b> Add a GET form above the list with a text field <code>q</code>. Show only todos whose title contains the text (ignoring case). The search text must stay in the box after searching.</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-html">&lt;form method="get" th:action="@{/todos}"&gt;
+    &lt;input type="text" name="q" th:value="${q}" placeholder="Search..."&gt;
+    &lt;button class="btn small"&gt;Search&lt;/button&gt;
+&lt;/form&gt;</code></pre>
+<pre><code class="lang-java">@GetMapping("/todos")
+public String list(@RequestParam(defaultValue = "all") String filter,
+                   @RequestParam(required = false) String q, Model model) {
+    List&lt;Todo&gt; todos = todoService.findAll(filter).stream()
+            .filter(t -&gt; q == null || t.getTitle().toLowerCase().contains(q.toLowerCase()))
+            .toList();
+    model.addAttribute("todos", todos);
+    model.addAttribute("q", q);
+    ...
+}</code></pre>
+      <p>Searching is a GET (it doesn't change data), so the URL <code>/todos?q=milk</code> can be bookmarked.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>"Clear completed" button.</b> Add a button on the list page that deletes all done todos and shows "3 completed todos removed." using PRG.</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-java">// TodoService
+public int clearCompleted() {
+    List&lt;Long&gt; doneIds = todos.values().stream().filter(Todo::isDone).map(Todo::getId).toList();
+    doneIds.forEach(todos::remove);
+    return doneIds.size();
+}
+// TodoController
+@PostMapping("/todos/clear-completed")
+public String clearCompleted(RedirectAttributes ra) {
+    int removed = todoService.clearCompleted();
+    ra.addFlashAttribute("successMessage", removed + " completed todos removed.");
+    return "redirect:/todos";
+}</code></pre>
+<pre><code class="lang-html">&lt;form method="post" th:action="@{/todos/clear-completed}"&gt;
+    &lt;button class="btn small secondary"&gt;Clear completed&lt;/button&gt;
+&lt;/form&gt;</code></pre>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>Categories with a second page.</b> Add a <code>category</code> (Work, Home, Study) to todos with a dropdown in the form, and a new page <code>/todos/summary</code> that shows a table: category → number of open / done todos. Reuse the layout fragments.</p>
+    <details><summary>Hint / solution</summary>
+      <p>Add an enum <code>Category</code>, a field in <code>Todo</code> and <code>TodoForm</code> (with <code>@NotNull</code>), a <code>@ModelAttribute("categories")</code> method, and a <code>&lt;select th:field="*{category}"&gt;</code>. For the summary, build a <code>Map&lt;Category, long[]&gt;</code> or a small record <code>CategorySummary(Category category, long open, long done)</code> in the service, add it to the model, and render:</p>
+<pre><code class="lang-html">&lt;table&gt;
+  &lt;tr&gt;&lt;th&gt;Category&lt;/th&gt;&lt;th&gt;Open&lt;/th&gt;&lt;th&gt;Done&lt;/th&gt;&lt;/tr&gt;
+  &lt;tr th:each="s : ${summary}"&gt;
+    &lt;td th:text="${s.category}"&gt;WORK&lt;/td&gt;
+    &lt;td th:text="${s.open}"&gt;2&lt;/td&gt;
+    &lt;td th:text="${s.done}"&gt;1&lt;/td&gt;
+  &lt;/tr&gt;
+&lt;/table&gt;</code></pre>
+      <p>Records work fine for <b>displaying</b> (Thymeleaf can call <code>s.open</code> → <code>open()</code> accessor). Form objects still need setters.</p>
+    </details>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between @Controller and @RestController?</summary><p><code>@RestController</code> = <code>@Controller</code> + <code>@ResponseBody</code>: return values are written directly into the response body (usually JSON). With <code>@Controller</code>, a returned String is interpreted as a logical view name that a ViewResolver (e.g. Thymeleaf) turns into HTML; you add <code>@ResponseBody</code> per method if you want raw data.</p></details>
+  <details><summary>Q2. What is Thymeleaf and what are natural templates?</summary><p>Thymeleaf is a server-side Java template engine integrated with Spring MVC. Templates are valid HTML files enriched with <code>th:*</code> attributes. "Natural templates" means the files can be opened directly in a browser and show static prototype content, while at runtime Thymeleaf replaces that content with real data.</p></details>
+  <details><summary>Q3. What is the Model in Spring MVC?</summary><p>A map-like container (<code>Model</code>, <code>ModelMap</code>, or <code>ModelAndView</code>) where the controller puts attributes for the view. The view (template) reads them by name, e.g. <code>${todos}</code>. <code>@ModelAttribute</code> methods add attributes for every request handled by that controller.</p></details>
+  <details><summary>Q4. Explain the POST-Redirect-GET pattern.</summary><p>After a successful form POST, the server responds with a redirect (302/303) to a GET URL instead of rendering a page. The browser then loads that page with GET. Refreshing only repeats the harmless GET, preventing duplicate submissions. Messages are passed across the redirect with flash attributes (<code>RedirectAttributes.addFlashAttribute</code>), stored temporarily in the session.</p></details>
+  <details><summary>Q5. How do you display validation errors in a Thymeleaf form?</summary><p>Annotate the form object with constraints and the handler parameter with <code>@Valid</code>, followed immediately by a <code>BindingResult</code>. If <code>bindingResult.hasErrors()</code>, return the form view again. In the template use <code>th:object</code>/<code>th:field</code>, and <code>th:errors="*{field}"</code> with <code>${#fields.hasErrors('field')}</code>; <code>th:errorclass</code> adds a CSS class to invalid inputs.</p></details>
+  <details><summary>Q6. What is the difference between th:text and th:utext?</summary><p><code>th:text</code> HTML-escapes the value, so markup is shown as text — this prevents XSS. <code>th:utext</code> outputs raw, unescaped HTML; only use it for trusted content.</p></details>
+  <details><summary>Q7. th:replace vs th:insert?</summary><p>Both include a fragment. <code>th:replace</code> replaces the host element entirely with the fragment; <code>th:insert</code> keeps the host element and inserts the fragment as its body. (<code>th:include</code> is deprecated.)</p></details>
+  <details><summary>Q8. When would you choose server-side rendering over a SPA?</summary><p>For content- or form-centric applications like admin panels, internal tools, CRUD back-offices, simple public sites and emails: one codebase, fast development, good SEO and first-load performance, no separate front-end build. Choose an SPA with a REST API when you need rich interactivity, offline/app-like behaviour, multiple clients (web + mobile) or separate front-end teams.</p></details>
+  <details><summary>Q9. Why can't we use @RequestBody for HTML form submissions?</summary><p>HTML forms send <code>application/x-www-form-urlencoded</code> (or multipart) data, not JSON. Spring binds such request parameters to an object via data binding with <code>@ModelAttribute</code> (which is also the default for non-simple parameters). <code>@RequestBody</code> uses HttpMessageConverters for bodies like JSON.</p></details>
+  <details><summary>Q10. Where do static files and templates go in Spring Boot?</summary><p>Static files (CSS, JS, images) go to <code>src/main/resources/static/</code> (also <code>public/</code>, <code>resources/</code>, <code>META-INF/resources/</code>) and are served at the root URL path. Thymeleaf templates go to <code>src/main/resources/templates/</code> and are only accessible through controllers. Custom error pages go to <code>templates/error/</code>.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../35-Global-Exception-Handling/lesson.html"><small>← Previous</small>35. Global Exception Handling</a>
+    <a class="next" href="../37-Spring-JDBC-With-JdbcTemplate/lesson.html"><small>Next →</small>37. Spring JDBC with JdbcTemplate</a>
+  </nav>
+</main>
+</body>
+</html>

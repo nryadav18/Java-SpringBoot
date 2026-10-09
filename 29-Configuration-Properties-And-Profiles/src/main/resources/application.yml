@@ -1,0 +1,47 @@
+# =====================================================================
+# Topic 29 - application.yml  (the MAIN configuration file)
+# Values here apply to EVERY profile. Profile files (application-dev.yml,
+# application-prod.yml) are loaded ON TOP and override matching keys.
+#
+# YAML rules for beginners:
+#   * indentation = nesting, use SPACES only (2 spaces), never TABs
+#   * "key: value"  -> note the space after the colon
+#   * lists use "- item"
+# =====================================================================
+
+spring:
+  application:
+    name: config-props
+  profiles:
+    # Which profile to use when nobody says otherwise.
+    # Override it with --spring.profiles.active=prod or the SPRING_PROFILES_ACTIVE env variable.
+    active: dev
+
+server:
+  port: 8080
+
+# ---------- our OWN custom properties (bound to ShopProperties.java) ----------
+shop:
+  name: ShopEasy
+  currency: INR
+  discount-percent: 5            # try 80 -> the app will refuse to start (validation!)
+  max-items-per-order: 10
+  session-timeout: 30m           # Spring converts "30m" to Duration.ofMinutes(30)
+  welcome-message: Welcome to ShopEasy - happy shopping!
+  supported-payment-methods:
+    - UPI
+    - CARD
+    - CASH_ON_DELIVERY
+  contact:
+    email: support@shopeasy.example
+    phone: "+91-98765-43210"     # quotes because the value starts with "+"
+
+# A feature flag read with @Value
+features:
+  new-checkout: false
+
+# A SECRET: the real value comes from the environment variable PAYMENT_API_KEY.
+# "${PAYMENT_API_KEY:not-set}" means "use the env var, or the text not-set if it is missing".
+# Never commit real passwords / keys to Git!
+payment:
+  api-key: ${PAYMENT_API_KEY:not-set}

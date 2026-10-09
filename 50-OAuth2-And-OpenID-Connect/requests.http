@@ -1,0 +1,54 @@
+### Topic 50 - OAuth2 Resource Server with a local Keycloak
+### 1) docker compose up -d   (topic folder)   2) cd resource-server; mvn spring-boot:run
+### VS Code "REST Client" extension.
+###
+### NOTE: the "password" grant below is ONLY for learning/testing with curl.
+### It is deprecated in OAuth 2.1 - real apps use the Authorization Code flow (+ PKCE).
+
+@keycloak = http://localhost:8180/realms/course
+@api = http://localhost:8081
+
+### 0. OIDC discovery document - every URL of the Authorization Server in one JSON
+GET {{keycloak}}/.well-known/openid-configuration
+
+### 1. Get a token for alice (role user)
+# @name alice
+POST {{keycloak}}/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&client_id=course-client&client_secret=course-secret&username=alice&password=alice123&scope=openid%20profile%20email
+
+### 2. Public endpoint -> 200 (no token)
+GET {{api}}/api/public/courses
+
+### 3. /api/me without token -> 401
+GET {{api}}/api/me
+
+### 4. /api/me with alice's token -> 200 (shows claims + authorities)
+GET {{api}}/api/me
+Authorization: Bearer {{alice.response.body.access_token}}
+
+### 5. /api/profile needs SCOPE_profile -> 200
+GET {{api}}/api/profile
+Authorization: Bearer {{alice.response.body.access_token}}
+
+### 6. /api/admin/report as alice -> 403
+GET {{api}}/api/admin/report
+Authorization: Bearer {{alice.response.body.access_token}}
+
+### 7. Get a token for boss (roles user + admin)
+# @name boss
+POST {{keycloak}}/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&client_id=course-client&client_secret=course-secret&username=boss&password=boss123&scope=openid%20profile%20email
+
+### 8. /api/admin/report as boss -> 200
+GET {{api}}/api/admin/report
+Authorization: Bearer {{boss.response.body.access_token}}
+
+### 9. Refresh: trade the refresh token for a NEW access token (no password needed)
+POST {{keycloak}}/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&client_id=course-client&client_secret=course-secret&refresh_token={{alice.response.body.refresh_token}}

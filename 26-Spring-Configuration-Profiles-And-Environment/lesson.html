@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>26 · Configuration, Profiles &amp; Environment</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part B · Spring Framework Core › Topic 26</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part B · Spring Framework Core</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>26. Spring Configuration, Profiles &amp; Environment</h1>
+  <p class="subtitle">Run the same code on your laptop and on the production server with different beans and settings — and discover the secret behind Spring Boot's auto-configuration.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="26-Spring-Configuration-Profiles-And-Environment"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What <code>@Configuration</code> really does: <strong>full mode vs lite mode</strong> (<code>proxyBeanMethods</code>).</li>
+      <li>How to split configuration into pieces with <code>@Import</code>.</li>
+      <li>How to have <strong>different beans per environment</strong> with <code>@Profile</code> (dev vs prod), and how to activate a profile.</li>
+      <li>The <code>Environment</code>: profiles, properties, and where properties come from (property sources).</li>
+      <li>How <code>@PropertySource</code> files override each other.</li>
+      <li>How to write your own <strong><code>@Conditional</code></strong> — the mechanism that powers Spring Boot auto-configuration.</li>
+      <li>SpEL basics: the <code>#{...}</code> expression language.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../24-Dependency-Injection-Deep-Dive/lesson.html">Topic 24 · DI (especially <code>@Value</code> and <code>@PropertySource</code>)</a> and <a href="../25-Bean-Scopes-And-Lifecycle/lesson.html">Topic 25 · BeanPostProcessors and proxies</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1. WHY ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Real applications run in several <strong>environments</strong>:</p>
+  <ul>
+    <li><strong>dev</strong> — your laptop: an in-memory H2 database, files saved to a local folder, fake emails.</li>
+    <li><strong>test / QA</strong> — a shared test server with test data.</li>
+    <li><strong>prod</strong> — the real server: a MySQL database, files in cloud storage, real emails to real customers.</li>
+  </ul>
+  <p>The <em>code</em> must be the same everywhere (you test what you ship!). Only the <em>configuration</em> changes. If you handle this with <code>if (isProduction)</code> scattered through the code, sooner or later someone sends test emails to real customers. Spring gives you clean tools: <strong>profiles</strong> choose beans, the <strong>Environment</strong> provides settings, and <strong>conditions</strong> switch features on or off.</p>
+  <p>And here's a bonus: when you add <code>spring-boot-starter-web</code> to a Spring Boot project, a web server "magically" appears. That magic is just hundreds of <code>@Configuration</code> classes guarded by <code>@Conditional</code> annotations — the exact thing you'll build by hand in this topic. After this lesson, Spring Boot auto-configuration (Topic 28) will feel obvious.</p>
+
+  <!-- ===================================================== 2. ANALOGY ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>✈️ A pilot's checklists</strong>
+    <p>An airline pilot flies the same aircraft (the same <em>code</em>) on different routes. Before take-off they pick the right <strong>checklist</strong>: "short domestic flight" or "long international flight". The checklist decides which equipment is loaded — that's a <strong>profile</strong>.</p>
+    <ul>
+      <li>The <strong>flight plan board</strong> in the cockpit shows all current values: fuel, weather, altitude limits. Some values come from the control tower (system properties), some from the airport (environment variables), some from the airline's manual (property files). If two sources disagree, there's a fixed rule about who wins. That board is the <strong>Environment</strong>.</li>
+      <li>Some equipment is loaded <strong>only if a condition is true</strong>: "if the flight is over water, load life rafts". That's <code>@Conditional</code>.</li>
+      <li>The pilot's main manual says "see chapter: Engines" and "see chapter: Navigation" instead of putting everything in one huge chapter. That's <code>@Import</code>.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== 3. CONCEPTS ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 <code>@Configuration</code> in depth: full mode vs lite mode</h3>
+  <p>Look at this configuration. The <code>orderService()</code> and <code>paymentService()</code> methods both <strong>call <code>auditLog()</code> directly</strong>:</p>
+  <pre><span class="file">proxydemo/FullConfig.java</span><code class="lang-java">@Configuration
+public class FullConfig {
+
+    @Bean
+    public AuditLog auditLog() {
+        return new AuditLog();
+    }
+
+    @Bean
+    public AuditedService orderService() {
+        return new AuditedService("orderService", auditLog());     // a plain Java method call...
+    }
+
+    @Bean
+    public AuditedService paymentService() {
+        return new AuditedService("paymentService", auditLog());   // ...called a second time
+    }
+}</code></pre>
+  <p>In normal Java, calling <code>auditLog()</code> twice runs <code>new AuditLog()</code> twice → two objects. But the output says:</p>
+  <pre class="terminal"><code>FULL config class at runtime: FullConfig$$SpringCGLIB$$0
+FULL: orderService uses AuditLog #1, paymentService uses AuditLog #1</code></pre>
+  <p>Both services share AuditLog #1 — the singleton. How? At startup Spring generates a <strong>subclass</strong> of <code>FullConfig</code> using a library called <strong>CGLIB</strong> (that's the <code>$$SpringCGLIB$$0</code> in the class name). The subclass overrides each <code>@Bean</code> method like this (simplified):</p>
+  <pre><code class="lang-java">// generated by Spring at runtime (simplified idea)
+class FullConfig$$SpringCGLIB$$0 extends FullConfig {
+    @Override
+    public AuditLog auditLog() {
+        if (container already has a bean "auditLog") {
+            return thatBean;                 // don't create a second one
+        }
+        return super.auditLog();             // first time: really create it
+    }
+}</code></pre>
+  <p>This is <strong>full mode</strong> — the default for <code>@Configuration</code> (same as <code>@Configuration(proxyBeanMethods = true)</code>). It guarantees singleton semantics even for direct calls between <code>@Bean</code> methods.</p>
+  <p>With <code>@Configuration(proxyBeanMethods = false)</code> — <strong>lite mode</strong> — no subclass is created. Methods are plain Java again:</p>
+  <pre class="terminal"><code>LITE config class at runtime: LiteConfig
+LITE: container's AuditLog is #2, but orderService uses AuditLog #3, paymentService uses AuditLog #4
+LITE: safePaymentService uses AuditLog #2  &lt;- parameter injection is always safe</code></pre>
+  <p>The services got <em>extra</em> AuditLogs that are not even beans. The fix in lite mode: ask for dependencies as <strong>method parameters</strong>, which are always resolved from the container:</p>
+  <pre><span class="file">proxydemo/LiteConfig.java</span><code class="lang-java">@Bean
+public AuditedService safePaymentService(AuditLog auditLog) {   // injected - the real singleton
+    return new AuditedService("safePaymentService", auditLog);
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Full mode (<code>@Configuration</code>)</th><th>Lite mode (<code>proxyBeanMethods = false</code>)</th></tr>
+    <tr><td>CGLIB subclass created?</td><td>Yes</td><td>No</td></tr>
+    <tr><td>Direct call to another <code>@Bean</code> method</td><td>Returns the container's singleton ✅</td><td>Creates a new object ⚠️</td></tr>
+    <tr><td>Startup cost</td><td>Slightly higher</td><td>Slightly lower (Spring Boot's own auto-config classes use lite mode)</td></tr>
+    <tr><td>Class/methods may be <code>final</code>?</td><td>No (a subclass must override them)</td><td>Yes</td></tr>
+    <tr><td>Safe style</td><td colspan="2">Use <strong>method parameters</strong> for dependencies — works correctly in both modes.</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Simple rule</strong>
+    Always inject dependencies of a <code>@Bean</code> method as <strong>parameters</strong>. Then full vs lite never matters to you.</div>
+
+  <h3>3.2 <code>@Import</code> — splitting configuration</h3>
+  <p>One giant configuration class gets messy. Split it by topic and pull the pieces together with <code>@Import</code>:</p>
+  <pre><span class="file">config/AppConfig.java</span><code class="lang-java">@Configuration
+@Import({DevDataSourceConfig.class, ProdDataSourceConfig.class, StorageConfig.class, FeatureConfig.class})
+@PropertySource("classpath:application.properties")
+@PropertySource("classpath:application-${spring.profiles.active:dev}.properties")
+@ComponentScan("com.course.configprofiles.service")
+public class AppConfig { ... }</code></pre>
+  <ul>
+    <li>We start the container with only <code>AppConfig</code>; Spring follows the <code>@Import</code> and processes the four other classes too.</li>
+    <li><code>@Import</code> is <strong>explicit</strong> — no package scanning needed. It's common for shared libraries: "import my company's <code>SecurityConfig</code>".</li>
+    <li>You can import <code>@Configuration</code> classes, plain <code>@Component</code> classes, or special "selector" classes that decide <em>at runtime</em> what to import (an <code>ImportSelector</code>). Spring Boot's <code>@EnableAutoConfiguration</code> is exactly such a selector — it imports a long list of auto-configuration classes.</li>
+    <li>Many <code>@Enable...</code> annotations work by importing configuration, e.g. <code>@EnableAspectJAutoProxy</code> (Topic 27), <code>@EnableScheduling</code> (Topic 52).</li>
+  </ul>
+
+  <h3>3.3 Profiles — different beans per environment</h3>
+  <p>A <strong>profile</strong> is a named group of beans: <code>dev</code>, <code>test</code>, <code>prod</code>, <code>cloud</code>… A bean marked with <code>@Profile</code> is registered <strong>only if that profile is active</strong>. Beans without <code>@Profile</code> are always registered.</p>
+  <p><strong>Class level</strong> — the whole configuration class belongs to a profile:</p>
+  <pre><span class="file">config/DevDataSourceConfig.java</span><code class="lang-java">@Configuration
+@Profile("dev")
+public class DevDataSourceConfig {
+    @Bean
+    public DatabaseSettings databaseSettings(Environment env) { ... H2 ... }
+}
+
+@Configuration
+@Profile("prod")
+public class ProdDataSourceConfig {
+    @Bean
+    public DatabaseSettings databaseSettings(Environment env) { ... MySQL ... }
+}</code></pre>
+  <p><strong>Method level</strong> — individual <code>@Bean</code> methods:</p>
+  <pre><span class="file">config/StorageConfig.java</span><code class="lang-java">@Bean("storageService")
+@Profile("dev")
+public StorageService localStorage(@Value("${storage.root}") String root) {
+    return new LocalDiskStorage(root);
+}
+
+@Bean("storageService")
+@Profile("prod")
+public StorageService cloudStorage(@Value("${storage.bucket}") String bucket) {
+    return new CloudStorage(bucket);
+}
+
+@Bean
+@Profile("!prod")                       // every profile EXCEPT prod
+public String sampleDataLoader() { ... }</code></pre>
+  <p>The rest of the app simply asks for a <code>StorageService</code> or <code>DatabaseSettings</code> and never knows which environment it's in. You can also put <code>@Profile</code> on a <code>@Component</code> class.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Profile expression</th><th>Bean is active when…</th></tr>
+    <tr><td><code>@Profile("dev")</code></td><td><code>dev</code> is active</td></tr>
+    <tr><td><code>@Profile("!prod")</code></td><td><code>prod</code> is <strong>not</strong> active</td></tr>
+    <tr><td><code>@Profile({"dev", "test"})</code> or <code>@Profile("dev | test")</code></td><td><code>dev</code> <strong>or</strong> <code>test</code> is active</td></tr>
+    <tr><td><code>@Profile("prod &amp; cloud")</code></td><td>both <code>prod</code> <strong>and</strong> <code>cloud</code> are active</td></tr>
+    <tr><td><code>@Profile("default")</code></td><td>no profile at all was activated</td></tr>
+  </table></div>
+
+  <h3>3.4 Activating profiles</h3>
+  <p>A profile does nothing until it's <strong>activated</strong>. Ways to activate (several can be active at once, comma-separated):</p>
+  <div class="table-wrap"><table>
+    <tr><th>How</th><th>Example</th><th>Typical use</th></tr>
+    <tr><td>JVM system property</td><td><code>-Dspring.profiles.active=prod</code></td><td>Start scripts, our demo</td></tr>
+    <tr><td>OS environment variable</td><td><code>SPRING_PROFILES_ACTIVE=prod</code></td><td>Servers, Docker, Kubernetes (Topics 66–69)</td></tr>
+    <tr><td>In code, before <code>refresh()</code></td><td><code>context.getEnvironment().setActiveProfiles("prod")</code></td><td>Tests, demos</td></tr>
+    <tr><td>Spring Boot</td><td><code>spring.profiles.active=dev</code> in <code>application.properties</code>, or <code>--spring.profiles.active=prod</code> on the command line</td><td>Topic 29</td></tr>
+  </table></div>
+  <p>If <strong>no</strong> profile is activated, Spring uses the <strong>default profiles</strong> — normally a profile literally called <code>default</code>. Our demo changes the default to <code>dev</code>, so a plain run behaves like a developer laptop:</p>
+  <pre><span class="file">App.java</span><code class="lang-java">AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();  // empty, not started
+context.getEnvironment().setDefaultProfiles("dev");    // used when nothing is activated
+context.register(AppConfig.class);                     // add configuration
+context.refresh();                                     // NOW start: read config, create beans</code></pre>
+  <div class="callout warn"><strong>⚠️ Configure the Environment <em>before</em> <code>refresh()</code></strong>
+    The one-line form <code>new AnnotationConfigApplicationContext(AppConfig.class)</code> registers <em>and</em> refreshes immediately — too late to change profiles. Use the three-step form (create empty → configure → <code>register</code> + <code>refresh</code>). Spring Boot does all this for you.</div>
+
+  <h3>3.5 The <code>Environment</code></h3>
+  <p><code>Environment</code> (package <code>org.springframework.core.env</code>) is Spring's central object for two things: <strong>profiles</strong> and <strong>properties</strong>. You can inject it into any bean like a normal dependency:</p>
+  <pre><span class="file">service/EnvironmentReporter.java</span><code class="lang-java">@Component
+public class EnvironmentReporter {
+    private final Environment env;
+
+    public EnvironmentReporter(Environment env) { this.env = env; }
+
+    public void report() {
+        env.getActiveProfiles();                           // [prod]   or [] if none
+        env.getDefaultProfiles();                          // [dev]
+        env.acceptsProfiles(Profiles.of("prod"));          // true / false
+        env.getProperty("app.greeting");                   // String or null
+        env.getProperty("shop.max-items", Integer.class);  // converted to Integer
+        env.getProperty("shop.currency", "INR");           // with a default
+        env.getRequiredProperty("db.url");                 // throws IllegalStateException if missing
+        env.containsProperty("PATH");                      // true - an OS environment variable
+    }
+}</code></pre>
+  <p>Properties come from a list of <strong>property sources</strong>. Spring searches them <strong>in order</strong> and the <strong>first one that has the key wins</strong>:</p>
+  <div class="flow">
+    <span class="box alt">1. systemProperties<br><small>-Dkey=value, java.version…</small></span><span class="arrow">→</span>
+    <span class="box alt">2. systemEnvironment<br><small>OS env vars: PATH…</small></span><span class="arrow">→</span>
+    <span class="box info">3. application-dev.properties<br><small>later @PropertySource</small></span><span class="arrow">→</span>
+    <span class="box info">4. application.properties<br><small>earlier @PropertySource</small></span>
+  </div>
+  <p>Consequences:</p>
+  <ul>
+    <li>A <code>-Dshop.name=MegaMart</code> on the command line beats the value in any file. Great for a quick override.</li>
+    <li>An environment variable beats files too — that's how servers inject secrets without writing them in files. Spring even maps <code>SHOP_NAME</code> to <code>shop.name</code> (dots → underscores, upper case).</li>
+    <li>Between <code>@PropertySource</code> files, the <strong>later</strong> one wins. That's why <code>features.loyalty.enabled=true</code> in <code>application-prod.properties</code> overrides <code>false</code> from <code>application.properties</code>.</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ <code>@Value</code> vs <code>Environment</code></strong>
+    <code>@Value("${key}")</code> reads from the very same Environment. Use <code>@Value</code> (or Boot's <code>@ConfigurationProperties</code>) for normal injection; use <code>Environment</code> when you need dynamic keys, profile checks, or you're writing configuration/conditions.</div>
+  <div class="callout tip"><strong>💡 The profile-specific file trick</strong>
+    <code>@PropertySource("classpath:application-${spring.profiles.active:dev}.properties")</code> — placeholders work in the file name! It's resolved from system properties/env vars, so <code>-Dspring.profiles.active=prod</code> loads <code>application-prod.properties</code>. Spring Boot does this automatically for <code>application-{profile}.properties</code> (Topic 29) — here you see how simple the idea is.</div>
+
+  <h3>3.6 <code>@Conditional</code> — beans that exist only if a condition is true</h3>
+  <p><code>@Profile</code> is actually a special case of a more general feature: <strong><code>@Conditional</code></strong>. You write a class implementing <code>Condition</code> with one method, <code>matches()</code>, which returns <code>true</code> (register the bean) or <code>false</code> (skip it):</p>
+  <pre><span class="file">condition/OnClassPresentCondition.java</span><code class="lang-java">public class OnClassPresentCondition implements Condition {
+
+    @Override
+    public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+        return ClassUtils.isPresent("com.fasterxml.jackson.databind.ObjectMapper",
+                                    context.getClassLoader());       // is Jackson on the classpath?
+    }
+}
+
+// usage
+@Bean
+@Conditional(OnClassPresentCondition.class)
+public String jsonExporter() { return "JsonExporter"; }</code></pre>
+  <p><code>ConditionContext</code> gives access to the <code>Environment</code> (properties/profiles), the bean registry (which beans exist already) and the class loader (which libraries are present). <code>AnnotatedTypeMetadata</code> lets you read the annotations on the method/class being checked.</p>
+  <p>Even nicer: wrap the condition in your <strong>own annotation</strong> using meta-annotations (Topic 18):</p>
+  <pre><span class="file">condition/ConditionalOnFeature.java</span><code class="lang-java">@Retention(RetentionPolicy.RUNTIME)
+@Target({ElementType.TYPE, ElementType.METHOD})
+@Conditional(OnFeatureCondition.class)          // &lt;-- the real work happens here
+public @interface ConditionalOnFeature {
+    String value();                             // feature name
+}</code></pre>
+  <pre><span class="file">condition/OnFeatureCondition.java</span><code class="lang-java">public class OnFeatureCondition implements Condition {
+    @Override
+    public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+        Map&lt;String, Object&gt; attributes =
+                metadata.getAnnotationAttributes(ConditionalOnFeature.class.getName());
+        String key = "features." + attributes.get("value") + ".enabled";
+        return context.getEnvironment().getProperty(key, Boolean.class, false);
+    }
+}</code></pre>
+  <pre><span class="file">config/FeatureConfig.java</span><code class="lang-java">@Bean
+@ConditionalOnFeature("recommendations")        // registered only if features.recommendations.enabled=true
+public String recommendationService() { ... }
+
+@Bean
+@ConditionalOnFeature("loyalty")                // false in dev, true in prod
+public String loyaltyService() { ... }</code></pre>
+  <div class="callout info"><strong>🔑 This is the secret behind Spring Boot auto-configuration</strong>
+    Spring Boot ships with hundreds of configuration classes, each guarded by conditions like these — which Boot provides ready-made:
+    <div class="table-wrap"><table>
+      <tr><th>Spring Boot annotation</th><th>Registers the bean if…</th><th>Our hand-made equivalent</th></tr>
+      <tr><td><code>@ConditionalOnClass(DataSource.class)</code></td><td>a class is on the classpath (you added a library)</td><td><code>OnClassPresentCondition</code></td></tr>
+      <tr><td><code>@ConditionalOnProperty("features.x.enabled")</code></td><td>a property has a value</td><td><code>@ConditionalOnFeature</code></td></tr>
+      <tr><td><code>@ConditionalOnMissingBean</code></td><td>you did <em>not</em> define such a bean yourself</td><td>(check the registry in <code>ConditionContext</code>)</td></tr>
+      <tr><td><code>@ConditionalOnWebApplication</code></td><td>it's a web app</td><td>—</td></tr>
+    </table></div>
+    Example: "if H2 is on the classpath <strong>and</strong> you didn't define a <code>DataSource</code> yourself, create an in-memory H2 <code>DataSource</code>". That's why adding one dependency to your pom "magically" configures things — and why your own bean always wins over Boot's default.</div>
+
+  <h3>3.7 SpEL — the Spring Expression Language</h3>
+  <p><code>${...}</code> only <em>looks up</em> a property. <code>#{...}</code> <em>evaluates an expression</em> — maths, method calls, conditions, other beans. It's called <strong>SpEL</strong> (Spring Expression Language).</p>
+  <pre><span class="file">service/PricingRules.java</span><code class="lang-java">@Value("#{2 * 60 * 60}")                                  // arithmetic                 -&gt; 7200
+private int sessionTimeoutSeconds;
+
+@Value("#{'${shop.name}'.toUpperCase()}")                 // property + String method   -&gt; QUICKCART
+private String shopNameUpper;
+
+@Value("#{${shop.base-delivery-fee} * 1.18}")             // property + maths (18% tax) -&gt; 59.0
+private double deliveryFeeWithTax;
+
+@Value("#{${shop.max-items} &gt; 20 ? 'BULK' : 'NORMAL'}")   // ternary                    -&gt; BULK
+private String orderMode;
+
+@Value("#{T(java.lang.Math).max(10, ${shop.max-items})}") // static method with T(...)  -&gt; 25
+private int effectiveLimit;
+
+@Value("#{storageService.name()}")                        // method on ANOTHER BEAN     -&gt; LocalDisk / Cloud
+private String storageName;
+
+@Value("#{systemProperties['java.version']}")             // built-in variable          -&gt; 17.0.19
+private String javaVersion;
+
+@Value("#{ {100, 250, 499, 1200}.?[#this &gt; 300] }")       // selection (filter)         -&gt; [499, 1200]
+private List&lt;Integer&gt; bigOrderAmounts;</code></pre>
+  <p>Note the order when combining: <code>${...}</code> placeholders are replaced <strong>first</strong> (text replacement), then the <code>#{...}</code> expression is evaluated. So <code>#{${shop.base-delivery-fee} * 1.18}</code> becomes <code>#{50 * 1.18}</code> → <code>59.0</code>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>SpEL feature</th><th>Syntax</th></tr>
+    <tr><td>Literals</td><td><code>'text'</code>, <code>42</code>, <code>3.14</code>, <code>true</code>, <code>null</code></td></tr>
+    <tr><td>Operators</td><td><code>+ - * / %</code>, <code>== != &lt; &gt;</code> (or <code>eq ne lt gt</code>), <code>and or not</code>, <code>?:</code></td></tr>
+    <tr><td>Methods &amp; properties</td><td><code>'abc'.length()</code>, <code>someBean.name</code></td></tr>
+    <tr><td>Bean reference</td><td><code>storageService</code> (by bean name) or <code>@storageService</code></td></tr>
+    <tr><td>Static types</td><td><code>T(java.time.LocalDate).now()</code></td></tr>
+    <tr><td>Safe navigation</td><td><code>user?.address?.city</code> (no NullPointerException)</td></tr>
+    <tr><td>Elvis (default)</td><td><code>name ?: 'Guest'</code></td></tr>
+    <tr><td>Collections</td><td><code>{1,2,3}</code>; selection <code>.?[cond]</code>; projection <code>.![expr]</code></td></tr>
+  </table></div>
+  <p>SpEL also works on its own, outside <code>@Value</code>:</p>
+  <pre><span class="file">App.java</span><code class="lang-java">ExpressionParser parser = new SpelExpressionParser();
+List&lt;?&gt; doubled = parser.parseExpression("{1499, 599, 8999}.![#this * 2]").getValue(List.class);
+// -&gt; [2998, 1198, 17998]</code></pre>
+  <div class="callout info"><strong>ℹ️ Where you'll meet SpEL later</strong>
+    Security rules like <code>@PreAuthorize("hasRole('ADMIN') or #userId == authentication.principal.id")</code> (Topic 48), cache keys like <code>@Cacheable(key = "#id")</code> (Topic 51), and <code>@Scheduled(cron = "${jobs.cron}")</code>. Keep expressions short — complex logic belongs in Java code.</div>
+
+  <!-- ===================================================== 4. CODE ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Base package: <code>com.course.configprofiles</code> — the "QuickCart" shop.</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>App.java</code></td><td>Demo 1 (full vs lite), then builds the main context with a default profile and runs demos 2–6.</td></tr>
+    <tr><td><code>proxydemo/AuditLog.java</code>, <code>AuditedService.java</code></td><td>Numbered audit logs to <em>see</em> sharing.</td></tr>
+    <tr><td><code>proxydemo/FullConfig.java</code> / <code>LiteConfig.java</code></td><td><code>@Configuration</code> vs <code>@Configuration(proxyBeanMethods = false)</code>.</td></tr>
+    <tr><td><code>config/AppConfig.java</code></td><td><code>@Import</code>, two <code>@PropertySource</code>s, <code>@ComponentScan</code>, placeholder configurer.</td></tr>
+    <tr><td><code>config/DatabaseSettings.java</code></td><td>Record describing the database.</td></tr>
+    <tr><td><code>config/DevDataSourceConfig.java</code>, <code>ProdDataSourceConfig.java</code></td><td>Class-level <code>@Profile</code>; read properties via <code>Environment</code>.</td></tr>
+    <tr><td><code>config/StorageConfig.java</code></td><td>Method-level <code>@Profile</code>, same bean name in both profiles, <code>@Profile("!prod")</code>.</td></tr>
+    <tr><td><code>storage/StorageService.java</code>, <code>LocalDiskStorage.java</code>, <code>CloudStorage.java</code></td><td>Interface + two environment-specific implementations.</td></tr>
+    <tr><td><code>config/FeatureConfig.java</code></td><td>Beans guarded by conditions.</td></tr>
+    <tr><td><code>condition/ConditionalOnFeature.java</code></td><td>Custom conditional annotation (meta-annotated).</td></tr>
+    <tr><td><code>condition/OnFeatureCondition.java</code></td><td>Property-based <code>Condition</code>.</td></tr>
+    <tr><td><code>condition/OnClassPresentCondition.java</code></td><td>Classpath-based <code>Condition</code>.</td></tr>
+    <tr><td><code>service/EnvironmentReporter.java</code></td><td>Uses the injected <code>Environment</code>; lists property sources.</td></tr>
+    <tr><td><code>service/PricingRules.java</code></td><td>SpEL in <code>@Value</code>.</td></tr>
+    <tr><td><code>resources/application.properties</code></td><td>Shared settings + feature flags.</td></tr>
+    <tr><td><code>resources/application-dev.properties</code> / <code>-prod.properties</code></td><td>Per-profile settings; prod overrides <code>features.loyalty.enabled</code>.</td></tr>
+  </table></div>
+
+  <h3>4.1 The properties files</h3>
+  <pre><span class="file">src/main/resources/application.properties</span><code class="lang-properties">shop.name=QuickCart
+shop.base-delivery-fee=50
+shop.max-items=25
+features.recommendations.enabled=true
+features.loyalty.enabled=false</code></pre>
+  <pre><span class="file">src/main/resources/application-dev.properties</span><code class="lang-properties">app.greeting=Hello from DEV - safe to experiment!
+db.url=jdbc:h2:mem:quickcart_dev
+db.username=sa
+db.pool-size=2
+storage.root=C:/temp/quickcart-uploads</code></pre>
+  <pre><span class="file">src/main/resources/application-prod.properties</span><code class="lang-properties">app.greeting=Hello from PROD - be careful!
+db.url=jdbc:mysql://prod-db.internal:3306/quickcart
+db.username=quickcart_app
+db.pool-size=20
+storage.bucket=quickcart-prod-assets
+features.loyalty.enabled=true</code></pre>
+
+  <h3>4.2 Reading settings with the <code>Environment</code> in a config class</h3>
+  <pre><span class="file">config/DevDataSourceConfig.java</span><code class="lang-java">@Configuration
+@Profile("dev")
+public class DevDataSourceConfig {
+
+    @Bean
+    public DatabaseSettings databaseSettings(Environment env) {          // Environment injected as a parameter
+        return new DatabaseSettings(
+                env.getRequiredProperty("db.url"),                       // must exist
+                env.getRequiredProperty("db.username"),
+                env.getProperty("db.pool-size", Integer.class, 2));      // typed, with default
+    }
+}</code></pre>
+
+  <h3>4.3 When are conditions evaluated?</h3>
+  <p>Look at the start of demo 2: the <code>[condition]</code> lines are printed <strong>before</strong> any bean is created. Conditions run while Spring is still reading configuration and collecting bean <em>definitions</em> (Topic 23, step 2). A skipped bean never even gets a recipe — <code>containsBean("loyaltyService")</code> is simply <code>false</code>.</p>
+
+  <!-- ===================================================== 5. RUN ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <h3>Default (dev profile)</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\26-Spring-Configuration-Profiles-And-Environment"
+mvn -q compile exec:java</code></pre>
+  <pre class="terminal"><code>=== DEMO 1: @Configuration full vs lite mode ===
+   FULL config class at runtime: FullConfig$$SpringCGLIB$$0
+   FULL: orderService uses AuditLog #1, paymentService uses AuditLog #1
+   LITE config class at runtime: LiteConfig
+   LITE: container's AuditLog is #2, but orderService uses AuditLog #3, paymentService uses AuditLog #4
+   LITE: safePaymentService uses AuditLog #2  &lt;- parameter injection is always safe
+
+=== DEMO 2: Starting the QuickCart context ===
+   [condition] features.recommendations.enabled = true -&gt; REGISTER bean
+   [condition] features.loyalty.enabled = false -&gt; SKIP bean
+   [condition] Jackson on classpath? false -&gt; SKIP bean
+   [config] DevDataSourceConfig active -&gt; in-memory H2 database
+   [config] Loading 3 sample products (profile is not prod)
+   --- context READY ---
+
+=== DEMO 3: The Environment ===
+   active profiles : []
+   default profiles: [dev]
+   is 'prod' active? false
+   app.greeting    : Hello from DEV - safe to experiment!
+   shop.max-items  : 25
+   shop.currency   : INR  (missing -&gt; default)
+   java.version    : 17.0.19  (a JVM system property)
+   has PATH env var? true  (an OS environment variable)
+   property sources, in search order:
+     - systemProperties
+     - systemEnvironment
+     - class path resource [application-dev.properties]
+     - class path resource [application.properties]
+
+=== DEMO 4: Profile-specific beans ===
+   DatabaseSettings[url=jdbc:h2:mem:quickcart_dev, username=sa, poolSize=2]
+   storage = LocalDisk -&gt; saved to C:/temp/quickcart-uploads/keyboard.png
+   sampleDataLoader bean present? true
+
+=== DEMO 5: @Conditional results ===
+   recommendationService registered? true
+   loyaltyService registered? false
+   jsonExporter registered? false
+   csvExporter registered? true
+   RecommendationService: 'Customers who bought a Keyboard also bought a Mouse'
+
+=== DEMO 6: SpEL ===
+   #{2 * 60 * 60}                     -&gt; 7200
+   #{'${shop.name}'.toUpperCase()}    -&gt; QUICKCART
+   #{${shop.base-delivery-fee} * 1.18} -&gt; 59.0
+   #{${shop.max-items} &gt; 20 ? ...}     -&gt; BULK
+   #{T(java.lang.Math).max(...)}      -&gt; 25
+   #{storageService.name()}           -&gt; LocalDisk
+   #{systemProperties['java.version']} -&gt; 17.0.19
+   #{ {100,250,499,1200}.?[#this &gt; 300] } -&gt; [499, 1200]
+   parser: {1499, 599, 8999}.![#this * 2] -&gt; [2998, 1198, 17998]
+   parser: 'quick'.concat('cart').toUpperCase() -&gt; QUICKCART
+=== Done ===</code></pre>
+  <p>(Your <code>java.version</code> may differ slightly.)</p>
+
+  <h3>The prod profile</h3>
+  <pre class="terminal"><code>mvn -q compile exec:java "-Dspring.profiles.active=prod"</code></pre>
+  <div class="callout warn"><strong>⚠️ PowerShell: keep the quotes!</strong>
+    Without quotes, PowerShell splits <code>-Dspring.profiles.active=prod</code> at the dots and Maven receives garbage (you'll get an error such as "Unknown lifecycle phase .profiles.active=prod"). In Git Bash or cmd.exe, quotes are optional.</div>
+  <p>What changes in the output:</p>
+  <pre class="terminal"><code>   [condition] features.loyalty.enabled = true -&gt; REGISTER bean
+   [config] ProdDataSourceConfig active -&gt; real MySQL database
+   ...
+   active profiles : [prod]
+   is 'prod' active? true
+   app.greeting    : Hello from PROD - be careful!
+   ...
+     - class path resource [application-prod.properties]
+   ...
+   DatabaseSettings[url=jdbc:mysql://prod-db.internal:3306/quickcart, username=quickcart_app, poolSize=20]
+   storage = Cloud -&gt; uploaded to cloud bucket 'quickcart-prod-assets' as keyboard.png
+   sampleDataLoader bean present? false
+   ...
+   loyaltyService registered? true
+   ...
+   #{storageService.name()}           -&gt; Cloud</code></pre>
+  <p>Same code, different beans and settings — that's the whole point. (Nothing connects to a real MySQL server here; we only show which settings would be used.)</p>
+  <p>You can also override a single property from the command line, because system properties win:</p>
+  <pre class="terminal"><code>mvn -q compile exec:java "-Dshop.name=MegaMart"</code></pre>
+  <p>In VS Code: open the folder, open <code>App.java</code> and click <strong>Run</strong> for the dev profile. For prod, add <code>"vmArgs": "-Dspring.profiles.active=prod"</code> to a launch configuration (Run → Add Configuration…), or just use the terminal.</p>
+
+  <!-- ===================================================== 6. MISTAKES ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: calling <code>@Bean</code> methods directly in lite mode</strong>
+    With <code>proxyBeanMethods = false</code> (or <code>@Bean</code> methods in a <code>@Component</code> class), <code>auditLog()</code> creates a new object every time — silently.<br>
+    <strong>Fix:</strong> take dependencies as <code>@Bean</code> method parameters.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: making a full-mode <code>@Configuration</code> class or its <code>@Bean</code> methods <code>final</code></strong>
+    CGLIB can't subclass/override them; startup fails with a message about the class or method being final.<br>
+    <strong>Fix:</strong> don't use <code>final</code> there, or use lite mode.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: no profile active → "No qualifying bean of type DatabaseSettings"</strong>
+    If every implementation is behind <code>@Profile("dev")</code>/<code>@Profile("prod")</code> and you forgot to activate one, <em>no</em> bean exists.<br>
+    <strong>Fix:</strong> set a default profile, or make one implementation the fallback with <code>@Profile("default")</code> or <code>@Profile("!prod")</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: setting profiles after the context started</strong>
+    <code>setActiveProfiles</code> after <code>refresh()</code> has no effect on already-created beans.<br>
+    <strong>Fix:</strong> create the context empty, configure the Environment, then <code>register()</code> + <code>refresh()</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: unquoted <code>-D</code> arguments in PowerShell</strong>
+    See the warning in "How to run". Always write <code>"-Dkey=value"</code> in PowerShell.</div>
+  <div class="callout danger"><strong>🛑 Mistake: production secrets in property files committed to Git</strong>
+    <code>db.password=SuperSecret123</code> in <code>application-prod.properties</code> ends up in your Git history forever.<br>
+    <strong>Fix:</strong> read secrets from environment variables (they win over files) or a secrets manager. Topics 29 and 69 cover this.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: business logic in SpEL strings</strong>
+    Long <code>#{...}</code> expressions are not checked by the compiler, are hard to test and hard to debug.<br>
+    <strong>Fix:</strong> keep SpEL tiny; put real logic in Java methods.</div>
+
+  <!-- ===================================================== 7. BEST ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Same code, different configuration</strong>: use profiles and properties, never <code>if (env == "prod")</code> in business code.</li>
+    <li>Keep the <strong>number of profiles small</strong> (<code>dev</code>, <code>test</code>, <code>prod</code>…). Prefer properties for small differences and profiles for different <em>beans</em>.</li>
+    <li>Make the <strong>safe choice the default</strong>: a forgotten profile should give you dev behaviour (fake emails), never prod behaviour.</li>
+    <li><strong>Split configuration</strong> by concern (database, security, messaging) and combine with <code>@Import</code> or scanning.</li>
+    <li>Inject dependencies into <code>@Bean</code> methods as <strong>parameters</strong> — correct in full and lite mode.</li>
+    <li>Use <strong>feature flags</strong> (property + condition) to switch features on/off without redeploying code.</li>
+    <li>In Spring Boot, prefer the built-in <code>@ConditionalOnProperty</code>/<code>@ConditionalOnClass</code>/<code>@ConditionalOnMissingBean</code> over custom conditions.</li>
+    <li><strong>Secrets</strong> come from environment variables or a vault — never from Git.</li>
+  </ul>
+
+  <!-- ===================================================== 8. SUMMARY ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li><code>@Configuration</code> (full mode) creates a CGLIB subclass so inter-<code>@Bean</code> method calls return singletons; <code>proxyBeanMethods = false</code> (lite mode) skips that.</li>
+    <li><code>@Import</code> combines configuration classes explicitly; <code>@Enable...</code> annotations and Boot's auto-configuration use it.</li>
+    <li><code>@Profile</code> registers beans only when a profile is active; supports <code>!</code>, <code>&amp;</code>, <code>|</code>.</li>
+    <li>Activate profiles with <code>-Dspring.profiles.active</code>, <code>SPRING_PROFILES_ACTIVE</code>, or <code>setActiveProfiles</code> before refresh; default profiles apply when none is active.</li>
+    <li>The <code>Environment</code> holds profiles and properties; property sources are searched in order: system properties → env vars → files (later <code>@PropertySource</code> wins).</li>
+    <li>A <code>Condition</code> decides whether a bean is registered; custom annotations meta-annotated with <code>@Conditional</code> make them reusable.</li>
+    <li><strong>Spring Boot auto-configuration = configuration classes + conditions.</strong></li>
+    <li>SpEL <code>#{...}</code> evaluates expressions; <code>${...}</code> only looks up properties — and is resolved first.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9. EXERCISES ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Override from the command line.</strong> Run with <code>"-Dshop.max-items=10"</code>. Which demo lines change, and why does the command line win over <code>application.properties</code>?</p>
+    <details><summary>Hint / solution</summary>
+      <p><code>shop.max-items : 10</code>, <code>orderMode</code> becomes <code>NORMAL</code> (10 is not &gt; 20), and <code>effectiveLimit</code> becomes 10 (<code>max(10, 10)</code>). System properties are the first property source searched, so they win over files.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>A "test" profile.</strong> Create <code>application-test.properties</code> (copy dev, change <code>app.greeting</code> and <code>db.url</code>). Change <code>DevDataSourceConfig</code> to <code>@Profile({"dev", "test"})</code> and the local storage bean too. Run with <code>"-Dspring.profiles.active=test"</code>.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-properties"># application-test.properties
+app.greeting=Hello from TEST
+db.url=jdbc:h2:mem:quickcart_test
+db.username=sa
+db.pool-size=2
+storage.root=C:/temp/quickcart-test</code></pre>
+      <pre><code class="lang-java">@Configuration
+@Profile({"dev", "test"})
+public class DevDataSourceConfig { ... }
+
+@Bean("storageService")
+@Profile({"dev", "test"})
+public StorageService localStorage(...) { ... }</code></pre>
+      <p>The <code>@PropertySource</code> placeholder loads <code>application-test.properties</code> automatically. <code>sampleDataLoader</code> is also present (test is "not prod").</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>See the full-mode guarantee break.</strong> In <code>FullConfig</code>, change <code>@Configuration</code> to <code>@Configuration(proxyBeanMethods = false)</code> and run demo 1. Then change it back and instead remove <code>@Configuration</code> completely, registering the class with <code>new AnnotationConfigApplicationContext(FullConfig.class)</code> (which still works). What do you observe both times?</p>
+    <details><summary>Hint / solution</summary>
+      <p>Both times the class name has no <code>$$SpringCGLIB$$</code> and the services get different AuditLogs (#2 and #3 while the container's is #1). A class with <code>@Bean</code> methods but no <code>@Configuration</code> is processed in lite mode too. Only full <code>@Configuration</code> intercepts direct calls.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Turn on the JSON exporter without touching Java code.</strong> Add Jackson to the pom: <code>com.fasterxml.jackson.core:jackson-databind:2.19.2</code>. Run again. What happens to <code>jsonExporter</code>? Remove the dependency afterwards.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;com.fasterxml.jackson.core&lt;/groupId&gt;
+    &lt;artifactId&gt;jackson-databind&lt;/artifactId&gt;
+    &lt;version&gt;2.19.2&lt;/version&gt;
+&lt;/dependency&gt;</code></pre>
+      <p>The condition prints <code>Jackson on classpath? true -&gt; REGISTER bean</code> and <code>jsonExporter registered? true</code>. This is exactly how Spring Boot reacts to the libraries you add — e.g. adding <code>spring-boot-starter-web</code> brings Jackson and Tomcat, and Boot auto-configures JSON conversion and a web server.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Write <code>@ConditionalOnMissingBeanNamed</code>.</strong> Create a condition annotation that registers a bean only if <em>no</em> bean with a given name has been registered yet. Use it on a fallback <code>@Bean("storageService")</code> that returns a <code>LocalDiskStorage("C:/temp/fallback")</code> and put it in a <strong>new</strong> configuration class imported <em>last</em>. Test it with a profile that matches neither dev nor prod (e.g. <code>"-Dspring.profiles.active=demo"</code>) — remember <code>application-demo.properties</code> must exist.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">@Retention(RetentionPolicy.RUNTIME)
+@Target({ElementType.TYPE, ElementType.METHOD})
+@Conditional(OnMissingBeanNamedCondition.class)
+public @interface ConditionalOnMissingBeanNamed {
+    String value();
+}
+
+public class OnMissingBeanNamedCondition implements Condition {
+    @Override
+    public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+        String name = (String) metadata
+                .getAnnotationAttributes(ConditionalOnMissingBeanNamed.class.getName()).get("value");
+        return !context.getRegistry().containsBeanDefinition(name);
+    }
+}
+
+@Configuration
+public class FallbackStorageConfig {
+    @Bean("storageService")
+    @ConditionalOnMissingBeanNamed("storageService")
+    public StorageService fallbackStorage() {
+        return new LocalDiskStorage("C:/temp/fallback");
+    }
+}
+// AppConfig: @Import({..., FeatureConfig.class, FallbackStorageConfig.class})</code></pre>
+      <p>With the <code>demo</code> profile, neither dev nor prod storage is registered, so the fallback appears. With dev or prod it's skipped. You'd also need a <code>DatabaseSettings</code> fallback for the demo profile to start fully. Spring Boot's real <code>@ConditionalOnMissingBean</code> is more careful about ordering (auto-configuration runs <em>after</em> your own config) — which is why your beans always win.</p>
+    </details>
+  </div>
+
+  <!-- ===================================================== 10. INTERVIEW ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between @Configuration and @Component when declaring @Bean methods?</summary>
+    <p>In a <code>@Configuration</code> class (full mode) Spring creates a CGLIB subclass that intercepts <code>@Bean</code> method calls, so calling one <code>@Bean</code> method from another returns the container-managed singleton. In a <code>@Component</code> class (or <code>@Configuration(proxyBeanMethods = false)</code>, "lite mode") the methods are called as plain Java, so direct calls create new instances. Injecting dependencies via method parameters works in both.</p></details>
+  <details><summary>Q2. What does proxyBeanMethods = false do and why would you use it?</summary>
+    <p>It disables the CGLIB proxy for the configuration class. Benefits: slightly faster startup, less memory, allows final classes, and works better with native images. Spring Boot's auto-configuration classes use it. The cost: inter-bean method calls are no longer intercepted.</p></details>
+  <details><summary>Q3. What is @Import used for?</summary>
+    <p>To include other configuration classes (or components, <code>ImportSelector</code>s, <code>ImportBeanDefinitionRegistrar</code>s) explicitly, without component scanning. It's used to modularise configuration and underlies <code>@Enable*</code> annotations and Spring Boot's <code>@EnableAutoConfiguration</code>.</p></details>
+  <details><summary>Q4. What are profiles and how do you activate them?</summary>
+    <p>Profiles are named, logical groups of bean definitions (e.g. dev, test, prod). Beans annotated with <code>@Profile</code> are registered only if a matching profile is active. Activate with the <code>spring.profiles.active</code> property (system property, environment variable <code>SPRING_PROFILES_ACTIVE</code>, Boot properties or command-line argument) or programmatically via <code>ConfigurableEnvironment.setActiveProfiles()</code> before refresh. If none is active, the default profiles (normally <code>default</code>) apply.</p></details>
+  <details><summary>Q5. What is the Spring Environment?</summary>
+    <p>An abstraction (<code>org.springframework.core.env.Environment</code>) that models two aspects: profiles (active/default) and properties. Properties are resolved from an ordered list of <code>PropertySource</code>s — JVM system properties, OS environment variables, <code>@PropertySource</code> files (and in Boot, many more). The first source containing a key wins.</p></details>
+  <details><summary>Q6. How does @Conditional work? How does it relate to Spring Boot?</summary>
+    <p><code>@Conditional(MyCondition.class)</code> on a <code>@Bean</code> method or configuration class makes Spring call <code>MyCondition.matches(ConditionContext, AnnotatedTypeMetadata)</code> while loading bean definitions; the bean is registered only if it returns true. <code>@Profile</code> itself is implemented with a condition. Spring Boot auto-configuration consists of configuration classes guarded by conditions such as <code>@ConditionalOnClass</code>, <code>@ConditionalOnProperty</code> and <code>@ConditionalOnMissingBean</code>.</p></details>
+  <details><summary>Q7. What's the difference between ${...} and #{...}?</summary>
+    <p><code>${...}</code> is a property placeholder resolved against the Environment. <code>#{...}</code> is a SpEL expression evaluated at runtime, supporting operators, method calls, bean references, static types (<code>T()</code>) and collection selection/projection. Placeholders inside an expression are resolved first.</p></details>
+  <details><summary>Q8. If the same property exists in two @PropertySource files, which value wins?</summary>
+    <p>The file declared/processed later wins (it's added with higher precedence). System properties and environment variables override both, because they come earlier in the property-source order.</p></details>
+  <details><summary>Q9. How would you provide a bean only in non-production environments?</summary>
+    <p>Annotate it with <code>@Profile("!prod")</code>, or guard it with a condition on a property (e.g. <code>@ConditionalOnProperty</code> in Boot, or a custom <code>@Conditional</code>).</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../25-Bean-Scopes-And-Lifecycle/lesson.html"><small>← Previous</small>25. Bean Scopes &amp; Lifecycle</a>
+    <a class="next" href="../27-Spring-AOP/lesson.html"><small>Next →</small>27. Spring AOP</a>
+  </nav>
+</main>
+</body>
+</html>

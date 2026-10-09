@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>12 · Generics</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 12</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>12. Generics</h1>
+  <p class="subtitle">Understand the <code>&lt;T&gt;</code> you see everywhere, write your own type-safe reusable classes and methods, and decode signatures like <code>JpaRepository&lt;Product, Long&gt;</code> without fear.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="12-Generics"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Why generics exist: type safety and no casts.</li>
+      <li>Writing generic classes: <code>Box&lt;T&gt;</code>, <code>Pair&lt;K, V&gt;</code>.</li>
+      <li>Writing generic methods: <code>static &lt;T&gt; T firstOrDefault(...)</code>.</li>
+      <li>Bounded types: <code>&lt;T extends Number&gt;</code>, <code>&lt;T extends Comparable&lt;T&gt;&gt;</code>.</li>
+      <li>Wildcards: <code>?</code>, <code>? extends</code>, <code>? super</code> and the PECS rule — explained simply.</li>
+      <li>Type erasure: what happens to generics at runtime, and its limits.</li>
+      <li>Generic interfaces: <code>Repository&lt;T, ID&gt;</code> — the idea behind Spring Data.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../11-Collections-Framework/lesson.html">Topic 11 · Collections Framework</a> (you've already <em>used</em> <code>List&lt;String&gt;</code> — now you'll understand it), and interfaces/inheritance (<a href="../8-OOP-Polymorphism-Abstraction-Interfaces/lesson.html">Topic 8</a>).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Imagine writing a class that stores <em>something</em> — a product, a student, a number. Without generics you have two bad options:</p>
+  <ol>
+    <li>Write <code>ProductBox</code>, <code>StudentBox</code>, <code>IntegerBox</code>… the <strong>same code copy-pasted</strong> many times.</li>
+    <li>Write one <code>ObjectBox</code> that holds <code>Object</code> — then <strong>cast</strong> everything you take out, and discover mistakes only when the program
+      <strong>crashes</strong> at runtime.</li>
+  </ol>
+  <p><strong>Generics</strong> (Java 5, 2004) give you a third option: write the code <strong>once</strong> with a placeholder type <code>T</code>, and let the
+    <strong>compiler</strong> check every use. Benefits:</p>
+  <ul>
+    <li><strong>Type safety</strong> — wrong types are compile errors, not runtime crashes.</li>
+    <li><strong>No casts</strong> — cleaner code.</li>
+    <li><strong>Reuse</strong> — one class/method for all types.</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ Where you'll see it at work</strong>Spring is full of generics:
+    <code>interface ProductRepository extends JpaRepository&lt;Product, Long&gt;</code> (Topic 38),
+    <code>ResponseEntity&lt;ProductDto&gt;</code> (Topic 32), <code>Optional&lt;User&gt;</code>, <code>Page&lt;Order&gt;</code> (Topic 41),
+    <code>KafkaTemplate&lt;String, OrderEvent&gt;</code> (Topic 58). You won't write complex generic code every day — but you'll <em>read</em> it every single day.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🥡 Think of labelled food containers</strong>
+    <ul>
+      <li>An <strong>unlabelled box</strong> (<code>Object</code>) can hold anything. When you open it you must <em>guess</em> what's inside ("I think it's rice…") — that's a cast.
+        If you guessed wrong, you find out at dinner time (runtime crash).</li>
+      <li>A <strong>labelled container</strong> — "RICE ONLY" — is <code>Box&lt;Rice&gt;</code>. Anyone trying to put soup in it is stopped <em>at the kitchen door</em> (compile time).
+        When you open it, you <em>know</em> it's rice.</li>
+      <li>The <strong>container design</strong> is the same for rice, dal and sugar. You make the design once (<code>Box&lt;T&gt;</code>) and just change the label.</li>
+      <li>A label like "<strong>any grain</strong>" is a bounded type: <code>Box&lt;T extends Grain&gt;</code> — rice and wheat are fine, soup isn't.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The problem generics solve</h3>
+  <pre><span class="file">Example01_WhyGenerics.java — without generics</span><code class="lang-java">List emails = new ArrayList();    // "raw" list: holds Object
+emails.add("asha@mail.com");
+emails.add(42);                   // compiler doesn't complain!
+
+for (Object o : emails) {
+    String email = (String) o;    // cast needed... and it CRASHES for 42
+}</code></pre>
+  <pre class="terminal"><code>ClassCastException: class java.lang.Integer cannot be cast to class java.lang.String</code></pre>
+  <pre><span class="file">Example01_WhyGenerics.java — with generics</span><code class="lang-java">List&lt;String&gt; emails = new ArrayList&lt;&gt;();
+emails.add("asha@mail.com");
+emails.add(42);                   // ❌ compile error: int cannot be converted to String
+
+for (String email : emails) {     // no cast
+    ...
+}</code></pre>
+  <div class="callout tip"><strong>💡 The core idea</strong>Generics move errors from <strong>runtime</strong> (users see a crash) to <strong>compile time</strong> (you see a red underline in VS Code).
+    Compile errors are cheap; production crashes are expensive.</div>
+
+  <h3>3.2 Generic classes</h3>
+  <p>Add a <strong>type parameter</strong> in angle brackets after the class name, then use it like a normal type inside:</p>
+  <pre><code class="lang-java">class Box&lt;T&gt; {              // T = "some type, chosen later"
+    private final T item;
+
+    Box(T item) { this.item = item; }
+
+    T get() { return item; }
+}</code></pre>
+  <p>Using it — you choose <code>T</code> (the <strong>type argument</strong>):</p>
+  <pre><code class="lang-java">Box&lt;String&gt;  giftBox = new Box&lt;&gt;("Gift card");   // T = String
+Box&lt;Integer&gt; cashBox = new Box&lt;&gt;(500);           // T = Integer
+Box&lt;Product&gt; prodBox = new Box&lt;&gt;(new Product("Headphones", 1999));
+
+String s = giftBox.get();     // no cast
+int cash = cashBox.get();     // auto-unboxing</code></pre>
+  <p>Think of <code>Box&lt;T&gt;</code> as a <strong>template</strong>. <code>Box&lt;String&gt;</code> means "imagine every T in the class replaced by String".</p>
+
+  <h4>Vocabulary</h4>
+  <div class="table-wrap"><table>
+    <tr><th>Term</th><th>Example</th><th>Meaning</th></tr>
+    <tr><td>Type parameter</td><td><code>T</code> in <code>class Box&lt;T&gt;</code></td><td>The placeholder (like a method parameter, but for types)</td></tr>
+    <tr><td>Type argument</td><td><code>String</code> in <code>Box&lt;String&gt;</code></td><td>The real type you plug in</td></tr>
+    <tr><td>Parameterized type</td><td><code>Box&lt;String&gt;</code></td><td>The generic class with a type plugged in</td></tr>
+    <tr><td>Diamond</td><td><code>new Box&lt;&gt;(...)</code></td><td>Java infers the type argument from the left side / arguments</td></tr>
+    <tr><td>Raw type</td><td><code>Box</code> (no brackets)</td><td>Old pre-generics style — avoid!</td></tr>
+  </table></div>
+
+  <h4>Naming conventions</h4>
+  <div class="table-wrap"><table>
+    <tr><th>Letter</th><th>Usually means</th><th>Seen in</th></tr>
+    <tr><td><code>T</code></td><td>Type</td><td><code>Box&lt;T&gt;</code>, <code>Optional&lt;T&gt;</code></td></tr>
+    <tr><td><code>E</code></td><td>Element</td><td><code>List&lt;E&gt;</code>, <code>Set&lt;E&gt;</code></td></tr>
+    <tr><td><code>K</code>, <code>V</code></td><td>Key, Value</td><td><code>Map&lt;K, V&gt;</code></td></tr>
+    <tr><td><code>ID</code></td><td>Identifier type</td><td><code>CrudRepository&lt;T, ID&gt;</code></td></tr>
+    <tr><td><code>R</code></td><td>Result / Return</td><td><code>Function&lt;T, R&gt;</code> (Topic 13)</td></tr>
+    <tr><td><code>S</code>, <code>U</code></td><td>2nd, 3rd type</td><td></td></tr>
+  </table></div>
+
+  <h4>Multiple type parameters</h4>
+  <pre><code class="lang-java">class Pair&lt;K, V&gt; {
+    private final K key;
+    private final V value;
+    ...
+}
+
+Pair&lt;String, Integer&gt; stock = new Pair&lt;&gt;("SKU-101", 25);</code></pre>
+
+  <div class="callout warn"><strong>⚠️ No primitives</strong><code>Box&lt;int&gt;</code> → <code>error: unexpected type; required: reference, found: int</code>.
+    Type arguments must be classes: use <code>Integer</code>, <code>Double</code>, <code>Boolean</code>… Autoboxing does the conversion for you.</div>
+
+  <h4>A generic wrapper you'll reuse in Spring</h4>
+  <pre><code class="lang-java">class ApiResponse&lt;T&gt; {
+    private final boolean success;
+    private final T data;          // the actual payload - any type
+    private final String error;
+    ...
+}
+
+ApiResponse&lt;Product&gt; ok = ApiResponse.success(new Product("Mouse", 499));
+ApiResponse&lt;Product&gt; fail = ApiResponse.failure("Product 99 not found");</code></pre>
+  <p>Many companies wrap all REST responses like this. Spring's own <code>ResponseEntity&lt;T&gt;</code> is the same idea.</p>
+
+  <h3>3.3 Generic methods</h3>
+  <p>Sometimes only <strong>one method</strong> needs to be generic, not the whole class. Declare the type parameter <strong>before the return type</strong>:</p>
+  <pre><code class="lang-java">//      ↓ "this method has its own type parameter T"
+static &lt;T&gt; T firstOrDefault(List&lt;T&gt; items, T defaultValue) {
+    return items.isEmpty() ? defaultValue : items.get(0);
+}</code></pre>
+  <p>Reading the signature left to right: "static, for some type <code>T</code>, returns a <code>T</code>, takes a list of <code>T</code> and a default <code>T</code>".</p>
+  <pre><code class="lang-java">String city = firstOrDefault(List.of("Pune", "Delhi"), "(none)");   // T = String (inferred)
+Integer n   = firstOrDefault(List.of(10, 20), 0);                    // T = Integer (inferred)</code></pre>
+  <p><strong>Type inference</strong>: Java works out <code>T</code> from the arguments, so you almost never write it. The explicit form exists for rare cases:
+    <code>Example03_GenericMethods.&lt;String&gt;firstOrDefault(...)</code>.</p>
+  <p>You've already used many generic methods from the JDK: <code>List.of(...)</code>, <code>Map.of(...)</code>, <code>Arrays.asList(...)</code>, <code>Collections.max(...)</code>.</p>
+  <div class="callout info"><strong>ℹ️ Generic class vs generic method</strong>In a generic <em>class</em>, <code>T</code> is fixed when you create the object (<code>new Box&lt;String&gt;</code>) and shared by all its
+    methods. In a generic <em>method</em>, <code>T</code> is chosen fresh on <strong>each call</strong>. Static methods can't use the class's <code>T</code>, so static helpers are always generic methods
+    (like <code>ApiResponse.success</code>).</div>
+
+  <h3>3.4 Bounded types — <code>&lt;T extends Something&gt;</code></h3>
+  <p>With plain <code>&lt;T&gt;</code>, Java knows nothing about <code>T</code> — it could be a String, a Dog, anything — so you may only call <code>Object</code> methods
+    (<code>toString</code>, <code>equals</code>…). Try to add up numbers:</p>
+  <pre><code class="lang-java">static &lt;T&gt; double sum(List&lt;T&gt; numbers) {
+    double total = 0;
+    for (T n : numbers) total += n.doubleValue();   // ❌ cannot find symbol: doubleValue()
+    return total;
+}</code></pre>
+  <p>A <strong>bound</strong> promises something about <code>T</code>, and unlocks its methods:</p>
+  <pre><code class="lang-java">static &lt;T extends Number&gt; double sum(List&lt;T&gt; numbers) {   // T must be Number or a subclass
+    double total = 0;
+    for (T n : numbers) total += n.doubleValue();          // ✅ every Number has doubleValue()
+    return total;
+}
+
+sum(List.of(10, 20, 30));       // 60.0  (Integer extends Number)
+sum(List.of(20.5, 100.25));     // 120.75 (Double extends Number)
+sum(List.of("a", "b"));         // ❌ compile error: String is not a Number</code></pre>
+  <p>In a bound, <code>extends</code> means "<strong>extends or implements</strong>" — it works for interfaces too:</p>
+  <pre><code class="lang-java">static &lt;T extends Comparable&lt;T&gt;&gt; T max(List&lt;T&gt; items) {
+    T best = items.get(0);
+    for (T item : items) {
+        if (item.compareTo(best) &gt; 0) best = item;      // allowed: T is Comparable
+    }
+    return best;
+}
+
+max(List.of(78, 92, 85));              // 92
+max(List.of("Asha", "Ravi", "Meena")); // "Ravi"</code></pre>
+  <p><strong>Multiple bounds</strong> use <code>&amp;</code> (a class, if any, must come first, then interfaces):</p>
+  <pre><code class="lang-java">static &lt;T extends Payable &amp; Comparable&lt;T&gt;&gt; T highestPaid(List&lt;T&gt; people) { ... }</code></pre>
+  <p>Bounds work on classes too: <code>class Statistics&lt;T extends Number&gt;</code> — <code>new Statistics&lt;String&gt;(...)</code> won't compile.</p>
+
+  <h3>3.5 Wildcards — <code>?</code>, <code>? extends</code>, <code>? super</code></h3>
+  <h4>The surprise that makes wildcards necessary</h4>
+  <p><code>Integer</code> <em>is a</em> <code>Number</code>. So surely a <code>List&lt;Integer&gt;</code> <em>is a</em> <code>List&lt;Number&gt;</code>? <strong>No!</strong></p>
+  <pre><code class="lang-java">List&lt;Integer&gt; quantities = new ArrayList&lt;&gt;(List.of(10, 20));
+List&lt;Number&gt; nums = quantities;   // ❌ incompatible types: List&lt;Integer&gt; cannot be converted to List&lt;Number&gt;</code></pre>
+  <p>Why? If it were allowed, this would compile:</p>
+  <pre><code class="lang-java">nums.add(3.14);                     // a Double is a Number, so List&lt;Number&gt; accepts it...
+Integer q = quantities.get(2);      // ...but quantities is a List&lt;Integer&gt; → 💥</code></pre>
+  <p>Java protects you by making generic types <strong>invariant</strong>: <code>List&lt;Integer&gt;</code> and <code>List&lt;Number&gt;</code> are unrelated types.
+    But then how do we write <em>one</em> method <code>total(...)</code> that accepts a list of Integers <em>and</em> a list of Doubles? With <strong>wildcards</strong>.</p>
+
+  <div class="table-wrap"><table>
+    <tr><th>Wildcard</th><th>Read as</th><th>Accepts</th><th>Can READ as</th><th>Can ADD</th></tr>
+    <tr><td><code>List&lt;?&gt;</code></td><td>"list of something"</td><td>Any list</td><td><code>Object</code></td><td>Nothing (only <code>null</code>)</td></tr>
+    <tr><td><code>List&lt;? extends Number&gt;</code></td><td>"list of Number or a <strong>sub</strong>type"</td><td><code>List&lt;Integer&gt;</code>, <code>List&lt;Double&gt;</code>, <code>List&lt;Number&gt;</code></td><td><code>Number</code> ✅</td><td>Nothing ❌</td></tr>
+    <tr><td><code>List&lt;? super Integer&gt;</code></td><td>"list of Integer or a <strong>super</strong>type"</td><td><code>List&lt;Integer&gt;</code>, <code>List&lt;Number&gt;</code>, <code>List&lt;Object&gt;</code></td><td><code>Object</code> only</td><td><code>Integer</code> ✅</td></tr>
+  </table></div>
+
+  <h4><code>? extends</code> — for reading (the list "produces" values for you)</h4>
+  <pre><code class="lang-java">static double total(List&lt;? extends Number&gt; numbers) {
+    double sum = 0;
+    for (Number n : numbers) sum += n.doubleValue();   // safe: whatever it is, it's a Number
+    // numbers.add(5);   ❌ it might really be a List&lt;Double&gt; - adding an Integer would break it
+    return sum;
+}
+
+total(List.of(10, 20, 30));   // ✅ List&lt;Integer&gt;
+total(List.of(1.25, 2.5));    // ✅ List&lt;Double&gt;</code></pre>
+
+  <h4><code>? super</code> — for writing (the list "consumes" values you give it)</h4>
+  <pre><code class="lang-java">static void addOneTwoThree(List&lt;? super Integer&gt; target) {
+    target.add(1);     // safe: the list holds Integer or something bigger (Number, Object)
+    target.add(2);
+    target.add(3);
+    // Integer x = target.get(0);   ❌ it might be a List&lt;Object&gt; - reads give Object only
+}
+
+addOneTwoThree(new ArrayList&lt;Integer&gt;());   // ✅
+addOneTwoThree(new ArrayList&lt;Number&gt;());    // ✅
+addOneTwoThree(new ArrayList&lt;Object&gt;());    // ✅
+addOneTwoThree(new ArrayList&lt;Double&gt;());    // ❌ Double is not a parent of Integer</code></pre>
+
+  <h4>PECS — the one rule to remember</h4>
+  <div class="callout tip"><strong>💡 PECS = Producer Extends, Consumer Super</strong>
+    <ul>
+      <li>If a parameter <strong>gives you</strong> values (you read from it) → it's a <strong>Producer</strong> → <code>? extends T</code>.</li>
+      <li>If a parameter <strong>takes</strong> values (you write into it) → it's a <strong>Consumer</strong> → <code>? super T</code>.</li>
+      <li>Both read and write → no wildcard, use exact <code>T</code>.</li>
+    </ul>
+    Shopping analogy: the <strong>shop shelf produces</strong> items (you take from it — <em>extends</em>); your <strong>shopping bag consumes</strong> items (you put into it — <em>super</em>).
+  </div>
+  <pre><code class="lang-java">// The classic: same shape as java.util.Collections.copy
+static &lt;T&gt; void copy(List&lt;? extends T&gt; source, List&lt;? super T&gt; destination) {
+    for (T item : source) {
+        destination.add(item);
+    }
+}
+
+copy(dogs, shelter);   // read Dogs from List&lt;Dog&gt;, write them into List&lt;Animal&gt;</code></pre>
+  <div class="flow">
+    <span class="box alt">List&lt;Dog&gt;<br><small>producer: ? extends Animal</small></span><span class="arrow">→ copy →</span>
+    <span class="box info">List&lt;Animal&gt;<br><small>consumer: ? super Dog</small></span>
+  </div>
+  <div class="callout info"><strong>ℹ️ Where to use wildcards</strong>Wildcards belong in <strong>method parameters</strong> (to make your methods flexible). Don't use them in return types
+    or variable declarations — callers would get an awkward <code>List&lt;? extends X&gt;</code> they can't add to.</div>
+
+  <h3>3.6 Type erasure (simple version)</h3>
+  <p>Here's a secret: generics exist <strong>only at compile time</strong>. The compiler checks all your <code>&lt;T&gt;</code> rules, inserts the casts you used to write by hand,
+    and then <strong>erases</strong> the type arguments. At runtime, <code>List&lt;String&gt;</code> and <code>List&lt;Integer&gt;</code> are both just <code>ArrayList</code>.</p>
+  <div class="flow">
+    <span class="box alt">Your code:<br>List&lt;String&gt; names</span><span class="arrow">→ javac checks types →</span>
+    <span class="box info">Bytecode:<br>List names + (String) casts</span><span class="arrow">→ JVM runs →</span>
+    <span class="box">No idea about &lt;String&gt;</span>
+  </div>
+  <p><strong>Why?</strong> Backward compatibility: in 2004 there were millions of lines of pre-generics Java code and libraries. Erasure let old and new code run together on the same JVM.</p>
+  <p>Consequences (limits) you should know:</p>
+  <div class="table-wrap"><table>
+    <tr><th>You can't…</th><th>Because</th><th>Instead</th></tr>
+    <tr><td><code>new T()</code></td><td>At runtime nobody knows what T is</td><td>Pass a <code>Class&lt;T&gt;</code> ("type token") or a factory</td></tr>
+    <tr><td><code>new T[10]</code></td><td>Same</td><td><code>List&lt;T&gt;</code>, or <code>Array.newInstance(type, n)</code></td></tr>
+    <tr><td><code>x instanceof List&lt;String&gt;</code></td><td>Runtime only sees <code>List</code></td><td><code>x instanceof List&lt;?&gt;</code></td></tr>
+    <tr><td>Overload <code>save(List&lt;String&gt;)</code> and <code>save(List&lt;Integer&gt;)</code></td><td>Both erase to <code>save(List)</code>: "name clash: same erasure"</td><td>Use different method names</td></tr>
+    <tr><td><code>static T value;</code></td><td>One static field is shared by <code>Box&lt;String&gt;</code>, <code>Box&lt;Integer&gt;</code>…</td><td>Make it non-static, or use a generic static method</td></tr>
+    <tr><td><code>Box&lt;int&gt;</code></td><td>Erased T becomes Object; primitives aren't Objects</td><td><code>Box&lt;Integer&gt;</code></td></tr>
+  </table></div>
+  <pre><code class="lang-java">List&lt;String&gt; names = new ArrayList&lt;&gt;();
+List&lt;Integer&gt; numbers = new ArrayList&lt;&gt;();
+names.getClass() == numbers.getClass();   // true - both are just ArrayList at runtime</code></pre>
+  <div class="callout warn"><strong>⚠️ Raw types switch the safety off</strong>A method that takes a raw <code>List</code> can put a <code>String</code> into your <code>List&lt;Integer&gt;</code>
+    ("heap pollution"). The crash happens much later, when you read it. That's why the compiler warns about raw types — never ignore those warnings.</div>
+
+  <h3>3.7 Generic interfaces — <code>Repository&lt;T, ID&gt;</code></h3>
+  <p>Interfaces can be generic too. This is exactly how Spring Data works, so let's build a tiny version:</p>
+  <pre><span class="file">Example07_GenericRepository.java</span><code class="lang-java">interface Repository&lt;T, ID&gt; {
+    T save(T entity);
+    Optional&lt;T&gt; findById(ID id);
+    List&lt;T&gt; findAll();
+    boolean existsById(ID id);
+    void deleteById(ID id);
+    long count();
+}</code></pre>
+  <p><code>T</code> = the entity type (Student, Book…). <code>ID</code> = the type of its id (Integer, String, Long…). Now <strong>one</strong> implementation serves every entity:</p>
+  <pre><code class="lang-java">interface Entity&lt;ID&gt; {
+    ID getId();
+}
+
+class InMemoryRepository&lt;T extends Entity&lt;ID&gt;, ID&gt; implements Repository&lt;T, ID&gt; {
+    protected final Map&lt;ID, T&gt; store = new LinkedHashMap&lt;&gt;();
+
+    public T save(T entity) {
+        store.put(entity.getId(), entity);   // works because T extends Entity&lt;ID&gt;
+        return entity;
+    }
+
+    public Optional&lt;T&gt; findById(ID id) {
+        return Optional.ofNullable(store.get(id));
+    }
+    ...
+}
+
+Repository&lt;Book, String&gt; books = new InMemoryRepository&lt;&gt;();
+books.findById("ISBN-111");   // ✅
+books.findById(5);            // ❌ compile error: ID is String for this repository</code></pre>
+  <p>A specific repository can extend the generic one and add its own queries:</p>
+  <pre><code class="lang-java">interface StudentRepository extends Repository&lt;Student, Integer&gt; {
+    List&lt;Student&gt; findByYear(int year);
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ <code>Optional&lt;T&gt;</code> in 20 seconds</strong><code>findById</code> returns an <code>Optional&lt;Student&gt;</code> — a small box that either holds a student or is <strong>empty</strong>.
+    It forces the caller to think about "not found" instead of getting a surprise <code>null</code>. Useful methods: <code>isPresent()</code>, <code>get()</code>,
+    <code>orElse(default)</code>, <code>orElseThrow()</code>. Full lesson in <a href="../14-Streams-API-And-Optional/lesson.html">Topic 14</a>.</div>
+  <div class="callout tip"><strong>💡 The Spring Data preview</strong>In <a href="../38-Spring-Data-JPA-Fundamentals/lesson.html">Topic 38</a> you'll write only this:
+    <pre><code class="lang-java">public interface StudentRepository extends JpaRepository&lt;Student, Long&gt; {
+    List&lt;Student&gt; findByYear(int year);
+}</code></pre>
+    No implementation class at all — Spring generates it at startup. Now you know what <code>&lt;Student, Long&gt;</code> means: <strong>T = Student, ID = Long</strong>.</div>
+
+  <h3>3.8 Reading real-world generic signatures</h3>
+  <p>With what you know, you can decode real JDK signatures. Take <code>Collections.max</code>:</p>
+  <pre><code class="lang-java">public static &lt;T extends Object &amp; Comparable&lt;? super T&gt;&gt; T max(Collection&lt;? extends T&gt; coll)</code></pre>
+  <ul>
+    <li><code>&lt;T ...&gt;</code> — a generic method.</li>
+    <li><code>T extends Comparable&lt;? super T&gt;</code> — T can be compared with T or something above it (a <em>consumer</em> of T's — PECS!).</li>
+    <li><code>Collection&lt;? extends T&gt;</code> — reads T's from the collection (a <em>producer</em>).</li>
+    <li>Returns a <code>T</code>.</li>
+  </ul>
+  <p>Don't worry if that still looks dense — the point is that every piece follows the rules from this lesson.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>Example01_WhyGenerics.java</code></td><td>Raw list of emails → cast → <code>ClassCastException</code>; the same with <code>List&lt;String&gt;</code>; <code>ObjectBox</code> vs <code>Box&lt;T&gt;</code>.</td></tr>
+    <tr><td><code>Example02_GenericClasses.java</code></td><td><code>Box&lt;T&gt;</code> with String/Integer/Product; <code>Pair&lt;K, V&gt;</code>; a <code>Shelf&lt;E&gt;</code> container; an <code>ApiResponse&lt;T&gt;</code> wrapper with static generic factories.</td></tr>
+    <tr><td><code>Example03_GenericMethods.java</code></td><td><code>printAll</code>, <code>firstOrDefault</code>, <code>last</code>, <code>swap</code>, <code>repeat</code>, <code>zipToMap&lt;K, V&gt;</code>; inference and explicit type arguments.</td></tr>
+    <tr><td><code>Example04_BoundedTypes.java</code></td><td><code>sum</code> with <code>T extends Number</code>; <code>max</code> with <code>T extends Comparable&lt;T&gt;</code>; multiple bounds; bounded class <code>Statistics&lt;T extends Number&gt;</code>.</td></tr>
+    <tr><td><code>Example05_Wildcards.java</code></td><td><code>List&lt;?&gt;</code>; <code>? extends Number</code> / <code>? extends Animal</code>; <code>? super Integer</code>; PECS <code>copy</code>.</td></tr>
+    <tr><td><code>Example06_TypeErasure.java</code></td><td>Same runtime class; <code>instanceof List&lt;?&gt;</code>; <code>Factory&lt;T&gt;</code> with a <code>Class&lt;T&gt;</code> token; generic array creation; heap pollution demo.</td></tr>
+    <tr><td><code>Example07_GenericRepository.java</code></td><td><code>Repository&lt;T, ID&gt;</code>, <code>Entity&lt;ID&gt;</code>, <code>InMemoryRepository</code> reused for Students and Books; <code>StudentRepository</code> with a custom query.</td></tr>
+  </table></div>
+
+  <h3>4.1 Example02 — static generic factory methods</h3>
+  <pre><code class="lang-java">static &lt;T&gt; ApiResponse&lt;T&gt; success(T data) {
+    return new ApiResponse&lt;&gt;(true, data, null);
+}</code></pre>
+  <p>Read it as: "for some type T, return an <code>ApiResponse&lt;T&gt;</code>, given a T". The method is static, so it can't use the class's <code>T</code> — it declares its own.
+    The call <code>ApiResponse.success(new Product(...))</code> infers <code>T = Product</code>.</p>
+  <p><code>Shelf&lt;E&gt;.items()</code> returns <code>List.copyOf(items)</code> — a read-only copy, so outside code can't sneak elements past <code>put</code>.</p>
+
+  <h3>4.2 Example04 — bounds unlock methods</h3>
+  <pre><code class="lang-java">static &lt;T extends Payable &amp; Comparable&lt;T&gt;&gt; T highestPaid(List&lt;T&gt; people) {
+    return max(people);    // OK: T is Comparable&lt;T&gt;, which is what max() requires
+}</code></pre>
+  <p><code>Employee implements Payable, Comparable&lt;Employee&gt;</code>, so it satisfies both bounds.</p>
+
+  <h3>4.3 Example05 — the shelter</h3>
+  <p><code>feedAll(List&lt;? extends Animal&gt;)</code> accepts both <code>List&lt;Dog&gt;</code> and <code>List&lt;Cat&gt;</code>. Without the wildcard (<code>List&lt;Animal&gt;</code>), neither would be accepted.
+    <code>copy(dogs, shelter)</code> shows PECS: <code>T</code> is inferred as <code>Dog</code>; source is <code>List&lt;? extends Dog&gt;</code>, destination <code>List&lt;? super Dog&gt;</code> = <code>List&lt;Animal&gt;</code>.</p>
+
+  <h3>4.4 Example06 — type tokens</h3>
+  <pre><code class="lang-java">class Factory&lt;T&gt; {
+    private final Class&lt;T&gt; type;          // remembers T at runtime
+
+    T create() throws Exception {
+        return type.getDeclaredConstructor().newInstance();   // reflection creates the object
+    }
+}
+
+new Factory&lt;&gt;(Product.class).create();   // a new Product</code></pre>
+  <p><code>Product.class</code> is a runtime object describing the Product class. Because erasure removes <code>T</code>, we hand that object over explicitly. You'll see this pattern in Spring:
+    <code>restClient.get().retrieve().body(Product.class)</code>, <code>context.getBean(OrderService.class)</code>. Reflection itself is Topic 18.</p>
+
+  <h3>4.5 Example07 — one implementation, many entities</h3>
+  <pre><code class="lang-java">class InMemoryRepository&lt;T extends Entity&lt;ID&gt;, ID&gt; implements Repository&lt;T, ID&gt; { ... }
+
+class InMemoryStudentRepository extends InMemoryRepository&lt;Student, Integer&gt;
+                                implements StudentRepository { ... }</code></pre>
+  <p>The bound <code>T extends Entity&lt;ID&gt;</code> is what lets <code>save</code> call <code>entity.getId()</code>. <code>Student implements Entity&lt;Integer&gt;</code> and
+    <code>Book implements Entity&lt;String&gt;</code>, so the same code stores both — with full compile-time checking of id types.</p>
+  <p>The line <code>books.findById("ISBN-999").map(Book::getTitle).orElse("Not in library")</code> is a preview of Optional + method references (Topics 13–14): "if found, take the title; otherwise use this text".</p>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <p>Open <code>D:\Java-SpringBoot\12-Generics</code> in VS Code and click <strong>▶ Run</strong>, or in the terminal:</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\12-Generics"
+java Example01_WhyGenerics.java</code></pre>
+  <pre class="terminal"><code>--- Without generics (raw List) ---
+asha@mail.com -> ASHA@MAIL.COM
+ravi@mail.com -> RAVI@MAIL.COM
+Crash at runtime: ClassCastException (class java.lang.Integer cannot be cast to class java.lang.String ...)
+--- With generics (List&lt;String&gt;) ---
+asha@mail.com -> ASHA@MAIL.COM
+ravi@mail.com -> RAVI@MAIL.COM
+--- ObjectBox vs Box&lt;T&gt; ---
+Needed a cast: Laptop
+No cast needed: Laptop</code></pre>
+
+  <pre class="terminal"><code>java Example02_GenericClasses.java</code></pre>
+  <pre class="terminal"><code>Box&lt;String&gt;  holds: Gift card
+Box&lt;Integer&gt; holds: 500 (doubled: 1000)
+Box&lt;Product&gt; holds: Product{Headphones, Rs.1999.0}
+Is the box empty? false
+Pair: SKU-101 -> 25
+Pair: Asha -> Product{Phone, Rs.15999.0}
+Shelf of books: [Clean Code, Effective Java] (2 items)
+Shelf of products total value: Rs.2498.0
+OK   response: ApiResponse{success=true, data=Product{Mouse, Rs.499.0}, error=null}
+FAIL response: ApiResponse{success=false, data=null, error=Product 99 not found}</code></pre>
+
+  <pre class="terminal"><code>java Example03_GenericMethods.java</code></pre>
+  <pre class="terminal"><code>[1] Pen  [2] Book  [3] Bag
+[1] 10  [2] 20  [3] 30
+First city: Pune
+First of empty list: (none)
+Last price: 99.5
+Before swap: [A, B, C]  after swap(0, 2): [C, B, A]
+Repeated: [Hi, Hi, Hi]
+Map from two lists: {Asha=91, Ravi=85, Meena=78}
+Explicit type argument: hello</code></pre>
+
+  <pre class="terminal"><code>java Example04_BoundedTypes.java</code></pre>
+  <pre class="terminal"><code>Sum of Integer quantities: 60.0
+Sum of Double prices: 120.75
+Max mark: 92   Max name: Ravi   Max date-like string: 2025-03-10
+Stats -> count=4 avg=82.5 min=70.0 max=95.0
+Highest paid (sorted by pay): Meena earns 91000.0
+Total payroll: 218000.0</code></pre>
+
+  <pre class="terminal"><code>java Example05_Wildcards.java</code></pre>
+  <pre class="terminal"><code>--- List&lt;?&gt; (unknown type) ---
+3 item(s): Pen 42 true
+--- ? extends (read / producer) ---
+Total of Integers: 60.0
+Total of Doubles: 3.75
+Feeding: Bruno the Dog
+Feeding: Tommy the Dog
+Feeding: Kitty the Cat
+--- ? super (write / consumer) ---
+Integer list: [1, 2, 3]
+Number list : [1, 2, 3]
+Object list : [start, 1, 2, 3]
+--- PECS copy ---
+Copied dogs into the animal list: [Bruno the Dog, Tommy the Dog]</code></pre>
+
+  <pre class="terminal"><code>java Example06_TypeErasure.java</code></pre>
+  <pre class="terminal"><code>ArrayList&lt;String&gt;.getClass()  = class java.util.ArrayList
+ArrayList&lt;Integer&gt;.getClass() = class java.util.ArrayList
+Same class at runtime? true
+Is it a List&lt;?&gt;? true
+Created with Class&lt;T&gt;: Product{New product}
+Created with Class&lt;T&gt;: StringBuilder with text []
+Array of T: [null, null, null] length=3
+Heap pollution: a String got into a List&lt;Integer&gt;!
+ClassCastException when reading it as an Integer</code></pre>
+
+  <pre class="terminal"><code>java Example07_GenericRepository.java</code></pre>
+  <pre class="terminal"><code>Saved students: 3
+Find 2: Student{id=2, name=Ravi, year=3}
+Find 9 present? false
+Exists 1? true
+All students: [Student{id=1, name=Asha, year=2}, Student{id=2, name=Ravi, year=3}, Student{id=3, name=Meena, year=2}]
+Second-year students: [Student{id=1, name=Asha, year=2}, Student{id=3, name=Meena, year=2}]
+After deleteById(1): count=2
+Book ISBN-111: Book{isbn=ISBN-111, title=Clean Code}
+Missing book -> default title: Not in library
+Books: 2</code></pre>
+  <div class="callout tip"><strong>💡 Experiment with compile errors</strong>Each file has commented-out lines marked "compile error". Un-comment one (e.g. <code>// emails.add(42);</code> in Example01),
+    run again, read the message, then comment it back. Seeing the compiler protect you is the whole point of generics.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>❌ Mistake: using raw types</strong>
+    <code>List list = new ArrayList();</code> or <code>Box b = new Box("x");</code> — no type checks, casts everywhere, runtime crashes.
+    <br><strong>Fix:</strong> always supply the type: <code>List&lt;String&gt;</code>, <code>Box&lt;String&gt;</code>. Treat "unchecked" / "rawtypes" warnings as errors.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: expecting <code>List&lt;Integer&gt;</code> to be a <code>List&lt;Number&gt;</code></strong>
+    <code>incompatible types: List&lt;Integer&gt; cannot be converted to List&lt;Number&gt;</code>.
+    <br><strong>Fix:</strong> make the parameter <code>List&lt;? extends Number&gt;</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: trying to add to a <code>? extends</code> list</strong>
+    <code>numbers.add(5)</code> on a <code>List&lt;? extends Number&gt;</code> → compile error (<code>int cannot be converted to CAP#1</code> — "CAP#1" is the compiler's name for "the unknown type").
+    <br><strong>Fix:</strong> use <code>? super Integer</code> for lists you write into (PECS).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: calling methods on an unbounded T</strong>
+    <code>item.getPrice()</code> inside <code>&lt;T&gt;</code> → <code>cannot find symbol</code>.
+    <br><strong>Fix:</strong> add a bound: <code>&lt;T extends Product&gt;</code> (or an interface like <code>&lt;T extends Priced&gt;</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>new T()</code>, <code>new T[n]</code>, <code>instanceof T</code></strong>
+    Impossible because of erasure.
+    <br><strong>Fix:</strong> pass a <code>Class&lt;T&gt;</code>, use a <code>List&lt;T&gt;</code>, or let the caller supply objects.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: putting the method's <code>&lt;T&gt;</code> in the wrong place</strong>
+    <code>static T &lt;T&gt; first(...)</code> or <code>static first&lt;T&gt;(...)</code> are syntax errors.
+    <br><strong>Fix:</strong> <code>static &lt;T&gt; T first(...)</code> — modifiers, then <code>&lt;T&gt;</code>, then the return type.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: shadowing the class's T</strong>
+    Inside <code>class Box&lt;T&gt;</code>, writing a method <code>&lt;T&gt; void put(T x)</code> creates a <em>new, different</em> T that hides the class's T — confusing bugs.
+    <br><strong>Fix:</strong> instance methods should just use the class's <code>T</code>; give method-level parameters different names (<code>&lt;U&gt;</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: over-engineering</strong>
+    Making every class generic "just in case" makes code hard to read.
+    <br><strong>Fix:</strong> add generics when you really have 2+ types sharing the same logic.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Never use raw types</strong> in new code. Always parameterize: <code>List&lt;Order&gt;</code>, <code>Map&lt;String, Integer&gt;</code>.</li>
+    <li>Use the <strong>diamond</strong> <code>new ArrayList&lt;&gt;()</code> to avoid repeating types.</li>
+    <li>Use <strong>standard names</strong>: T, E, K, V, ID, R.</li>
+    <li>Use <strong>bounds</strong> to express real requirements (<code>T extends Comparable&lt;T&gt;</code>), not to restrict "just because".</li>
+    <li>Apply <strong>PECS</strong> in method parameters to make APIs flexible; avoid wildcards in return types.</li>
+    <li>Prefer <strong><code>List&lt;T&gt;</code> over <code>T[]</code></strong> in generic code — arrays and generics don't mix well.</li>
+    <li>Use <code>@SuppressWarnings("unchecked")</code> only on the <strong>smallest</strong> possible scope, with a comment explaining why it's safe.</li>
+    <li>Generic interfaces (like <code>Repository&lt;T, ID&gt;</code>) + one implementation = big reuse. This is exactly how Spring Data, Spring's <code>Converter&lt;S, T&gt;</code> and
+      <code>ResponseEntity&lt;T&gt;</code> are designed.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Generics = <strong>type parameters</strong>; they give type safety (errors at compile time) and remove casts.</li>
+    <li>Generic class: <code>class Box&lt;T&gt;</code>; use: <code>Box&lt;String&gt; b = new Box&lt;&gt;("x");</code>. No primitives — use wrappers.</li>
+    <li>Generic method: <code>static &lt;T&gt; T first(List&lt;T&gt; list)</code>; T is inferred from arguments.</li>
+    <li>Bounded type: <code>&lt;T extends Number&gt;</code> lets you call Number's methods; <code>&amp;</code> for multiple bounds.</li>
+    <li><code>List&lt;Integer&gt;</code> is <strong>not</strong> a <code>List&lt;Number&gt;</code> (invariance).</li>
+    <li>Wildcards: <code>?</code> unknown, <code>? extends T</code> for reading (producer), <code>? super T</code> for writing (consumer) — <strong>PECS</strong>.</li>
+    <li>Type erasure: types are checked at compile time then removed; so no <code>new T()</code>, no <code>instanceof List&lt;String&gt;</code>.</li>
+    <li><code>Repository&lt;T, ID&gt;</code> is the pattern behind Spring Data's <code>JpaRepository&lt;Entity, Id&gt;</code>.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Generic Pair with swap.</strong> Write <code>class Pair&lt;A, B&gt;</code> with <code>getFirst()</code>, <code>getSecond()</code> and a method <code>Pair&lt;B, A&gt; swap()</code>.
+      Test with <code>new Pair&lt;&gt;("Asha", 91)</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public class PairDemo {
+    public static void main(String[] args) {
+        Pair&lt;String, Integer&gt; p = new Pair&lt;&gt;("Asha", 91);
+        Pair&lt;Integer, String&gt; s = p.swap();
+        System.out.println(p.getFirst() + " " + p.getSecond());   // Asha 91
+        System.out.println(s.getFirst() + " " + s.getSecond());   // 91 Asha
+    }
+}
+
+class Pair&lt;A, B&gt; {
+    private final A first;
+    private final B second;
+
+    Pair(A first, B second) {
+        this.first = first;
+        this.second = second;
+    }
+
+    A getFirst()  { return first; }
+    B getSecond() { return second; }
+
+    Pair&lt;B, A&gt; swap() {
+        return new Pair&lt;&gt;(second, first);
+    }
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Generic count.</strong> Write a generic method <code>static &lt;T&gt; int countOccurrences(List&lt;T&gt; list, T target)</code> that counts how many elements
+      <code>equals</code> the target. Test with Strings and Integers.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">import java.util.List;
+
+public class CountDemo {
+    static &lt;T&gt; int countOccurrences(List&lt;T&gt; list, T target) {
+        int count = 0;
+        for (T item : list) {
+            if (item.equals(target)) count++;
+        }
+        return count;
+    }
+
+    public static void main(String[] args) {
+        System.out.println(countOccurrences(List.of("veg", "spicy", "veg"), "veg"));   // 2
+        System.out.println(countOccurrences(List.of(1, 2, 1, 1), 1));                  // 3
+    }
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Bounded average.</strong> Write <code>static &lt;T extends Number&gt; double average(List&lt;T&gt; values)</code> that returns 0 for an empty list. Then explain why
+      <code>average(List.of("a"))</code> doesn't compile.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">import java.util.List;
+
+public class AverageDemo {
+    static &lt;T extends Number&gt; double average(List&lt;T&gt; values) {
+        if (values.isEmpty()) return 0;
+        double sum = 0;
+        for (T v : values) sum += v.doubleValue();
+        return sum / values.size();
+    }
+
+    public static void main(String[] args) {
+        System.out.println(average(List.of(80, 90, 100)));   // 90.0
+        System.out.println(average(List.of(2.5, 3.5)));      // 3.0
+        System.out.println(average(List.of()));              // 0.0
+    }
+}</code></pre>
+    <p><code>String</code> is not a subclass of <code>Number</code>, so it's outside the bound <code>T extends Number</code> — the compiler rejects it.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Wildcards.</strong> Write two methods: <code>printAll(List&lt;? extends Shape&gt; shapes)</code> that prints each shape's area, and <code>addSquares(List&lt;? super Square&gt; out)</code>
+      that adds two squares. Call <code>addSquares</code> with a <code>List&lt;Shape&gt;</code>, then pass that list to <code>printAll</code>. (Use a <code>Shape</code> interface with <code>double area()</code>,
+      and classes <code>Square</code> and <code>Circle</code>.)</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">import java.util.ArrayList;
+import java.util.List;
+
+public class ShapesDemo {
+    static void printAll(List&lt;? extends Shape&gt; shapes) {      // producer → extends
+        for (Shape s : shapes) {
+            System.out.println(s.getClass().getSimpleName() + " area = " + s.area());
+        }
+    }
+
+    static void addSquares(List&lt;? super Square&gt; out) {        // consumer → super
+        out.add(new Square(2));
+        out.add(new Square(3));
+    }
+
+    public static void main(String[] args) {
+        List&lt;Shape&gt; shapes = new ArrayList&lt;&gt;();
+        shapes.add(new Circle(1));
+        addSquares(shapes);
+        printAll(shapes);
+        printAll(List.of(new Square(10)));   // a List&lt;Square&gt; works too
+    }
+}
+
+interface Shape {
+    double area();
+}
+
+class Square implements Shape {
+    private final double side;
+    Square(double side) { this.side = side; }
+    public double area() { return side * side; }
+}
+
+class Circle implements Shape {
+    private final double r;
+    Circle(double r) { this.r = r; }
+    public double area() { return Math.round(Math.PI * r * r * 100) / 100.0; }
+}
+// Circle area = 3.14
+// Square area = 4.0
+// Square area = 9.0
+// Square area = 100.0</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Generic cache.</strong> Build <code>class SimpleCache&lt;K, V&gt;</code> with <code>put(K, V)</code>, <code>Optional&lt;V&gt; get(K)</code>, <code>int size()</code> and a maximum size given in the constructor.
+      When full, adding a new key removes the <strong>oldest</strong> entry. (Hint: a <code>LinkedHashMap</code> keeps insertion order; remove its first key.)</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Optional;
+
+public class CacheDemo {
+    public static void main(String[] args) {
+        SimpleCache&lt;String, Double&gt; prices = new SimpleCache&lt;&gt;(2);
+        prices.put("Pen", 20.0);
+        prices.put("Book", 250.0);
+        prices.put("Bag", 899.0);                         // cache full → "Pen" removed
+        System.out.println(prices.get("Pen").isPresent()); // false
+        System.out.println(prices.get("Bag").orElse(0.0)); // 899.0
+        System.out.println(prices.size());                 // 2
+    }
+}
+
+class SimpleCache&lt;K, V&gt; {
+    private final int maxSize;
+    private final Map&lt;K, V&gt; data = new LinkedHashMap&lt;&gt;();
+
+    SimpleCache(int maxSize) {
+        this.maxSize = maxSize;
+    }
+
+    void put(K key, V value) {
+        if (!data.containsKey(key) &amp;&amp; data.size() == maxSize) {
+            K oldest = data.keySet().iterator().next();   // first key = oldest
+            data.remove(oldest);
+        }
+        data.put(key, value);
+    }
+
+    Optional&lt;V&gt; get(K key) {
+        return Optional.ofNullable(data.get(key));
+    }
+
+    int size() {
+        return data.size();
+    }
+}</code></pre>
+    <p>Spring's caching (Topic 51) is far more powerful, but it's built on the same generic key → value idea.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Extend the repository.</strong> Using the code in <code>Example07_GenericRepository.java</code>, add a <code>Course</code> entity with a <code>Long</code> id and a <code>CourseRepository</code>
+      with a custom method <code>List&lt;Course&gt; findByTitleContaining(String text)</code>. Reuse <code>InMemoryRepository</code> — do not copy any CRUD code.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// Add these classes to Example07_GenericRepository.java (or a copy of it)
+
+class Course implements Entity&lt;Long&gt; {
+    private final Long id;
+    private final String title;
+
+    Course(Long id, String title) {
+        this.id = id;
+        this.title = title;
+    }
+
+    @Override
+    public Long getId() { return id; }
+    String getTitle() { return title; }
+
+    @Override
+    public String toString() { return "Course{" + id + ", " + title + "}"; }
+}
+
+interface CourseRepository extends Repository&lt;Course, Long&gt; {
+    List&lt;Course&gt; findByTitleContaining(String text);
+}
+
+class InMemoryCourseRepository extends InMemoryRepository&lt;Course, Long&gt; implements CourseRepository {
+    @Override
+    public List&lt;Course&gt; findByTitleContaining(String text) {
+        List&lt;Course&gt; result = new ArrayList&lt;&gt;();
+        for (Course c : store.values()) {
+            if (c.getTitle().toLowerCase().contains(text.toLowerCase())) {
+                result.add(c);
+            }
+        }
+        return result;
+    }
+}
+
+// In main():
+// CourseRepository courses = new InMemoryCourseRepository();
+// courses.save(new Course(1L, "Java Basics"));
+// courses.save(new Course(2L, "Spring Boot"));
+// courses.save(new Course(3L, "Advanced Java"));
+// System.out.println(courses.findByTitleContaining("java"));
+// [Course{1, Java Basics}, Course{3, Advanced Java}]</code></pre>
+    <p>Note the <code>1L</code>: the id type is <code>Long</code>, so <code>1</code> (an int) would not compile.</p></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What are generics and why were they introduced?</summary>
+    <p>Generics (Java 5) let classes, interfaces and methods take type parameters. They provide compile-time type safety, eliminate explicit casts, and enable reusable
+      algorithms and containers that work with many types.</p></details>
+  <details><summary>Q2. What is type erasure?</summary>
+    <p>The compiler uses generic type information for checking, inserts necessary casts, and then removes (erases) type arguments from the bytecode; type parameters are replaced by
+      their bound (or <code>Object</code>). It keeps compatibility with pre-generics code. Consequences: no <code>new T()</code>, no generic arrays, no <code>instanceof List&lt;String&gt;</code>,
+      overloads differing only by type argument clash, and <code>List&lt;String&gt;.class</code> doesn't exist.</p></details>
+  <details><summary>Q3. Is <code>List&lt;Integer&gt;</code> a subtype of <code>List&lt;Number&gt;</code>?</summary>
+    <p>No. Generic types are invariant. Otherwise you could add a Double to a list of Integers through the <code>List&lt;Number&gt;</code> reference. Use <code>List&lt;? extends Number&gt;</code> to
+      accept lists of any Number subtype. (Arrays, by contrast, are covariant — <code>Integer[]</code> is a <code>Number[]</code> — and fail at runtime with ArrayStoreException.)</p></details>
+  <details><summary>Q4. Explain <code>? extends T</code> vs <code>? super T</code> (PECS).</summary>
+    <p><code>? extends T</code>: the list contains T or a subtype — you can safely read T, but can't add. <code>? super T</code>: the list contains T or a supertype — you can safely add T, but reads
+      return Object. PECS: Producer Extends, Consumer Super. Example: <code>Collections.copy(List&lt;? super T&gt; dest, List&lt;? extends T&gt; src)</code>.</p></details>
+  <details><summary>Q5. What is a bounded type parameter? Can you have multiple bounds?</summary>
+    <p><code>&lt;T extends X&gt;</code> restricts T to X or its subtypes (X may be a class or interface) and allows calling X's methods on T. Multiple bounds: <code>&lt;T extends A &amp; B &amp; C&gt;</code>, where
+      at most one is a class and it must be listed first.</p></details>
+  <details><summary>Q6. Difference between <code>List&lt;?&gt;</code>, <code>List&lt;Object&gt;</code> and raw <code>List</code>?</summary>
+    <p><code>List&lt;Object&gt;</code> is a list of Objects — accepts any element but you can only pass an actual <code>List&lt;Object&gt;</code> to it. <code>List&lt;?&gt;</code> is a list of some unknown type —
+      any list can be passed, but you can't add (except null). Raw <code>List</code> disables generic checks entirely (unsafe, legacy only).</p></details>
+  <details><summary>Q7. What's the difference between a generic class and a generic method?</summary>
+    <p>A generic class declares type parameters for the whole class, fixed per instance (<code>new Box&lt;String&gt;()</code>). A generic method declares its own type parameters before its return type,
+      chosen per call and usually inferred from arguments; static methods can only be generic this way.</p></details>
+  <details><summary>Q8. Why can't you create an instance or array of a type parameter? How do you work around it?</summary>
+    <p>Because of erasure, T isn't known at runtime. Work-arounds: pass a <code>Class&lt;T&gt;</code> type token and use reflection, pass a factory/supplier, or use <code>List&lt;T&gt;</code> instead of
+      <code>T[]</code> (or <code>Array.newInstance</code>).</p></details>
+  <details><summary>Q9. Can primitives be used as type arguments?</summary>
+    <p>No. Type arguments must be reference types. Use wrapper classes (<code>Integer</code>, <code>Double</code>…); autoboxing converts automatically (with a small performance cost — which is why
+      specialised types like <code>IntStream</code> exist).</p></details>
+  <details><summary>Q10. How do generics appear in Spring Data repositories?</summary>
+    <p><code>CrudRepository&lt;T, ID&gt;</code> / <code>JpaRepository&lt;T, ID&gt;</code> are generic interfaces: T is the entity type, ID its primary-key type. Declaring
+      <code>interface ProductRepository extends JpaRepository&lt;Product, Long&gt;</code> gives type-safe <code>save(Product)</code>, <code>Optional&lt;Product&gt; findById(Long)</code>, etc., implemented by Spring at runtime.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../11-Collections-Framework/lesson.html"><small>← Previous</small>11. Collections Framework</a>
+    <a class="next" href="../13-Lambdas-And-Functional-Interfaces/lesson.html"><small>Next →</small>13. Lambdas &amp; Functional Interfaces</a>
+  </nav>
+</main>
+</body>
+</html>

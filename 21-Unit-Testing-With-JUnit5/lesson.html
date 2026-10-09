@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>21 · Unit Testing with JUnit 5</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 21</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>21. Unit Testing with JUnit 5</h1>
+  <p class="subtitle">Write small automatic tests that prove your code works — today, tomorrow and after every change — using JUnit 5, Mockito and AssertJ.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="21-Unit-Testing-With-JUnit5"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Why automated tests matter, and the <b>test pyramid</b> (unit → integration → end-to-end).</li>
+      <li>JUnit 5 basics: <code>@Test</code>, assertions, <code>@BeforeEach</code>/<code>@AfterEach</code>, <code>@BeforeAll</code>/<code>@AfterAll</code>, <code>@DisplayName</code>, <code>@Nested</code>.</li>
+      <li>Testing exceptions with <code>assertThrows</code>; grouping checks with <code>assertAll</code>.</li>
+      <li>One test, many inputs: <code>@ParameterizedTest</code> with <code>@ValueSource</code> and <code>@CsvSource</code>.</li>
+      <li>The <b>AAA pattern</b> (Arrange–Act–Assert) and good test naming.</li>
+      <li><b>Mockito</b>: mocking a repository dependency to test a service in isolation (<code>@Mock</code>, <code>@InjectMocks</code>, <code>when</code>, <code>verify</code>).</li>
+      <li><b>AssertJ</b>'s readable <code>assertThat(...)</code> style.</li>
+      <li>Running tests with Maven (<code>mvn test</code>, Surefire) and in VS Code.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../20-Maven-Build-Tool/lesson.html">Topic 20 · Maven</a>, <a href="../8-OOP-Polymorphism-Abstraction-Interfaces/lesson.html">Topic 8 · Interfaces</a>, <a href="../13-Lambdas-And-Functional-Interfaces/lesson.html">Topic 13 · Lambdas</a>, <a href="../10-Exception-Handling/lesson.html">Topic 10 · Exceptions</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Until now you checked your code by running <code>main</code> and <b>reading the output with your eyes</b>. That works for 10 lines. It does not work when:</p>
+  <ul>
+    <li>the project has 500 classes and you change one method — which of the other 499 did you just break?</li>
+    <li>a teammate changes your code six months later and doesn't know what it was supposed to do;</li>
+    <li>a bug that was fixed last month quietly comes back (a "regression").</li>
+  </ul>
+  <p>An <b>automated test</b> is a small piece of code that calls your code and <b>checks the result automatically</b>. You write it once and run it thousands of times — in one second, on every change, on every teammate's laptop, and on the CI server before every deployment (Topic 68).</p>
+  <ul>
+    <li><b>Confidence to change code</b> — refactor freely; tests tell you within seconds if something broke.</li>
+    <li><b>Living documentation</b> — a test named <code>withdrawWithAlert_sendsAlertWhenBalanceDropsBelow100</code> explains a business rule better than a comment.</li>
+    <li><b>Better design</b> — code that's easy to test is usually loosely coupled (dependencies passed in as interfaces). That's exactly the design Spring encourages.</li>
+    <li><b>Job requirement</b> — professional teams don't merge code without tests. Interviewers ask about JUnit and Mockito all the time.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🚗 Testing a car before it leaves the factory</strong>
+    <ul>
+      <li>A <b>unit test</b> is testing <b>one part on a test bench</b>: does this brake pad stop the wheel? Fast, cheap, and if it fails you know exactly which part is broken.</li>
+      <li>An <b>integration test</b> checks that <b>parts work together</b>: brake pedal + hydraulic line + brake pad.</li>
+      <li>An <b>end-to-end test</b> is a <b>test drive</b> of the whole car on a real road. Very realistic, but slow and expensive, and if it fails you don't know which part is guilty.</li>
+      <li>A <b>mock</b> is a <b>crash-test dummy</b> or a <b>simulator</b>: to test the airbag, you don't put a real person in the car — you use a dummy that behaves the way you need and records what happened to it. Mockito gives you dummies for your class's dependencies (like a fake database).</li>
+      <li>An <b>assertion</b> is the inspector's checklist line: "stopping distance must be less than 40 m". Pass or fail — no opinions.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The test pyramid</h3>
+  <figure class="diagram">
+    <svg viewBox="0 0 520 300" role="img" aria-label="Test pyramid" xmlns="http://www.w3.org/2000/svg">
+      <g font-family="Segoe UI, Arial, sans-serif" text-anchor="middle">
+        <polygon points="260,20 330,100 190,100" style="fill:var(--danger-soft);stroke:var(--danger);stroke-width:2"/>
+        <polygon points="190,100 330,100 400,180 120,180" style="fill:var(--info-soft);stroke:var(--info);stroke-width:2"/>
+        <polygon points="120,180 400,180 470,270 50,270" style="fill:var(--accent-soft);stroke:var(--accent);stroke-width:2"/>
+        <text x="260" y="82" font-size="13" font-weight="700" style="fill:var(--text)">E2E / UI</text>
+        <text x="260" y="138" font-size="14" font-weight="700" style="fill:var(--text)">Integration tests</text>
+        <text x="260" y="157" font-size="12" style="fill:var(--muted)">some · slower · real DB / HTTP</text>
+        <text x="260" y="222" font-size="15" font-weight="700" style="fill:var(--text)">Unit tests</text>
+        <text x="260" y="243" font-size="12" style="fill:var(--muted)">many · milliseconds · one class, dependencies mocked</text>
+      </g>
+      <g font-family="Segoe UI, Arial, sans-serif" font-size="12" style="fill:var(--muted)">
+        <text x="420" y="40">slower, costlier ↑</text>
+        <text x="420" y="290">faster, cheaper ↓</text>
+      </g>
+    </svg>
+    <figcaption>Write many fast unit tests, fewer integration tests, and only a handful of end-to-end tests.</figcaption>
+  </figure>
+  <div class="table-wrap"><table>
+    <tr><th>Level</th><th>What it tests</th><th>Speed</th><th>In this course</th></tr>
+    <tr><td><b>Unit</b></td><td>One class/method in isolation; dependencies replaced by mocks</td><td>Milliseconds</td><td>This topic (JUnit + Mockito)</td></tr>
+    <tr><td><b>Integration</b></td><td>Several parts together: service + real database, controller + Spring MVC</td><td>Seconds</td><td>Topic 46 (<code>@WebMvcTest</code>, <code>@DataJpaTest</code>, <code>@SpringBootTest</code>)</td></tr>
+    <tr><td><b>End-to-end (E2E)</b></td><td>The whole system like a real user (browser, HTTP calls)</td><td>Minutes</td><td>Mentioned only (Selenium, Playwright, Postman collections)</td></tr>
+  </table></div>
+
+  <h3>3.2 Your first JUnit 5 test</h3>
+  <p><b>JUnit</b> is the standard testing framework for Java. Version 5 is also called <b>JUnit Jupiter</b> (the package is <code>org.junit.jupiter</code>). Add it with one Maven dependency in <code>test</code> scope:</p>
+  <pre><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.junit.jupiter&lt;/groupId&gt;
+    &lt;artifactId&gt;junit-jupiter&lt;/artifactId&gt;
+    &lt;version&gt;5.11.4&lt;/version&gt;
+    &lt;scope&gt;test&lt;/scope&gt;
+&lt;/dependency&gt;</code></pre>
+  <p>Tests live in <code>src/test/java</code>, in the <b>same package</b> as the class they test, in a class named <code>&lt;ClassName&gt;Test</code>:</p>
+  <pre><span class="file">src/test/java/com/course/unittesting/CalculatorTest.java</span><code class="lang-java">import static org.junit.jupiter.api.Assertions.assertEquals;
+import org.junit.jupiter.api.Test;
+
+class CalculatorTest {
+
+    @Test                               // "this method is a test - JUnit, please run it"
+    void addsTwoNumbers() {
+        Calculator calculator = new Calculator();
+        int result = calculator.add(2, 3);
+        assertEquals(5, result);        // expected, actual
+    }
+}</code></pre>
+  <ul>
+    <li><code>@Test</code> marks a test method. (Remember Topic 18? JUnit finds these methods with reflection and invokes them.)</li>
+    <li>Test methods return <code>void</code> and take no parameters (except parameterized tests).</li>
+    <li>In JUnit 5, test classes and methods don't need to be <code>public</code>.</li>
+    <li>If every assertion passes and no exception escapes → the test <b>passes</b> (green ✅). If an assertion fails → <b>failure</b> (red ❌) with a message like <code>expected: &lt;5&gt; but was: &lt;6&gt;</code>. If an unexpected exception is thrown → <b>error</b>.</li>
+    <li><code>import static ...Assertions.assertEquals</code> lets you write <code>assertEquals</code> instead of <code>Assertions.assertEquals</code>.</li>
+  </ul>
+
+  <h3>3.3 The most-used assertions</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Assertion</th><th>Passes when</th></tr>
+    <tr><td><code>assertEquals(expected, actual)</code></td><td>they are equal (<code>equals()</code>)</td></tr>
+    <tr><td><code>assertEquals(0.3, actual, 0.0001)</code></td><td>doubles are equal within a tolerance</td></tr>
+    <tr><td><code>assertNotEquals(a, b)</code></td><td>they differ</td></tr>
+    <tr><td><code>assertTrue(cond)</code> / <code>assertFalse(cond)</code></td><td>the condition is true / false</td></tr>
+    <tr><td><code>assertNull(x)</code> / <code>assertNotNull(x)</code></td><td>x is / isn't null</td></tr>
+    <tr><td><code>assertSame(a, b)</code></td><td>same object (<code>==</code>)</td></tr>
+    <tr><td><code>assertIterableEquals(list1, list2)</code></td><td>same elements in the same order</td></tr>
+    <tr><td><code>assertThrows(Type.class, () -&gt; code)</code></td><td>the code throws that exception type (returns it)</td></tr>
+    <tr><td><code>assertDoesNotThrow(() -&gt; code)</code></td><td>no exception</td></tr>
+    <tr><td><code>assertAll(() -&gt; ..., () -&gt; ...)</code></td><td>all grouped assertions pass (reports every failure, not just the first)</td></tr>
+    <tr><td><code>assertTimeout(Duration.ofSeconds(1), () -&gt; code)</code></td><td>code finishes in time</td></tr>
+    <tr><td><code>fail("message")</code></td><td>never — fails on purpose</td></tr>
+  </table></div>
+  <p>Every assertion accepts an optional last argument: a message shown on failure — <code>assertEquals(0, result, "anything times zero must be zero")</code>.</p>
+  <div class="callout warn"><strong>⚠️ Expected first!</strong>
+    <code>assertEquals(expected, actual)</code>. If you swap them, the test still works, but a failure message will say "expected: &lt;6&gt; but was: &lt;5&gt;" — the opposite of the truth, which confuses everyone.</div>
+
+  <h3>3.4 The AAA pattern and naming</h3>
+  <p>Structure every test in three clear parts:</p>
+  <div class="flow">
+    <span class="box info">Arrange — prepare objects &amp; inputs</span><span class="arrow">→</span>
+    <span class="box">Act — call the ONE method under test</span><span class="arrow">→</span>
+    <span class="box alt">Assert — check the result</span>
+  </div>
+  <pre><code class="lang-java">@Test
+void depositAddsAmountToBalance() {
+    // Arrange
+    when(repository.findById("ACC-1")).thenReturn(Optional.of(account("ACC-1", "100")));
+    when(repository.save(any(Account.class))).thenAnswer(inv -&gt; inv.getArgument(0));
+
+    // Act
+    Account result = service.deposit("ACC-1", new BigDecimal("50"));
+
+    // Assert
+    assertThat(result.getBalance()).isEqualByComparingTo("150");
+}</code></pre>
+  <p>(Some teams say <b>Given–When–Then</b> — same idea.) <b>Naming:</b> a test name should say <i>what</i> behaviour is checked, e.g. <code>divideByZeroThrows</code>, <code>withdraw_insufficientFunds_throwsAndSavesNothing</code>, or use <code>@DisplayName("dividing by zero throws IllegalArgumentException")</code> for a human-readable sentence in reports.</p>
+
+  <h3>3.5 Test lifecycle annotations</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Annotation</th><th>Runs</th><th>Typical use</th></tr>
+    <tr><td><code>@BeforeEach</code></td><td>before <b>every</b> test method</td><td>Create a fresh object under test</td></tr>
+    <tr><td><code>@AfterEach</code></td><td>after every test method</td><td>Clean up (delete temp files, clear data)</td></tr>
+    <tr><td><code>@BeforeAll</code> (static)</td><td>once, before all tests of the class</td><td>Expensive shared setup (start a server)</td></tr>
+    <tr><td><code>@AfterAll</code> (static)</td><td>once, after all tests</td><td>Shut that down</td></tr>
+    <tr><td><code>@DisplayName("...")</code></td><td>—</td><td>Readable name in reports/IDE</td></tr>
+    <tr><td><code>@Nested</code></td><td>—</td><td>Group tests in an inner class (e.g. per method)</td></tr>
+    <tr><td><code>@Disabled("reason")</code></td><td>—</td><td>Skip a test temporarily (shows as "skipped")</td></tr>
+    <tr><td><code>@Tag("slow")</code></td><td>—</td><td>Label tests to include/exclude groups</td></tr>
+  </table></div>
+  <p>Order for one test: <code>@BeforeAll</code> (once) → [<code>@BeforeEach</code> → test → <code>@AfterEach</code>] for each test → <code>@AfterAll</code> (once).</p>
+  <div class="callout info"><strong>ℹ️ A new object for every test</strong>
+    JUnit creates a <b>new instance of the test class for each test method</b>. That's why <code>@BeforeAll</code> must be <code>static</code>, and why one test can't leak state into another through fields. <b>Tests must be independent</b>: they may run in any order.</div>
+
+  <h3>3.6 Testing exceptions</h3>
+  <pre><code class="lang-java">@Test
+void divideByZeroThrows() {
+    IllegalArgumentException ex = assertThrows(
+            IllegalArgumentException.class,
+            () -&gt; calculator.divide(10, 0));     // code inside a lambda
+
+    assertEquals("Cannot divide by zero", ex.getMessage());
+}</code></pre>
+  <p>Why a lambda? If you wrote <code>calculator.divide(10, 0)</code> directly, the exception would be thrown <i>before</i> <code>assertThrows</code> could catch it. The lambda hands JUnit the code to run inside its own try/catch. <code>assertThrows</code> returns the exception so you can check its message.</p>
+
+  <h3>3.7 Parameterized tests</h3>
+  <p>Instead of copying a test five times with different numbers, write it once and feed it data:</p>
+  <pre><code class="lang-java">@ParameterizedTest(name = "{0} is even")
+@ValueSource(ints = {0, 2, 4, 100, -8})            // one argument per run
+void evenNumbers(int number) {
+    assertTrue(calculator.isEven(number));
+}
+
+@ParameterizedTest(name = "{0} + {1} = {2}")
+@CsvSource({                                        // several arguments per run
+        "1,   1,   2",
+        "-5,  5,   0",
+        "100, 250, 350"
+})
+void addsManyPairs(int a, int b, int expected) {
+    assertEquals(expected, calculator.add(a, b));
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Source</th><th>Gives</th></tr>
+    <tr><td><code>@ValueSource(ints/strings/doubles = {...})</code></td><td>one simple value per run</td></tr>
+    <tr><td><code>@CsvSource({"a, b, c", ...})</code></td><td>several values per run (comma-separated)</td></tr>
+    <tr><td><code>@CsvFileSource(resources = "/data.csv")</code></td><td>rows from a CSV file in <code>src/test/resources</code></td></tr>
+    <tr><td><code>@EnumSource(OrderStatus.class)</code></td><td>every enum constant</td></tr>
+    <tr><td><code>@MethodSource("provider")</code></td><td>a static method returning a <code>Stream</code> of arguments (any objects)</td></tr>
+    <tr><td><code>@NullSource</code>, <code>@EmptySource</code>, <code>@NullAndEmptySource</code></td><td><code>null</code> / <code>""</code> — great for validation tests</td></tr>
+  </table></div>
+  <p>Each data row shows up as a separate test in the report; <code>name = "{0} + {1} = {2}"</code> makes the names readable.</p>
+
+  <h3>3.8 Dependencies make testing hard → mocks</h3>
+  <p><code>Calculator</code> was easy: no dependencies. Real classes — especially Spring services — <b>use other objects</b>:</p>
+  <div class="flow">
+    <span class="box alt">BankAccountService</span><span class="arrow">→ uses →</span>
+    <span class="box info">AccountRepository (database)</span>
+  </div>
+  <div class="flow">
+    <span class="box alt">BankAccountService</span><span class="arrow">→ uses →</span>
+    <span class="box info">NotificationService (sends SMS)</span>
+  </div>
+  <p>A <b>unit</b> test of <code>BankAccountService</code> should test <i>its</i> logic only. We don't want a real database (slow, needs setup, data changes between runs) or real SMS messages. So we replace the dependencies with <b>test doubles</b>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Test double</th><th>What it is</th></tr>
+    <tr><td><b>Dummy</b></td><td>Passed in but never used</td></tr>
+    <tr><td><b>Stub</b></td><td>Returns pre-programmed answers ("findById("ACC-1") returns this account")</td></tr>
+    <tr><td><b>Fake</b></td><td>A simple working implementation, e.g. an in-memory repository with a <code>HashMap</code></td></tr>
+    <tr><td><b>Mock</b></td><td>Pre-programmed answers <b>and</b> records calls so you can <b>verify</b> them ("was save() called once?")</td></tr>
+    <tr><td><b>Spy</b></td><td>A real object that also records calls; you can override some methods</td></tr>
+  </table></div>
+  <p>This only works because the service gets its dependencies <b>from outside, through the constructor, typed as interfaces</b>:</p>
+  <pre><code class="lang-java">public BankAccountService(AccountRepository repository, NotificationService notificationService) {
+    this.repository = repository;
+    this.notificationService = notificationService;
+}</code></pre>
+  <p>If the service did <code>new JdbcAccountRepository()</code> inside, you could never swap in a fake. This is <b>dependency injection</b> — the core idea of Spring (Topic 22). Testability is one of its biggest benefits.</p>
+
+  <h3>3.9 Mockito basics</h3>
+  <p><b>Mockito</b> is the most popular mocking library for Java. It creates mock objects of interfaces or classes at runtime.</p>
+  <pre><code class="lang-java">@ExtendWith(MockitoExtension.class)        // enables the annotations below
+class BankAccountServiceTest {
+
+    @Mock AccountRepository repository;            // a fake repository
+    @Mock NotificationService notificationService; // a fake notifier
+    @InjectMocks BankAccountService service;       // real service, mocks passed to its constructor
+    ...
+}</code></pre>
+  <p><b>Stubbing</b> — tell the mock what to return:</p>
+  <pre><code class="lang-java">when(repository.findById("ACC-1")).thenReturn(Optional.of(account));   // fixed answer
+when(repository.findById("NOPE")).thenReturn(Optional.empty());
+when(repository.save(any(Account.class))).thenAnswer(inv -&gt; inv.getArgument(0)); // echo the argument
+when(repository.findById("BOOM")).thenThrow(new RuntimeException("DB down"));    // simulate failure</code></pre>
+  <p>An un-stubbed method of a mock returns a "empty" default: <code>null</code> for objects, <code>0</code>, <code>false</code>, an empty <code>Optional</code>/<code>List</code>.</p>
+  <p><b>Verifying</b> — check how the service used the mock:</p>
+  <pre><code class="lang-java">verify(repository).save(any(Account.class));                        // called exactly once
+verify(repository, times(2)).save(any(Account.class));              // exactly twice
+verify(notificationService, never()).sendLowBalanceAlert(anyString(), anyString());
+verifyNoInteractions(notificationService);                           // not touched at all</code></pre>
+  <p><b>Argument matchers</b>: <code>any()</code>, <code>any(Account.class)</code>, <code>anyString()</code>, <code>eq("ACC-1")</code>. Rule: if you use a matcher for one argument, use matchers for <b>all</b> arguments of that call (<code>eq(...)</code> for exact values).</p>
+  <p><b>ArgumentCaptor</b> — grab the actual argument to inspect it:</p>
+  <pre><code class="lang-java">@Captor ArgumentCaptor&lt;Account&gt; accountCaptor;
+
+verify(repository).save(accountCaptor.capture());
+assertThat(accountCaptor.getValue().getId()).isEqualTo("ACC-1");</code></pre>
+  <div class="callout tip"><strong>💡 Stubbing vs verifying — when to use which?</strong>
+    Stub what the code under test <b>needs to get</b> (queries: <code>findById</code>). Verify what the code under test <b>is supposed to do to the outside world</b> (commands: <code>save</code>, <code>sendAlert</code>). Don't verify every call — that makes tests fragile.</div>
+  <div class="callout info"><strong>ℹ️ Strict stubs</strong>
+    With <code>MockitoExtension</code>, if you stub something the test never uses, Mockito fails with <code>UnnecessaryStubbingException</code>. Annoying at first, but it keeps tests clean: every line of setup must matter. That's why, in our tests, <code>save(...)</code> is only stubbed in tests that actually reach the save.</div>
+
+  <h3>3.10 AssertJ — fluent assertions</h3>
+  <p><b>AssertJ</b> offers a single entry point <code>assertThat(actual)</code> followed by a chain of checks. Type a dot and your IDE shows every check that makes sense for that type:</p>
+  <pre><code class="lang-java">assertThat(calculator.add(2, 3)).isEqualTo(5).isPositive().isLessThan(10);
+assertThat("Hello, Spring Boot").startsWith("Hello").contains("Spring").hasSize(18);
+assertThat(fruits).hasSize(3).contains("banana").doesNotContain("mango");
+assertThat(students).extracting(Student::name).containsExactly("Asha", "Ben");
+assertThat(balance).isEqualByComparingTo("150");     // BigDecimal: ignores scale (150 vs 150.00)
+
+assertThatThrownBy(() -&gt; calculator.divide(1, 0))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("Cannot divide by zero");</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>JUnit assertions</th><th>AssertJ</th></tr>
+    <tr><td><code>assertEquals(5, result)</code></td><td><code>assertThat(result).isEqualTo(5)</code></td></tr>
+    <tr><td><code>assertTrue(list.contains("x"))</code> → failure says only "expected true"</td><td><code>assertThat(list).contains("x")</code> → failure shows the whole list</td></tr>
+    <tr><td>Built into JUnit</td><td>Extra library — but included in Spring Boot's <code>spring-boot-starter-test</code></td></tr>
+  </table></div>
+  <p>Both are fine; many Spring teams prefer AssertJ. Don't mix styles randomly inside one test.</p>
+
+  <h3>3.11 How tests are run: Surefire and the IDE</h3>
+  <ul>
+    <li><b>Maven</b>: <code>mvn test</code> runs the <code>test</code> phase; the <b>Surefire</b> plugin finds classes named <code>*Test</code>, <code>Test*</code>, <code>*Tests</code>, <code>*TestCase</code> and runs them through the JUnit Platform. Reports go to <code>target/surefire-reports</code>. A failing test makes the build fail — so <code>mvn package</code> never produces a JAR from broken code.</li>
+    <li><b>VS Code</b>: the Extension Pack for Java includes the <b>Test Runner for Java</b>. Green ▶ icons appear next to test classes and methods, and the <b>Testing</b> panel (flask icon) shows a tree of all tests with ✅/❌.</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ Coverage</strong>
+    <b>Code coverage</b> measures which lines your tests executed. Tools: JaCoCo (Maven plugin, Topic 46) and VS Code's "Run with Coverage". Aim for meaningful coverage of business logic, not a magic 100%: a test without good assertions "covers" lines but proves nothing.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <pre class="terminal"><code>21-Unit-Testing-With-JUnit5
+├── pom.xml
+└── src
+    ├── main/java/com/course/unittesting
+    │   ├── Calculator.java
+    │   └── bank
+    │       ├── Account.java
+    │       ├── AccountRepository.java          (interface - mocked)
+    │       ├── NotificationService.java        (interface - mocked)
+    │       ├── AccountNotFoundException.java
+    │       ├── InsufficientFundsException.java
+    │       └── BankAccountService.java         (class under test)
+    └── test/java/com/course/unittesting
+        ├── CalculatorTest.java
+        ├── AssertJExamplesTest.java
+        └── bank
+            └── BankAccountServiceTest.java</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>Test-scoped JUnit 5.11.4, Mockito 5.14.2 + mockito-junit-jupiter, AssertJ 3.26.3; Surefire 3.5.2</td></tr>
+    <tr><td><code>Calculator.java</code></td><td>add, subtract, multiply, divide (throws on zero), isEven, percentage (validates 0–100)</td></tr>
+    <tr><td><code>BankAccountService.java</code></td><td>getBalance, deposit, withdraw (low-balance alert below 100), transfer; dependencies via constructor</td></tr>
+    <tr><td><code>CalculatorTest.java</code></td><td>21 tests: basics, lifecycle, exceptions, assertAll, parameterized, nested</td></tr>
+    <tr><td><code>BankAccountServiceTest.java</code></td><td>9 Mockito tests grouped with <code>@Nested</code> per method</td></tr>
+    <tr><td><code>AssertJExamplesTest.java</code></td><td>4 tests showing AssertJ on numbers, strings, collections, exceptions</td></tr>
+  </table></div>
+
+  <h3>BankAccountService.java — the class under test</h3>
+  <pre><span class="file">src/main/java/com/course/unittesting/bank/BankAccountService.java</span><code class="lang-java">public Account withdraw(String accountId, BigDecimal amount) {
+    requirePositive(amount);
+    Account account = findAccount(accountId);          // repository.findById(...) or AccountNotFoundException
+
+    if (account.getBalance().compareTo(amount) &lt; 0) {
+        throw new InsufficientFundsException(accountId, account.getBalance(), amount);
+    }
+
+    account.setBalance(account.getBalance().subtract(amount));
+    Account saved = repository.save(account);
+
+    if (saved.getBalance().compareTo(LOW_BALANCE_LIMIT) &lt; 0) {
+        notificationService.sendLowBalanceAlert(accountId, "Your balance is low: " + saved.getBalance());
+    }
+    return saved;
+}</code></pre>
+  <p>This one method has <b>four behaviours</b> worth testing: invalid amount, account not found, insufficient funds (nothing saved, no alert), success without alert, success with alert. Good tests cover each path.</p>
+
+  <h3>CalculatorTest.java — highlights</h3>
+  <pre><span class="file">src/test/java/com/course/unittesting/CalculatorTest.java</span><code class="lang-java">@DisplayName("Calculator")
+class CalculatorTest {
+
+    private Calculator calculator;
+
+    @BeforeAll static void beforeAll() { System.out.println("[CalculatorTest] starting ..."); }
+    @BeforeEach void setUp() { calculator = new Calculator(); }   // fresh object per test
+
+    @Test
+    @DisplayName("dividing by zero throws IllegalArgumentException")
+    void divideByZeroThrows() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -&gt; calculator.divide(10, 0));
+        assertEquals("Cannot divide by zero", ex.getMessage());
+    }
+
+    @Test
+    void divisionResults() {
+        assertAll("division",
+                () -&gt; assertEquals(5, calculator.divide(10, 2)),
+                () -&gt; assertEquals(3, calculator.divide(10, 3)),
+                () -&gt; assertEquals(-2, calculator.divide(-10, 5)));
+    }
+
+    @ParameterizedTest(name = "percent {0} is rejected")
+    @ValueSource(doubles = {-1, 100.5, 250})
+    void invalidPercentagesAreRejected(double percent) {
+        assertThrows(IllegalArgumentException.class, () -&gt; calculator.percentage(100, percent));
+    }
+
+    @Nested
+    @DisplayName("when dividing")
+    class Dividing { ... }
+}</code></pre>
+  <p><code>percentageOfAmount</code> uses <code>assertEquals(30.0, result, 0.0001)</code> — the third argument is a tolerance, because doubles are not exact (Topic 2).</p>
+
+  <h3>BankAccountServiceTest.java — Mockito in action</h3>
+  <pre><span class="file">src/test/java/com/course/unittesting/bank/BankAccountServiceTest.java</span><code class="lang-java">@ExtendWith(MockitoExtension.class)
+class BankAccountServiceTest {
+
+    @Mock private AccountRepository repository;
+    @Mock private NotificationService notificationService;
+    @InjectMocks private BankAccountService service;
+
+    @Test
+    @DisplayName("sends a low-balance alert when the balance drops below 100")
+    void withdrawWithAlert() {
+        // Arrange
+        when(repository.findById("ACC-1")).thenReturn(Optional.of(account("ACC-1", "150")));
+        when(repository.save(any(Account.class))).thenAnswer(inv -&gt; inv.getArgument(0));
+
+        // Act
+        service.withdraw("ACC-1", new BigDecimal("80"));      // 150 - 80 = 70
+
+        // Assert
+        verify(notificationService, times(1))
+                .sendLowBalanceAlert(eq("ACC-1"), eq("Your balance is low: 70"));
+    }
+
+    @Test
+    @DisplayName("throws InsufficientFundsException and saves nothing when money is missing")
+    void insufficientFunds() {
+        when(repository.findById("ACC-1")).thenReturn(Optional.of(account("ACC-1", "50")));
+
+        assertThatThrownBy(() -&gt; service.withdraw("ACC-1", new BigDecimal("80")))
+                .isInstanceOf(InsufficientFundsException.class)
+                .hasMessageContaining("balance 50");
+
+        verify(repository, never()).save(any());
+        verifyNoInteractions(notificationService);
+    }
+}</code></pre>
+  <p>Line by line for <code>withdrawWithAlert</code>:</p>
+  <ul>
+    <li><code>@InjectMocks</code> builds <code>new BankAccountService(repository, notificationService)</code> with the two mocks.</li>
+    <li><code>when(repository.findById("ACC-1")).thenReturn(...)</code> — the fake DB "contains" an account with 150.</li>
+    <li><code>thenAnswer(inv -&gt; inv.getArgument(0))</code> — <code>save</code> returns the same account it receives, like a real repository. Without this the mock would return <code>null</code> and the service would crash on <code>saved.getBalance()</code>.</li>
+    <li><code>verify(...).sendLowBalanceAlert(eq("ACC-1"), eq("Your balance is low: 70"))</code> — the important outcome: the customer was alerted with the right message. No real SMS was sent.</li>
+  </ul>
+  <p>The <code>@Nested</code> classes (<code>GetBalance</code>, <code>Deposit</code>, <code>Withdraw</code>, <code>Transfer</code>) group tests by method, so the report reads like a specification.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\21-Unit-Testing-With-JUnit5"
+mvn test                                         # all tests
+mvn test -Dtest=CalculatorTest                   # one class
+mvn test -Dtest=CalculatorTest#addsTwoNumbers    # one method
+mvn test -Dtest="BankAccountServiceTest*"        # a class including its @Nested classes
+mvn clean                                        # delete target/ when done</code></pre>
+  <p>Expected output (shortened):</p>
+  <pre class="terminal"><code>[INFO]  T E S T S
+[INFO] Running com.course.unittesting.AssertJExamplesTest
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0 -- in com.course.unittesting.AssertJExamplesTest
+[INFO] Running com.course.unittesting.bank.BankAccountServiceTest
+[INFO] Running com.course.unittesting.bank.BankAccountServiceTest$Transfer
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0 -- in ...BankAccountServiceTest$Transfer
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0 -- in ...BankAccountServiceTest$Withdraw
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0 -- in ...BankAccountServiceTest$Deposit
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0 -- in ...BankAccountServiceTest$GetBalance
+[INFO] Running com.course.unittesting.CalculatorTest
+[CalculatorTest] starting - e.g. open an expensive shared resource here
+[INFO] Tests run: 21, Failures: 0, Errors: 0, Skipped: 0 -- in ...CalculatorTest$Dividing
+[CalculatorTest] finished
+[INFO] Results:
+[INFO] Tests run: 34, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS</code></pre>
+  <div class="callout info"><strong>ℹ️ About that JVM warning</strong>
+    You may see <code>OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended</code>. It comes from Mockito attaching its helper agent to the JVM to be able to mock classes. It is harmless on Java 17. (On Java 21+ Mockito recommends configuring it as a <code>-javaagent</code> in Surefire — Spring Boot handles this for you in newer versions.)</div>
+  <p><b>In VS Code:</b> open the folder <code>21-Unit-Testing-With-JUnit5</code> and wait for the Java project to load. Then:</p>
+  <ul>
+    <li>Click the green ▶ next to a test class or method in the editor to run it (or right-click → <b>Debug Test</b> to stop at breakpoints).</li>
+    <li>Open the <b>Testing</b> panel (flask icon in the Activity Bar) to see all tests as a tree with their <code>@DisplayName</code>s and run them all.</li>
+    <li>Failed tests show the expected vs actual values inline.</li>
+  </ul>
+  <div class="callout tip"><strong>💡 Watch a test fail</strong>
+    Change <code>LOW_BALANCE_LIMIT</code> in <code>BankAccountService</code> from 100 to 50 and run <code>mvn test</code>. <code>withdrawWithAlert</code> fails with <i>"Wanted but not invoked: notificationService.sendLowBalanceAlert(...)"</i> — the test caught a change in a business rule. Change it back. Always see a new test fail once — it proves the test can actually detect a bug.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: tests that are never run</strong>
+    The class is named <code>CalculatorCheck</code>, or it's in <code>src/main/java</code>, or <code>@Test</code> is imported from <code>org.junit.Test</code> (JUnit 4). <br><strong>Fix:</strong> name test classes <code>*Test</code>, put them in <code>src/test/java</code>, import <code>org.junit.jupiter.api.Test</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "Tests run: 0"</strong>
+    Usually a JUnit 4/5 mix-up or a very old Surefire version. <br><strong>Fix:</strong> use <code>junit-jupiter</code> and Surefire 3.x as in this <code>pom.xml</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: tests that depend on each other</strong>
+    Test B only passes if test A ran first (shared static data, shared DB rows). <br><strong>Fix:</strong> each test arranges its own data; use <code>@BeforeEach</code> for fresh objects.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: NullPointerException in a Mockito test</strong>
+    Forgetting <code>@ExtendWith(MockitoExtension.class)</code> (mocks stay <code>null</code>), or not stubbing a method whose result is used (mocks return <code>null</code> by default). <br><strong>Fix:</strong> add the extension; stub what the code needs (e.g. <code>save</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "Invalid use of argument matchers"</strong>
+    <code>verify(mock).send("ACC-1", anyString())</code> mixes a raw value with a matcher. <br><strong>Fix:</strong> all matchers: <code>verify(mock).send(eq("ACC-1"), anyString())</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: UnnecessaryStubbingException</strong>
+    You stubbed something the test never used. <br><strong>Fix:</strong> remove that stub (it was noise), or move it into the tests that need it.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: comparing BigDecimal with assertEquals</strong>
+    <code>assertEquals(new BigDecimal("150"), new BigDecimal("150.00"))</code> fails: <code>equals</code> also compares the scale. <br><strong>Fix:</strong> <code>assertThat(x).isEqualByComparingTo("150")</code> or <code>assertEquals(0, a.compareTo(b))</code>.</div>
+  <div class="callout danger"><strong>🚫 Mistake: tests without assertions</strong>
+    A test that calls code but asserts nothing passes even when the code is wrong. <br><strong>Fix:</strong> every test must check an outcome (return value, exception, or a verified interaction).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: mocking everything</strong>
+    Mocking simple value objects (records, <code>Account</code>) or the class under test itself makes tests meaningless. <br><strong>Fix:</strong> mock <b>dependencies at boundaries</b> (repositories, external services), use real objects for data.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><b>FIRST</b> principles: tests should be <b>F</b>ast, <b>I</b>ndependent, <b>R</b>epeatable (same result every time, no network/clock surprises), <b>S</b>elf-validating (pass/fail, no reading output), <b>T</b>imely (written with the code, not months later).</li>
+    <li><b>One behaviour per test</b>, clear AAA structure, descriptive names or <code>@DisplayName</code>.</li>
+    <li><b>Test behaviour, not implementation</b>: check results and important side effects, not every internal call.</li>
+    <li><b>Cover the edges</b>: zero, negative, empty, null, maximum, "not found", "not enough money".</li>
+    <li><b>Design for testability</b>: constructor injection + interfaces (exactly what Spring promotes).</li>
+    <li><b>Use parameterized tests</b> instead of copy-pasted tests.</li>
+    <li><b>Keep tests clean</b> — they are code too. Helper methods like <code>account("ACC-1", "500")</code> make them short and readable.</li>
+    <li><b>Run tests on every build</b> (<code>mvn verify</code> in CI) and fix a red build immediately.</li>
+    <li><b>Write a failing test first when fixing a bug</b> — it proves the bug and prevents it from returning. (Writing tests before code in general is called <b>TDD</b>, Test-Driven Development: red → green → refactor.)</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Automated tests give fast, repeatable proof that code works and protect against regressions.</li>
+    <li>Test pyramid: many unit tests, fewer integration tests, very few end-to-end tests.</li>
+    <li>JUnit 5: <code>@Test</code> + assertions (<code>assertEquals(expected, actual)</code>, <code>assertThrows</code>, <code>assertAll</code>).</li>
+    <li>Lifecycle: <code>@BeforeEach</code>/<code>@AfterEach</code> per test, static <code>@BeforeAll</code>/<code>@AfterAll</code> per class; a new test instance per method.</li>
+    <li><code>@ParameterizedTest</code> with <code>@ValueSource</code>/<code>@CsvSource</code> runs one test with many inputs.</li>
+    <li>Arrange–Act–Assert keeps tests readable.</li>
+    <li>Mockito replaces dependencies: <code>@Mock</code>, <code>@InjectMocks</code>, <code>when(...).thenReturn(...)</code>, <code>verify(...)</code>, <code>never()</code>, <code>ArgumentCaptor</code>.</li>
+    <li>Constructor injection + interfaces make classes testable — the same design Spring uses.</li>
+    <li>AssertJ's <code>assertThat(...)</code> gives fluent, readable assertions and great failure messages.</li>
+    <li><code>mvn test</code> runs everything via Surefire; a failing test fails the build.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Test a new method.</b> Add <code>int max(int a, int b, int c)</code> to <code>Calculator</code>. Write a <code>@ParameterizedTest</code> with <code>@CsvSource</code> covering: largest first, middle, last, all equal, negative numbers.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public int max(int a, int b, int c) {
+    return Math.max(a, Math.max(b, c));
+}
+
+@ParameterizedTest(name = "max({0}, {1}, {2}) = {3}")
+@CsvSource({
+        "9, 2, 3, 9",
+        "1, 8, 3, 8",
+        "1, 2, 7, 7",
+        "5, 5, 5, 5",
+        "-3, -1, -2, -1"
+})
+void maxOfThree(int a, int b, int c, int expected) {
+    assertEquals(expected, calculator.max(a, b, c));
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Validation tests.</b> Using <code>@ValueSource</code> or <code>@NullSource</code>, test that <code>service.deposit("ACC-1", amount)</code> throws <code>IllegalArgumentException</code> for <code>null</code>, <code>0</code>, and <code>-0.01</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@ParameterizedTest
+@NullSource
+@ValueSource(strings = {"0", "-0.01"})
+void invalidDepositAmounts(String amountText) {
+    BigDecimal amount = amountText == null ? null : new BigDecimal(amountText);
+    assertThrows(IllegalArgumentException.class, () -&gt; service.deposit("ACC-1", amount));
+    verifyNoInteractions(repository);
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Transfer failure.</b> Write a test proving that when the target account doesn't exist, <code>transfer("A", "X", 100)</code> throws <code>AccountNotFoundException</code>. Is account A's withdrawal already saved at that point? What does that tell you about the need for a <b>transaction</b>?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Test
+void transferToUnknownAccount() {
+    Account a = account("A", "500");
+    when(repository.findById("A")).thenReturn(Optional.of(a));
+    when(repository.findById("X")).thenReturn(Optional.empty());
+    when(repository.save(any(Account.class))).thenAnswer(inv -&gt; inv.getArgument(0));
+
+    assertThrows(AccountNotFoundException.class,
+            () -&gt; service.transfer("A", "X", new BigDecimal("100")));
+
+    verify(repository, times(1)).save(a);   // A was already saved with 400!
+}</code></pre>
+    <p>Yes — the withdrawal was saved before the deposit failed. With a real database this would lose money. The fix is a transaction (Topic 19 manually, <code>@Transactional</code> in Spring, Topic 42), or checking both accounts before changing anything. Tests revealed a design bug!</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>A fake instead of a mock.</b> Write <code>InMemoryAccountRepository implements AccountRepository</code> using a <code>HashMap</code>. Write a test of <code>deposit</code> + <code>withdraw</code> using the fake (no Mockito) and a mock <code>NotificationService</code>. When would you prefer a fake?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">class InMemoryAccountRepository implements AccountRepository {
+    private final Map&lt;String, Account&gt; data = new HashMap&lt;&gt;();
+    public Optional&lt;Account&gt; findById(String id) { return Optional.ofNullable(data.get(id)); }
+    public Account save(Account account) { data.put(account.getId(), account); return account; }
+}
+
+@Test
+void depositThenWithdrawWithFake() {
+    InMemoryAccountRepository repo = new InMemoryAccountRepository();
+    repo.save(new Account("ACC-1", "Asha", new BigDecimal("100")));
+    NotificationService notifier = mock(NotificationService.class);
+    BankAccountService service = new BankAccountService(repo, notifier);
+
+    service.deposit("ACC-1", new BigDecimal("50"));
+    service.withdraw("ACC-1", new BigDecimal("30"));
+
+    assertThat(service.getBalance("ACC-1")).isEqualByComparingTo("120");
+}</code></pre>
+    <p>Fakes are great when many tests need realistic "storage" behaviour and you care about the final state, not about individual calls.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>TDD a new feature.</b> Requirement: "A withdrawal larger than 10,000 requires a second approval and must throw <code>ApprovalRequiredException</code>; nothing is saved." Write the tests <b>first</b> (they fail — red), then implement the feature (green), then clean up the code (refactor).</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// 1) RED - the test
+@Test
+void largeWithdrawalNeedsApproval() {
+    when(repository.findById("ACC-1")).thenReturn(Optional.of(account("ACC-1", "50000")));
+
+    assertThatThrownBy(() -&gt; service.withdraw("ACC-1", new BigDecimal("10000.01")))
+            .isInstanceOf(ApprovalRequiredException.class);
+    verify(repository, never()).save(any());
+}
+
+// 2) GREEN - the implementation (in withdraw, after finding the account)
+static final BigDecimal APPROVAL_LIMIT = new BigDecimal("10000");
+if (amount.compareTo(APPROVAL_LIMIT) &gt; 0) {
+    throw new ApprovalRequiredException(accountId, amount);
+}
+
+// 3) REFACTOR - e.g. extract a method checkLimits(account, amount); tests stay green</code></pre>
+    <p>Also add a test proving that exactly 10,000 is still allowed — boundaries are where bugs hide.</p></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is unit testing and why is it important?</summary>
+    <p>Testing the smallest units of code (methods/classes) in isolation, automatically. It catches bugs early, prevents regressions, enables safe refactoring, documents expected behaviour, encourages loosely coupled design, and runs quickly in CI on every change.</p></details>
+  <details><summary>Q2. Explain the test pyramid.</summary>
+    <p>A guideline for the proportion of tests: a broad base of fast, cheap unit tests; a middle layer of integration tests that check components working together (DB, web layer); and a small top of slow, brittle end-to-end/UI tests. It balances confidence, speed and maintenance cost.</p></details>
+  <details><summary>Q3. What are the main differences between JUnit 4 and JUnit 5?</summary>
+    <p>JUnit 5 = Platform + Jupiter + Vintage (to run JUnit 4 tests). Package <code>org.junit.jupiter.api</code>; <code>@BeforeEach/@AfterEach/@BeforeAll/@AfterAll</code> replace <code>@Before/@After/@BeforeClass/@AfterClass</code>; <code>@Disabled</code> replaces <code>@Ignore</code>; extensions (<code>@ExtendWith</code>) replace runners and rules; built-in <code>assertThrows</code>, <code>assertAll</code>, <code>@DisplayName</code>, <code>@Nested</code>, parameterized tests; test classes/methods needn't be public; requires Java 8+.</p></details>
+  <details><summary>Q4. What is the difference between @BeforeEach and @BeforeAll?</summary>
+    <p><code>@BeforeEach</code> runs before every test method (fresh setup per test). <code>@BeforeAll</code> runs once before all tests in the class and must be static (unless the class uses <code>@TestInstance(Lifecycle.PER_CLASS)</code>); it's for expensive shared setup.</p></details>
+  <details><summary>Q5. How do you test that a method throws an exception?</summary>
+    <p>With <code>assertThrows(ExpectedException.class, () -&gt; code())</code>, which returns the exception so you can assert on its message. In AssertJ: <code>assertThatThrownBy(() -&gt; code()).isInstanceOf(...).hasMessage(...)</code>.</p></details>
+  <details><summary>Q6. What is mocking? Why use Mockito?</summary>
+    <p>Mocking replaces a real dependency with a controllable fake that returns programmed answers and records interactions. It isolates the unit under test from slow or unpredictable collaborators (databases, web services, email), allows simulating errors, and lets you verify interactions. Mockito provides a simple API: <code>mock</code>/<code>@Mock</code>, <code>when().thenReturn()</code>, <code>verify()</code>, argument matchers and captors.</p></details>
+  <details><summary>Q7. What is the difference between @Mock and @InjectMocks?</summary>
+    <p><code>@Mock</code> creates a mock object for a dependency. <code>@InjectMocks</code> creates a real instance of the class under test and injects the mocks into it (via constructor, setters or fields). Both require the Mockito extension (<code>@ExtendWith(MockitoExtension.class)</code>) or <code>MockitoAnnotations.openMocks(this)</code>.</p></details>
+  <details><summary>Q8. Mock vs stub vs spy vs fake?</summary>
+    <p>A stub returns canned answers; a mock also records calls so they can be verified; a fake is a lightweight working implementation (e.g. in-memory repository); a spy wraps a real object, calling real methods unless stubbed, while recording interactions.</p></details>
+  <details><summary>Q9. What is a parameterized test?</summary>
+    <p>A test method executed multiple times with different arguments supplied by a source (<code>@ValueSource</code>, <code>@CsvSource</code>, <code>@MethodSource</code>, <code>@EnumSource</code>...). It removes duplication and makes it easy to cover many cases, each reported separately.</p></details>
+  <details><summary>Q10. How does dependency injection help testing?</summary>
+    <p>When a class receives its dependencies (ideally as interfaces through its constructor) instead of creating them, tests can pass mocks or fakes. This isolates the unit, makes tests fast and deterministic, and is exactly the pattern Spring uses for beans.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../20-Maven-Build-Tool/lesson.html"><small>← Previous</small>20. Maven Build Tool</a>
+    <a class="next" href="../22-Why-Spring-IoC-And-DI-Concepts/lesson.html"><small>Next →</small>22. Why Spring? IoC &amp; DI Concepts</a>
+  </nav>
+</main>
+</body>
+</html>

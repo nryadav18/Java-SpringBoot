@@ -1,0 +1,38 @@
+# ------------------------------------------------------------------
+# config-server configuration (Topic 62)
+# ------------------------------------------------------------------
+server:
+  port: 8888                    # the traditional Config Server port
+
+spring:
+  application:
+    name: config-server
+  profiles:
+    # "native" = read config files from a normal folder on disk (no Git needed).
+    # Perfect for learning. For Git, see application-git.yml in this folder.
+    active: native
+  cloud:
+    config:
+      server:
+        native:
+          # Where are the files? A comma-separated list of places to look.
+          #  - file:../config-repo/  works when you start the server from the config-server folder
+          #  - file:./config-repo/   works when you start it from the topic folder
+          # You can also override it:  set CONFIG_REPO_PATH=file:///D:/somewhere/config-repo/
+          search-locations: ${CONFIG_REPO_PATH:file:../config-repo/,file:./config-repo/}
+
+# ---- Encryption of secrets (optional demo) --------------------------------
+# With a key configured, the server offers:
+#   POST /encrypt  (body = plain text)  -> returns cipher text
+#   POST /decrypt  (body = cipher text) -> returns plain text
+# Values written as '{cipher}xxxx' in config-repo are decrypted BEFORE they are
+# sent to the client service. DEMO KEY ONLY - in real life pass it as the
+# ENCRYPT_KEY environment variable and never commit it.
+encrypt:
+  key: ${ENCRYPT_KEY:course-demo-key-change-me-in-real-life}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -1,0 +1,25 @@
+### Topic 30 - Logging in Spring Boot
+### Start the app first: mvn spring-boot:run
+### After each request, look at the console and at logs/food-delivery.log
+
+### 1. Place an order -> DEBUG + INFO logs (card number is masked!)
+POST http://localhost:8080/orders?customer=Asha&item=Pizza&quantity=2
+
+### 2. Place an order with OUR OWN request id -> see [req:my-id-123] in the logs
+POST http://localhost:8080/orders?customer=Ravi&item=Biryani&quantity=1
+X-Request-Id: my-id-123
+
+### 3. Invalid quantity -> WARN log and 400 Bad Request
+POST http://localhost:8080/orders?customer=Asha&item=Pizza&quantity=99
+
+### 4. Find an order (ids start at 1001)
+GET http://localhost:8080/orders/1001
+
+### 5. Unknown order -> WARN log and 404
+GET http://localhost:8080/orders/9999
+
+### 6. Simulated failure -> ERROR log WITH stack trace
+POST http://localhost:8080/orders/1001/notify
+
+### 7. One message at every level
+GET http://localhost:8080/orders/levels-demo

@@ -1,0 +1,26 @@
+# =====================================================================
+# Topic 66 - the SIMPLEST possible Dockerfile (good for understanding, OK for learning)
+#
+# It expects the jar to be built BEFORE, on your machine:
+#   mvn clean package -DskipTests
+#   docker build -f Dockerfile.simple -t docker-demo:simple .
+#   docker run --rm -p 8080:8080 docker-demo:simple
+#
+# Compare with "Dockerfile" (multi-stage, layered, non-root) - the lesson explains why
+# that one is better for real projects.
+# =====================================================================
+
+# 1. Start from an image that already contains a Java 17 runtime (JRE)
+FROM eclipse-temurin:17-jre-alpine
+
+# 2. All following commands run inside /app (created automatically)
+WORKDIR /app
+
+# 3. Copy the fat jar from your computer into the image
+COPY target/docker-demo.jar app.jar
+
+# 4. Document the port the app listens on
+EXPOSE 8080
+
+# 5. The command that runs when a container starts
+ENTRYPOINT ["java", "-jar", "app.jar"]

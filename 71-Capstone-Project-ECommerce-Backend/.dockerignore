@@ -1,0 +1,11 @@
+# Files Docker should NOT send to the build (smaller, faster, no secrets)
+target/
+.git/
+.github/
+.idea/
+.vscode/
+*.iml
+*.log
+.env
+lesson.html
+requests.http

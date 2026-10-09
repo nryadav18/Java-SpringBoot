@@ -1,0 +1,54 @@
+### Topic 45 - calling external APIs (VS Code "REST Client": click "Send Request")
+### Works with both profiles: default (real JSONPlaceholder) and "offline" (built-in mock).
+@baseUrl = http://localhost:8080
+
+### ---------- 1. RestTemplate ----------
+GET {{baseUrl}}/api/demo/rest-template/posts/1
+
+###
+GET {{baseUrl}}/api/demo/rest-template/posts?userId=2
+
+### ---------- 2. RestClient ----------
+GET {{baseUrl}}/api/demo/rest-client/posts/2
+
+###
+GET {{baseUrl}}/api/demo/rest-client/posts?userId=1
+
+### Create (JSONPlaceholder fakes it and returns id 101)
+POST {{baseUrl}}/api/demo/rest-client/posts
+Content-Type: application/json
+
+{
+  "userId": 1,
+  "title": "Learning RestClient",
+  "body": "It reads like a sentence!"
+}
+
+### Two calls combined (sequential)
+GET {{baseUrl}}/api/demo/rest-client/users/1/summary
+
+### Remote 404 -> our 404
+GET {{baseUrl}}/api/demo/rest-client/posts/999
+
+### ---------- 3. WebClient ----------
+GET {{baseUrl}}/api/demo/web-client/posts/3
+
+### Two calls combined (parallel, Mono.zip)
+GET {{baseUrl}}/api/demo/web-client/users/2/summary
+
+### ---------- 4. HTTP interface (@HttpExchange) ----------
+GET {{baseUrl}}/api/demo/http-interface/posts/4
+
+###
+GET {{baseUrl}}/api/demo/http-interface/posts?userId=3
+
+### ---------- Error handling ----------
+
+### Remote answers after 10 s, our read timeout is 5 s -> 503
+GET {{baseUrl}}/api/demo/errors/timeout
+
+### Remote answers 500 -> our 502 Bad Gateway
+GET {{baseUrl}}/api/demo/errors/remote-500
+
+### ---------- The mock itself ----------
+GET {{baseUrl}}/mock-api/posts/1

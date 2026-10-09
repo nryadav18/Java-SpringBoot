@@ -1,0 +1,35 @@
+# docker-demo configuration (Topic 66)
+# Every value here can be overridden in Docker with an environment variable, e.g.
+#   docker run -e APP_GREETING="Hi from Docker" -e SPRING_PROFILES_ACTIVE=docker ...
+server:
+  port: 8080
+  shutdown: graceful            # on "docker stop" finish running requests before exiting
+
+spring:
+  application:
+    name: docker-demo
+  lifecycle:
+    timeout-per-shutdown-phase: 20s   # docker stop waits 10 s by default -> use "docker stop -t 30"
+
+app:
+  greeting: Hello from your laptop
+  environment-name: local
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true           # adds /actuator/health/liveness and /actuator/health/readiness
+
+---
+# ----- "docker" profile: activated inside the container with SPRING_PROFILES_ACTIVE=docker -----
+spring:
+  config:
+    activate:
+      on-profile: docker
+app:
+  environment-name: docker

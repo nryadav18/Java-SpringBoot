@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>13 · Lambdas &amp; Functional Interfaces</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 13</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>13. Lambdas &amp; Functional Interfaces</h1>
+  <p class="subtitle">Learn to pass small pieces of behaviour around like values — the skill that unlocks Streams, modern Java and almost every Spring configuration you will write.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="13-Lambdas-And-Functional-Interfaces"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Why lambdas were added to Java and how they replace bulky anonymous classes.</li>
+      <li>What a <em>functional interface</em> is and what <code>@FunctionalInterface</code> does.</li>
+      <li>Every way to write a lambda: no parameters, one, many, typed, untyped, expression body, block body.</li>
+      <li>The built-in functional interfaces: <code>Runnable</code>, <code>Comparator</code>, <code>Predicate</code>, <code>Function</code>, <code>Consumer</code>, <code>Supplier</code>, <code>BiFunction</code>, <code>UnaryOperator</code>, <code>BinaryOperator</code>.</li>
+      <li>The 4 kinds of method references (<code>::</code>).</li>
+      <li>The "effectively final" rule.</li>
+      <li>Composing lambdas: <code>andThen</code>, <code>compose</code>, <code>and</code>, <code>or</code>, <code>negate</code>, <code>Comparator.comparing</code>.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../8-OOP-Polymorphism-Abstraction-Interfaces/lesson.html">Topic 8 · Interfaces</a> (especially anonymous classes &amp; functional interface preview), <a href="../11-Collections-Framework/lesson.html">Topic 11 · Collections</a> (<code>Comparator</code>) and <a href="../12-Generics/lesson.html">Topic 12 · Generics</a> (<code>&lt;T&gt;</code> syntax).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- =========================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Until now, every time you wanted to give Java a piece of <em>behaviour</em> — "sort these books by title length", "do this when the button is clicked" — you had to wrap that behaviour inside an object. Usually that meant writing a whole class, or an anonymous class with five lines of ceremony around one line of real logic.</p>
+  <p>In 2014, Java 8 added <strong>lambdas</strong>: a short way to write "here is a small function, use it". Overnight, Java code became shorter and easier to read. Today lambdas are <em>everywhere</em>:</p>
+  <ul>
+    <li><strong>Streams</strong> (next topic) are built entirely on lambdas: <code>orders.stream().filter(o -&gt; o.getTotal() &gt; 500)</code>.</li>
+    <li><strong>Sorting</strong>: <code>employees.sort(Comparator.comparing(Employee::getSalary))</code>.</li>
+    <li><strong>Spring Security</strong> config uses the "Lambda DSL": <code>http.authorizeHttpRequests(auth -&gt; auth.anyRequest().authenticated())</code>.</li>
+    <li><strong>Spring Data</strong>: <code>repo.findById(id).orElseThrow(() -&gt; new NotFoundException(id))</code>.</li>
+    <li><strong>Threads &amp; async</strong> (topic 17): <code>CompletableFuture.supplyAsync(() -&gt; loadPrice())</code>.</li>
+  </ul>
+  <p>If you cannot read lambdas comfortably, modern Java and Spring code will look like magic symbols. After this lesson, they will look like plain English.</p>
+
+  <!-- =========================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>📝 The sticky note for the house-sitter</strong>
+    Imagine you go on holiday and a friend looks after your house.
+    <ul>
+      <li><strong>Old way (named class):</strong> You hire a company, sign a contract, give them a job title "Plant Waterer", and the contract says "water the plants". Lots of paperwork for one job.</li>
+      <li><strong>Anonymous class:</strong> No company, but you still write a full formal letter: "Dear Sir/Madam, I hereby request that you perform the duty of… water the plants. Regards."</li>
+      <li><strong>Lambda:</strong> You stick a note on the fridge: <em>"plants → water them"</em>. Done.</li>
+    </ul>
+    The <em>job</em> is the same each time. A lambda simply removes the paperwork and keeps only the instruction. And the "fridge" — the place that expects one specific kind of instruction — is the <strong>functional interface</strong>.
+  </div>
+  <div class="callout analogy"><strong>🔌 Second picture: a plug socket</strong>
+    A functional interface is like a socket with exactly one shape. A lambda is any plug that fits that shape. <code>Predicate</code> is a socket shaped "give me a thing, I answer yes/no". Any lambda that takes one value and returns <code>true</code>/<code>false</code> fits it.
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The problem: behaviour wrapped in too much code</h3>
+  <p>Suppose a library app needs to sort book titles from shortest to longest. <code>List.sort</code> needs a <code>Comparator</code> — an object with a <code>compare(a, b)</code> method. Before Java 8 you wrote an anonymous class:</p>
+  <pre><code class="lang-java">books.sort(new Comparator&lt;String&gt;() {          // 1. create an object of a nameless class
+    @Override
+    public int compare(String a, String b) {   // 2. repeat the method signature
+        return a.length() - b.length();        // 3. the ONLY line we care about
+    }
+});</code></pre>
+  <p>Six lines, but only one line is our actual idea. Everything else is "boilerplate" (repeated ceremony code).</p>
+
+  <h3>3.2 The solution: a lambda</h3>
+  <pre><code class="lang-java">books.sort((a, b) -&gt; a.length() - b.length());</code></pre>
+  <p>Read the arrow <code>-&gt;</code> as <strong>"goes to"</strong> or <strong>"becomes"</strong>: "<em>a and b become a.length() minus b.length()</em>".</p>
+  <div class="flow">
+    <span class="box alt">(a, b)</span><span class="arrow">→</span>
+    <span class="box">a.length() - b.length()</span>
+  </div>
+  <p>Left of the arrow: <strong>parameters</strong> (the inputs). Right of the arrow: the <strong>body</strong> (what to do with them). Java already knows <code>sort</code> needs a <code>Comparator&lt;String&gt;</code>, so it figures out that <code>a</code> and <code>b</code> are <code>String</code>s. This guessing is called <strong>type inference</strong>.</p>
+  <div class="callout info"><strong>ℹ️ What is a lambda, really?</strong>
+    A lambda is an <strong>anonymous function</strong> — a function without a name — that Java turns into an object implementing an interface. You can store it in a variable, pass it to a method, or return it from a method, just like a number or a String.
+  </div>
+
+  <h3>3.3 Functional interfaces — the "socket" a lambda plugs into</h3>
+  <p>A lambda cannot exist on its own. It always needs a <strong>target type</strong>: an interface that has <strong>exactly one abstract method</strong>. Such an interface is called a <strong>functional interface</strong> (also called a SAM interface — <em>Single Abstract Method</em>).</p>
+  <pre><code class="lang-java">@FunctionalInterface
+interface DiscountRule {
+    double apply(double price);   // exactly ONE abstract method
+}
+
+DiscountRule tenPercentOff = price -&gt; price * 0.90;   // the lambda IS the apply() method
+System.out.println(tenPercentOff.apply(1000));         // 900.0</code></pre>
+  <p>What happens here, step by step:</p>
+  <ol>
+    <li>Java sees the variable type <code>DiscountRule</code>.</li>
+    <li>It looks for the single abstract method: <code>double apply(double price)</code>.</li>
+    <li>It checks the lambda fits: one input → returns a <code>double</code>. ✅</li>
+    <li>It creates an object whose <code>apply</code> method runs <code>price * 0.90</code>.</li>
+    <li>Nothing is calculated yet! The code runs only when we <strong>call</strong> <code>tenPercentOff.apply(1000)</code>.</li>
+  </ol>
+  <div class="callout tip"><strong>💡 What does <code>@FunctionalInterface</code> do?</strong>
+    It is optional. It tells the compiler: "please make sure this interface has exactly one abstract method". If a teammate later adds a second abstract method, the build fails immediately with a clear error instead of breaking every lambda in the project. <code>default</code> and <code>static</code> methods do <em>not</em> count — a functional interface can have as many of those as it likes.
+  </div>
+
+  <h3>3.4 Lambda syntax — every variant</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Shape</th><th>Example</th><th>Notes</th></tr>
+    <tr><td>No parameters</td><td><code>() -&gt; System.out.println("Hi")</code></td><td>Empty brackets are required.</td></tr>
+    <tr><td>One parameter</td><td><code>price -&gt; price * 0.9</code></td><td>Brackets optional for exactly one untyped parameter.</td></tr>
+    <tr><td>One parameter with brackets</td><td><code>(price) -&gt; price * 0.9</code></td><td>Same as above.</td></tr>
+    <tr><td>Explicit type</td><td><code>(double price) -&gt; price * 0.9</code></td><td>Brackets required when you write the type.</td></tr>
+    <tr><td>Two or more parameters</td><td><code>(price, qty) -&gt; price * qty</code></td><td>Brackets required.</td></tr>
+    <tr><td><code>var</code> parameters (Java 11+)</td><td><code>(var price, var qty) -&gt; price * qty</code></td><td>Rarely used; lets you add annotations to parameters.</td></tr>
+    <tr><td>Block body</td><td><code>(p, q) -&gt; { double s = p * q; return s * 1.18; }</code></td><td>Use <code>{ }</code> for several statements. You must write <code>return</code> yourself and end statements with <code>;</code>.</td></tr>
+  </table></div>
+  <p><strong>Expression body vs block body:</strong></p>
+  <pre><code class="lang-java">// Expression body: a single expression, its value is returned automatically
+BillCalculator simple = (price, qty) -&gt; price * qty;
+
+// Block body: several statements, 'return' needed
+BillCalculator withTax = (price, qty) -&gt; {
+    double subtotal = price * qty;
+    double tax = subtotal * 0.18;
+    return subtotal + tax;
+};</code></pre>
+  <div class="callout warn"><strong>⚠️ Mixing rules</strong>
+    You cannot mix typed and untyped parameters: <code>(double price, qty) -&gt; ...</code> does not compile. Either type all of them or none of them.
+  </div>
+
+  <h3>3.5 Lambdas are values: passing behaviour to methods</h3>
+  <p>This is the big idea. A method can accept <em>behaviour</em> as a parameter, so the <strong>caller</strong> decides what happens:</p>
+  <pre><code class="lang-java">static void printFinalPrice(double price, DiscountRule rule) {
+    System.out.println("Price " + price + " -&gt; final " + rule.apply(price));
+}
+
+printFinalPrice(1200, p -&gt; p * 0.90);                  // Price 1200.0 -&gt; final 1080.0
+printFinalPrice(1200, p -&gt; p &gt; 1000 ? p - 200 : p);    // Price 1200.0 -&gt; final 1000.0</code></pre>
+  <p>One method, unlimited discount rules — no <code>if/else</code> chain, no new classes. This style is called <strong>functional programming</strong> or "behaviour parameterisation".</p>
+
+  <h3>3.6 Built-in functional interfaces (java.util.function)</h3>
+  <p>You rarely need to write your own interface like <code>DiscountRule</code>. Java ships ready-made ones in the package <code>java.util.function</code>. Learn these "shapes" and you can read 90% of lambda code:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Interface</th><th>Shape (input → output)</th><th>Method you call</th><th>Think of it as</th><th>Example</th></tr>
+    <tr><td><code>Runnable</code> (java.lang)</td><td>() → nothing</td><td><code>run()</code></td><td>"just do it"</td><td><code>() -&gt; System.out.println("Open")</code></td></tr>
+    <tr><td><code>Supplier&lt;T&gt;</code></td><td>() → T</td><td><code>get()</code></td><td>"give me one"</td><td><code>() -&gt; "ORD-1001"</code></td></tr>
+    <tr><td><code>Consumer&lt;T&gt;</code></td><td>T → nothing</td><td><code>accept(t)</code></td><td>"use / print / save it"</td><td><code>msg -&gt; System.out.println(msg)</code></td></tr>
+    <tr><td><code>Predicate&lt;T&gt;</code></td><td>T → boolean</td><td><code>test(t)</code></td><td>"is it true?"</td><td><code>age -&gt; age &gt;= 18</code></td></tr>
+    <tr><td><code>Function&lt;T,R&gt;</code></td><td>T → R</td><td><code>apply(t)</code></td><td>"convert it"</td><td><code>word -&gt; word.length()</code></td></tr>
+    <tr><td><code>BiFunction&lt;T,U,R&gt;</code></td><td>(T, U) → R</td><td><code>apply(t, u)</code></td><td>"combine two into a result"</td><td><code>(price, qty) -&gt; price * qty</code></td></tr>
+    <tr><td><code>UnaryOperator&lt;T&gt;</code></td><td>T → T</td><td><code>apply(t)</code></td><td>"change it, same type"</td><td><code>s -&gt; s.toUpperCase()</code></td></tr>
+    <tr><td><code>BinaryOperator&lt;T&gt;</code></td><td>(T, T) → T</td><td><code>apply(a, b)</code></td><td>"merge two of the same"</td><td><code>(a, b) -&gt; a + b</code></td></tr>
+    <tr><td><code>Comparator&lt;T&gt;</code> (java.util)</td><td>(T, T) → int</td><td><code>compare(a, b)</code></td><td>"which comes first?"</td><td><code>(a, b) -&gt; a.compareTo(b)</code></td></tr>
+  </table></div>
+  <figure class="diagram">
+    <svg viewBox="0 0 620 170" width="620" role="img" aria-label="Shapes of functional interfaces">
+      <g font-family="Segoe UI, sans-serif" font-size="14" fill="currentColor">
+        <rect x="10" y="10" width="180" height="60" rx="8" fill="none" stroke="currentColor"/>
+        <text x="100" y="35" text-anchor="middle" font-weight="bold">Supplier</text>
+        <text x="100" y="56" text-anchor="middle">( ) → T</text>
+        <rect x="220" y="10" width="180" height="60" rx="8" fill="none" stroke="currentColor"/>
+        <text x="310" y="35" text-anchor="middle" font-weight="bold">Consumer</text>
+        <text x="310" y="56" text-anchor="middle">T → ( )</text>
+        <rect x="430" y="10" width="180" height="60" rx="8" fill="none" stroke="currentColor"/>
+        <text x="520" y="35" text-anchor="middle" font-weight="bold">Predicate</text>
+        <text x="520" y="56" text-anchor="middle">T → true / false</text>
+        <rect x="10" y="95" width="180" height="60" rx="8" fill="none" stroke="currentColor"/>
+        <text x="100" y="120" text-anchor="middle" font-weight="bold">Function</text>
+        <text x="100" y="141" text-anchor="middle">T → R</text>
+        <rect x="220" y="95" width="180" height="60" rx="8" fill="none" stroke="currentColor"/>
+        <text x="310" y="120" text-anchor="middle" font-weight="bold">BiFunction</text>
+        <text x="310" y="141" text-anchor="middle">(T, U) → R</text>
+        <rect x="430" y="95" width="180" height="60" rx="8" fill="none" stroke="currentColor"/>
+        <text x="520" y="120" text-anchor="middle" font-weight="bold">UnaryOperator</text>
+        <text x="520" y="141" text-anchor="middle">T → T</text>
+      </g>
+    </svg>
+    <figcaption>The "shape" of each interface tells you which one to use.</figcaption>
+  </figure>
+  <div class="callout tip"><strong>💡 How to pick the right one</strong>
+    Ask two questions: <em>"How many inputs?"</em> and <em>"What comes out?"</em>
+    <ul>
+      <li>Nothing in, something out → <code>Supplier</code></li>
+      <li>Something in, nothing out → <code>Consumer</code></li>
+      <li>Something in, yes/no out → <code>Predicate</code></li>
+      <li>Something in, something else out → <code>Function</code></li>
+      <li>Same type in and out → <code>UnaryOperator</code></li>
+    </ul>
+  </div>
+  <div class="callout info"><strong>ℹ️ Primitive versions</strong>
+    Generics only work with objects, so <code>Predicate&lt;Integer&gt;</code> boxes every <code>int</code> into an <code>Integer</code>. For speed, Java also has primitive variants: <code>IntPredicate</code>, <code>IntFunction&lt;R&gt;</code>, <code>ToIntFunction&lt;T&gt;</code>, <code>IntUnaryOperator</code>, <code>IntBinaryOperator</code>, <code>DoubleSupplier</code>, and others. Same idea, no boxing. You will meet some of them with <code>IntStream</code> in the next topic.
+  </div>
+
+  <h3>3.7 Method references — an even shorter lambda</h3>
+  <p>Often a lambda does nothing except call one method that already exists:</p>
+  <pre><code class="lang-java">Consumer&lt;String&gt; printer = msg -&gt; System.out.println(msg);</code></pre>
+  <p>Java lets you write just the method's address with the double-colon operator <code>::</code>:</p>
+  <pre><code class="lang-java">Consumer&lt;String&gt; printer = System.out::println;   // "use System.out's println method"</code></pre>
+  <p>Read <code>::</code> as "<strong>use the method …</strong>". There are exactly 4 kinds:</p>
+  <div class="table-wrap"><table>
+    <tr><th>#</th><th>Kind</th><th>Syntax</th><th>Lambda equivalent</th></tr>
+    <tr><td>1</td><td>Static method</td><td><code>Integer::parseInt</code></td><td><code>s -&gt; Integer.parseInt(s)</code></td></tr>
+    <tr><td>2</td><td>Instance method of a <strong>particular</strong> object (you already have the object)</td><td><code>System.out::println</code><br><code>shopName::length</code></td><td><code>x -&gt; System.out.println(x)</code><br><code>() -&gt; shopName.length()</code></td></tr>
+    <tr><td>3</td><td>Instance method of an <strong>arbitrary</strong> object of a type (the object is the first parameter)</td><td><code>String::toUpperCase</code><br><code>String::compareToIgnoreCase</code></td><td><code>s -&gt; s.toUpperCase()</code><br><code>(a, b) -&gt; a.compareToIgnoreCase(b)</code></td></tr>
+    <tr><td>4</td><td>Constructor</td><td><code>Student::new</code><br><code>ArrayList::new</code></td><td><code>name -&gt; new Student(name)</code><br><code>() -&gt; new ArrayList&lt;&gt;()</code></td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Kind 2 vs Kind 3 — the trick to tell them apart</strong>
+    Look at what is on the <strong>left</strong> of <code>::</code>.
+    <ul>
+      <li>A <strong>variable / object</strong> (<code>System.out</code>, <code>shopName</code>) → kind 2. The object is fixed.</li>
+      <li>A <strong>class name</strong> but the method is <em>not</em> static (<code>String::toUpperCase</code>) → kind 3. The object will be supplied later as the first argument.</li>
+    </ul>
+  </div>
+  <p>Method references are just shorthand — use them when they make the code <em>clearer</em>. If you need extra logic (<code>s -&gt; s.trim().toUpperCase()</code>), keep the lambda.</p>
+
+  <h3>3.8 The "effectively final" rule</h3>
+  <p>A lambda can use local variables from the method around it — this is called <strong>capturing</strong>. But there is one rule: the variable must be <strong>final</strong> or <strong>effectively final</strong> (never changed after it got its value).</p>
+  <pre><code class="lang-java">double taxRate = 0.18;                                  // assigned once, never changed
+Function&lt;Double, Double&gt; addTax = p -&gt; p + p * taxRate; // ✅ OK
+
+double rate = 0.18;
+rate = 0.12;                                            // changed!
+Function&lt;Double, Double&gt; bad = p -&gt; p * rate;           // ❌ compile error:
+// "local variables referenced from a lambda expression must be final or effectively final"</code></pre>
+  <p><strong>Why this rule?</strong> A lambda may run <em>later</em>, maybe on another thread, after the method has already finished and its local variables are gone. So Java copies the <em>value</em> into the lambda. If the variable could still change, the copy and the original would disagree — confusing bugs. Making it "never changes" removes the problem.</p>
+  <div class="callout info"><strong>ℹ️ Fields are different</strong>
+    Fields (instance or static variables) live on the heap, not on the method's stack, so lambdas <em>can</em> change them: <code>Runnable click = () -&gt; clickCounter++;</code> compiles if <code>clickCounter</code> is a field. Be careful with this in multi-threaded code (topic 17).
+  </div>
+  <div class="callout info"><strong>ℹ️ <code>this</code> inside a lambda</strong>
+    In an anonymous class, <code>this</code> means the anonymous object. In a lambda, <code>this</code> means the <em>surrounding</em> object — a lambda does not create a new scope. That is one small difference between the two.
+  </div>
+
+  <h3>3.9 Composing lambdas — building big behaviour from small pieces</h3>
+  <p>The built-in interfaces have <code>default</code> methods that glue lambdas together, like LEGO bricks.</p>
+  <p><strong>Function: <code>andThen</code> and <code>compose</code></strong></p>
+  <pre><code class="lang-java">Function&lt;Double, Double&gt; discount = p -&gt; p - 100;
+Function&lt;Double, Double&gt; gst      = p -&gt; p * 1.18;
+
+discount.andThen(gst).apply(1000.0);   // (1000 - 100) * 1.18 = 1062.0  -&gt; discount FIRST
+discount.compose(gst).apply(1000.0);   // (1000 * 1.18) - 100 = 1080.0  -&gt; gst FIRST</code></pre>
+  <div class="flow">
+    <span class="box info">f.andThen(g)</span><span class="arrow">=</span>
+    <span class="box">input</span><span class="arrow">→</span><span class="box alt">f</span><span class="arrow">→</span><span class="box alt">g</span><span class="arrow">→</span><span class="box">result</span>
+  </div>
+  <div class="flow">
+    <span class="box info">f.compose(g)</span><span class="arrow">=</span>
+    <span class="box">input</span><span class="arrow">→</span><span class="box alt">g</span><span class="arrow">→</span><span class="box alt">f</span><span class="arrow">→</span><span class="box">result</span>
+  </div>
+  <p><code>Function.identity()</code> is a function that returns its input unchanged (<code>x -&gt; x</code>). It is handy in Streams, e.g. building a map keyed by the object itself.</p>
+
+  <p><strong>Predicate: <code>and</code>, <code>or</code>, <code>negate</code>, <code>Predicate.not</code></strong></p>
+  <pre><code class="lang-java">Predicate&lt;Product&gt; isElectronics = p -&gt; p.getCategory().equals("Electronics");
+Predicate&lt;Product&gt; isCheap       = p -&gt; p.getPrice() &lt; 1000;
+
+isElectronics.and(isCheap)      // both must be true      (like &amp;&amp;)
+isElectronics.or(isCheap)       // at least one true      (like ||)
+isElectronics.negate()          // opposite               (like !)
+Predicate.not(isCheap)          // static version of negate, Java 11+</code></pre>
+
+  <p><strong>Consumer: <code>andThen</code></strong> — do one thing, then another, with the same input:</p>
+  <pre><code class="lang-java">Consumer&lt;String&gt; log   = m -&gt; System.out.println("LOG  : " + m);
+Consumer&lt;String&gt; email = m -&gt; System.out.println("EMAIL: " + m);
+log.andThen(email).accept("Order #77 shipped");</code></pre>
+
+  <p><strong>Comparator helpers</strong> — the most used composition in real projects:</p>
+  <pre><code class="lang-java">products.sort(Comparator.comparing(Product::getPrice));                    // cheapest first
+products.sort(Comparator.comparing(Product::getPrice).reversed());         // most expensive first
+products.sort(Comparator.comparing(Product::getCategory)
+        .thenComparing(Product::getPrice, Comparator.reverseOrder()));     // category, then price desc
+names.sort(Comparator.naturalOrder());                                     // A..Z
+names.sort(Comparator.nullsLast(Comparator.naturalOrder()));               // nulls at the end</code></pre>
+  <p><code>Comparator.comparing(keyExtractor)</code> takes a <code>Function</code> that pulls out the "sort key" and builds the comparator for you. Much safer than writing <code>a.getPrice() - b.getPrice()</code> by hand (subtraction can overflow and does not work for <code>double</code>).</p>
+
+  <h3>3.10 Anonymous class vs lambda — side by side</h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Anonymous class</th><th>Lambda</th></tr>
+    <tr><td>Works with</td><td>Any interface or (abstract) class, any number of methods</td><td>Only functional interfaces (one abstract method)</td></tr>
+    <tr><td>Can have fields/state</td><td>Yes</td><td>No</td></tr>
+    <tr><td><code>this</code> means</td><td>The anonymous object</td><td>The enclosing object</td></tr>
+    <tr><td>Creates a <code>.class</code> file</td><td>Yes (<code>Outer$1.class</code>)</td><td>No — uses <code>invokedynamic</code> at runtime</td></tr>
+    <tr><td>Readability</td><td>Verbose</td><td>Short and focused</td></tr>
+  </table></div>
+  <p>Rule of thumb: use a lambda whenever you can; use an anonymous class only when you need more than one method or need to keep state.</p>
+
+  <h3>3.11 Where you will meet lambdas in Spring</h3>
+  <pre><code class="lang-java">// Spring Security (topic 47) - "Lambda DSL"
+http.authorizeHttpRequests(auth -&gt; auth
+        .requestMatchers("/public/**").permitAll()
+        .anyRequest().authenticated());
+
+// Spring Data (topic 38) - Supplier for the exception
+Product p = productRepository.findById(id)
+        .orElseThrow(() -&gt; new ResourceNotFoundException("Product " + id));
+
+// CommandLineRunner (topic 28) is a functional interface too
+@Bean
+CommandLineRunner demo() {
+    return args -&gt; System.out.println("App started!");
+}</code></pre>
+  <p>Do not worry about the Spring details yet — just notice that the <code>-&gt;</code> pieces are the same lambdas you are learning today.</p>
+
+  <!-- =========================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>Example01_AnonymousClassToLambda.java</code></td><td>The same sort written 3 ways: named class → anonymous class → lambda. Also <code>Runnable</code> both ways.</td></tr>
+    <tr><td><code>Example02_LambdaSyntax.java</code></td><td>Custom functional interfaces with <code>@FunctionalInterface</code>; every syntax variant; passing a lambda into a method.</td></tr>
+    <tr><td><code>Example03_BuiltInFunctionalInterfaces.java</code></td><td>One small example for each built-in interface, plus a generic helper taking a <code>Predicate</code> and a <code>Consumer</code>.</td></tr>
+    <tr><td><code>Example04_MethodReferences.java</code></td><td>The 4 kinds of method references with the equivalent lambda next to each.</td></tr>
+    <tr><td><code>Example05_EffectivelyFinalAndComposition.java</code></td><td>Effectively final rule; <code>andThen</code>/<code>compose</code>/<code>identity</code>; <code>and</code>/<code>or</code>/<code>negate</code>/<code>not</code>; <code>Consumer.andThen</code>; <code>Comparator.comparing</code>.</td></tr>
+    <tr><td><code>Example06_FoodDeliveryFilters.java</code></td><td>Mini program: a restaurant search where the user's filter choices are combined at runtime.</td></tr>
+  </table></div>
+
+  <h3>Example01 — the evolution</h3>
+  <p>The file defines a small nested class <code>ByTitleLength implements Comparator&lt;String&gt;</code>, then sorts the same list three times:</p>
+  <pre><span class="file">Example01_AnonymousClassToLambda.java</span><code class="lang-java">books.sort(new ByTitleLength());                          // 1) named class
+
+books.sort(new Comparator&lt;String&gt;() {                     // 2) anonymous class
+    @Override
+    public int compare(String a, String b) {
+        return a.length() - b.length();
+    }
+});
+
+books.sort((a, b) -&gt; a.length() - b.length());            // 3) lambda</code></pre>
+  <p>All three print <code>[Java, Clean Code, Head First, Spring in Action]</code>. Note that "Clean Code" and "Head First" both have 10 characters, so they keep their original order — <code>List.sort</code> is <em>stable</em> (equal items do not swap).</p>
+  <p>At the end, <code>Runnable newWay = () -&gt; System.out.println(...)</code> shows that creating a lambda does <strong>not</strong> run it. It runs only on <code>newWay.run()</code>.</p>
+
+  <h3>Example02 — syntax variants</h3>
+  <p>Three custom interfaces (<code>Greeter</code>, <code>DiscountRule</code>, <code>BillCalculator</code>) give us sockets of different shapes, so we can try every lambda form. The key part:</p>
+  <pre><span class="file">Example02_LambdaSyntax.java</span><code class="lang-java">BillCalculator withTax = (price, qty) -&gt; {
+    double subtotal = price * qty;
+    double tax = subtotal * 0.18;   // 18% GST
+    return subtotal + tax;
+};
+System.out.println("With 18% tax  = " + withTax.total(100.0, 2));   // 236.0</code></pre>
+  <p>Then <code>printFinalPrice(double price, DiscountRule rule)</code> receives the rule as a parameter — the caller passes different behaviour each time.</p>
+
+  <h3>Example03 — the built-in toolbox</h3>
+  <p>Each interface is shown with its "method to call" (<code>test</code>, <code>apply</code>, <code>accept</code>, <code>get</code>, <code>run</code>). The final helper is worth studying because Streams work the same way inside:</p>
+  <pre><span class="file">Example03_BuiltInFunctionalInterfaces.java</span><code class="lang-java">static &lt;T&gt; void printMatching(List&lt;T&gt; items, Predicate&lt;T&gt; rule, Consumer&lt;T&gt; action) {
+    for (T item : items) {
+        if (rule.test(item)) {      // ask the Predicate
+            action.accept(item);    // give it to the Consumer
+        }
+    }
+}</code></pre>
+  <p>The <code>Supplier&lt;Integer&gt; otp</code> uses <code>new Random(42)</code>: a fixed "seed" makes the random numbers repeatable, which is handy in demos and tests.</p>
+
+  <h3>Example04 — method references</h3>
+  <p>Each kind is written next to its lambda version so you can compare. Notice the constructor reference <code>Function&lt;String, Student&gt; makeStudent = Student::new;</code> — Java picks the <code>Student(String)</code> constructor because the <code>Function</code> takes one <code>String</code>. And <code>BiFunction&lt;String, Integer, String&gt; repeat = String::repeat;</code> is kind 3 with an extra argument: <code>(s, n) -&gt; s.repeat(n)</code>.</p>
+
+  <h3>Example05 — rules and composition</h3>
+  <p>Part A shows a captured local (<code>taxRate</code>) and a static field changed inside a lambda. Read the commented-out line: un-comment it to see the compiler error yourself. Part B composes functions, predicates, consumers and comparators over a small product list. Compare the two outputs of <code>andThen</code> vs <code>compose</code> — 1062.0 vs 1080.0 — order matters!</p>
+
+  <h3>Example06 — mini program: food delivery filters</h3>
+  <p>Three reusable building-block predicates are stored as constants:</p>
+  <pre><span class="file">Example06_FoodDeliveryFilters.java</span><code class="lang-java">static final Predicate&lt;Restaurant&gt; VEG_ONLY      = Restaurant::isPureVeg;
+static final Predicate&lt;Restaurant&gt; RATING_4_PLUS = r -&gt; r.getRating() &gt;= 4.0;
+static final Predicate&lt;Restaurant&gt; FAST_DELIVERY = r -&gt; r.getDeliveryMinutes() &lt;= 30;
+
+search("Veg AND rating 4+", all, VEG_ONLY.and(RATING_4_PLUS), card, show, noResults);
+search("Non-veg AND fast AND 4+", all,
+       VEG_ONLY.negate().and(FAST_DELIVERY).and(RATING_4_PLUS), card, show, noResults);</code></pre>
+  <p>With 3 filters there are 8+ possible combinations. Without lambdas you would write a method for each (<code>findVegAndFast</code>, <code>findVegAndRated</code>…). With composition, one <code>search</code> method handles them all. The <code>search</code> method also receives a <code>Function</code> (how to format), a <code>Consumer</code> (how to print) and a <code>Supplier</code> (the "nothing found" message).</p>
+
+  <!-- =========================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <p><strong>In VS Code:</strong> open the folder <code>D:\Java-SpringBoot\13-Lambdas-And-Functional-Interfaces</code>, open any <code>Example…java</code> file and click the small <strong>Run</strong> link above <code>main</code> (provided by the Extension Pack for Java). The output appears in the terminal panel.</p>
+  <p><strong>From the terminal:</strong></p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\13-Lambdas-And-Functional-Interfaces"
+java Example01_AnonymousClassToLambda.java
+java Example02_LambdaSyntax.java
+java Example03_BuiltInFunctionalInterfaces.java
+java Example04_MethodReferences.java
+java Example05_EffectivelyFinalAndComposition.java
+java Example06_FoodDeliveryFilters.java</code></pre>
+  <p>Expected output of <code>Example01_AnonymousClassToLambda.java</code>:</p>
+  <pre class="terminal"><code>1) Named class      : [Java, Clean Code, Head First, Spring in Action]
+2) Anonymous class  : [Java, Clean Code, Head First, Spring in Action]
+3) Lambda           : [Java, Clean Code, Head First, Spring in Action]
+Hello from an anonymous Runnable
+Hello from a lambda Runnable</code></pre>
+  <p>Expected output of <code>Example03_BuiltInFunctionalInterfaces.java</code>:</p>
+  <pre class="terminal"><code>Shop is open!
+Is 20 adult? true
+Is 15 adult? false
+Length of 'Spring' = 6
+SMS sent: Your order is on the way
+New order id: ORD-1001
+OTP is 4 digits? true
+Line total = 99.0
+SALE TODAY!
+Bigger of 7 and 12 = 12
+Sorted names: [anu, Bala, chitra, Ravi]
+Matching items:
+  adult: 25
+  adult: 40
+  adult: 18</code></pre>
+  <p>Expected output of <code>Example06_FoodDeliveryFilters.java</code>:</p>
+  <pre class="terminal"><code>Veg AND rating 4+:
+  Saravana Bhavan  VEG      4.5*  25 min
+Fast delivery, best rated first:
+  Tandoori Nights  NON-VEG  4.7*  30 min
+  Saravana Bhavan  VEG      4.5*  25 min
+  Green Leaf Cafe  VEG      3.9*  15 min
+  Pizza Point      NON-VEG  3.8*  20 min
+Non-veg AND fast AND 4+:
+  Tandoori Nights  NON-VEG  4.7*  30 min
+Veg AND slower than 30 min:
+  (no restaurants match - try removing a filter)</code></pre>
+  <p>The other files show their full expected output in the <code>/* Output: ... */</code> comment at the bottom of each file.</p>
+  <div class="callout tip"><strong>💡 Try it yourself</strong>
+    In <code>Example05</code>, remove the <code>//</code> before <code>taxRate = 0.12;</code> and run again. Read the compiler error carefully, then put the comment back.
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: changing a captured local variable</strong>
+    <pre><code class="lang-java">int total = 0;
+prices.forEach(p -&gt; total += p);   // ❌ total must be effectively final</code></pre>
+    <strong>Fix:</strong> don't mutate outside state from a lambda. Use a loop, or (next topic) a stream: <code>int total = prices.stream().mapToInt(Integer::intValue).sum();</code>
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting <code>return</code> in a block body (or adding it in an expression body)</strong>
+    <pre><code class="lang-java">Function&lt;Integer, Integer&gt; square = x -&gt; { x * x; };      // ❌ not a statement, no return
+Function&lt;Integer, Integer&gt; square2 = x -&gt; return x * x;   // ❌ 'return' not allowed without { }</code></pre>
+    <strong>Fix:</strong> <code>x -&gt; x * x</code> or <code>x -&gt; { return x * x; }</code>
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: assigning a lambda to a non-functional type</strong>
+    <pre><code class="lang-java">Object o = () -&gt; System.out.println("hi");   // ❌ Object is not a functional interface
+var r = () -&gt; System.out.println("hi");      // ❌ 'var' gives no target type</code></pre>
+    <strong>Fix:</strong> always give a functional interface type: <code>Runnable r = () -&gt; ...;</code>
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: thinking a lambda runs when it is created</strong>
+    Writing <code>Runnable r = () -&gt; sendEmail();</code> does <em>not</em> send an email. It only describes the job. The job runs when someone calls <code>r.run()</code>.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: calling the wrong method name</strong>
+    <code>predicate.apply(x)</code> or <code>supplier.apply()</code> do not compile. Each interface has its own method: <code>test</code>, <code>apply</code>, <code>accept</code>, <code>get</code>, <code>run</code>, <code>compare</code>. Keep the table in 3.6 handy.
+  </div>
+  <div class="callout danger"><strong>🚫 Mistake: writing a comparator with subtraction</strong>
+    <code>(a, b) -&gt; a.getPrice() - b.getPrice()</code> does not compile for <code>double</code> (compare must return <code>int</code>) and can overflow for large <code>int</code>s.<br>
+    <strong>Fix:</strong> <code>Comparator.comparing(Product::getPrice)</code> or <code>Integer.compare(a, b)</code> / <code>Double.compare(a, b)</code>.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: giant multi-line lambdas</strong>
+    A 25-line lambda is hard to read, test and debug (stack traces show <code>lambda$main$0</code>). <strong>Fix:</strong> move the logic into a well-named private method and use a method reference: <code>orders.forEach(this::sendInvoice)</code>.
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Keep lambdas short</strong> — ideally one line. If it grows, extract a method and use a method reference.</li>
+    <li><strong>Prefer built-in interfaces</strong> (<code>Predicate</code>, <code>Function</code>…) over creating your own. Create your own only when a domain name adds meaning (e.g. <code>DiscountRule</code>) — and then annotate it with <code>@FunctionalInterface</code>.</li>
+    <li><strong>Use method references when they read better</strong>: <code>map(String::trim)</code> is clearer than <code>map(s -&gt; s.trim())</code>. But <code>x -&gt; x + 1</code> is fine as a lambda.</li>
+    <li><strong>Name parameters meaningfully</strong>: <code>order -&gt; order.getTotal()</code> beats <code>o -&gt; o.getTotal()</code> in long chains; single letters are okay for tiny lambdas.</li>
+    <li><strong>No side effects</strong> in lambdas used for filtering/mapping — they should only compute a result. Side effects belong in <code>Consumer</code>s like <code>forEach</code>.</li>
+    <li><strong>Use <code>Comparator.comparing(...)</code></strong> and its helpers (<code>thenComparing</code>, <code>reversed</code>, <code>nullsLast</code>) instead of hand-written compare logic.</li>
+    <li><strong>Store reusable rules as constants</strong> (<code>static final Predicate&lt;Order&gt; IS_PAID = ...</code>) and compose them.</li>
+    <li><strong>Handle checked exceptions explicitly</strong>: built-in interfaces cannot throw checked exceptions, so wrap them in a try/catch inside a helper method rather than inside a long lambda.</li>
+  </ul>
+
+  <!-- =========================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>A <strong>lambda</strong> is a short, nameless function: <code>(parameters) -&gt; body</code>.</li>
+    <li>A lambda needs a <strong>functional interface</strong> (exactly one abstract method) as its target type. <code>@FunctionalInterface</code> asks the compiler to check this.</li>
+    <li>Lambdas replace most anonymous classes, removing boilerplate.</li>
+    <li>Learn the shapes: <code>Supplier</code> ()→T, <code>Consumer</code> T→(), <code>Predicate</code> T→boolean, <code>Function</code> T→R, <code>BiFunction</code> (T,U)→R, <code>UnaryOperator</code> T→T, <code>BinaryOperator</code> (T,T)→T.</li>
+    <li><strong>Method references</strong> (<code>::</code>) are shorthand for lambdas that just call one method — 4 kinds: static, particular object, arbitrary object, constructor.</li>
+    <li>Captured local variables must be <strong>effectively final</strong>.</li>
+    <li>Compose behaviour with <code>andThen</code>/<code>compose</code>, <code>and</code>/<code>or</code>/<code>negate</code>, and <code>Comparator.comparing().thenComparing().reversed()</code>.</li>
+    <li>A lambda runs only when its interface method is <strong>called</strong>.</li>
+    <li>Streams (next topic) and much of Spring's configuration are built on exactly these ideas.</li>
+  </ul></div>
+
+  <!-- =========================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <p>Create a new file (e.g. <code>Practice13.java</code>) in this folder and solve each exercise inside its <code>main</code> method. Run it with <code>java Practice13.java</code>.</p>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Convert to lambdas.</strong> Rewrite these anonymous classes as lambdas:</p>
+    <pre><code class="lang-java">Runnable r = new Runnable() {
+    public void run() { System.out.println("Backup started"); }
+};
+Comparator&lt;Integer&gt; c = new Comparator&lt;Integer&gt;() {
+    public int compare(Integer a, Integer b) { return b - a; }
+};</code></pre>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">Runnable r = () -&gt; System.out.println("Backup started");
+Comparator&lt;Integer&gt; c = (a, b) -&gt; b - a;          // descending
+// even better (no overflow risk):
+Comparator&lt;Integer&gt; c2 = Comparator.reverseOrder();
+
+r.run();                                          // Backup started
+List&lt;Integer&gt; nums = new ArrayList&lt;&gt;(List.of(3, 9, 1));
+nums.sort(c2);
+System.out.println(nums);                          // [9, 3, 1]</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Pick the interface.</strong> Write one lambda for each and call it: (a) a <code>Predicate&lt;String&gt;</code> that checks if an email contains "@", (b) a <code>Function&lt;Double, Double&gt;</code> that converts Celsius to Fahrenheit, (c) a <code>Supplier&lt;String&gt;</code> that returns "Guest", (d) a <code>Consumer&lt;String&gt;</code> that prints "Welcome, &lt;name&gt;".</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">Predicate&lt;String&gt; validEmail = e -&gt; e.contains("@");
+Function&lt;Double, Double&gt; cToF = c -&gt; c * 9 / 5 + 32;
+Supplier&lt;String&gt; defaultUser = () -&gt; "Guest";
+Consumer&lt;String&gt; welcome = name -&gt; System.out.println("Welcome, " + name);
+
+System.out.println(validEmail.test("asha@mail.com"));   // true
+System.out.println(cToF.apply(100.0));                  // 212.0
+welcome.accept(defaultUser.get());                      // Welcome, Guest</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Method references.</strong> Replace each lambda with a method reference and say which of the 4 kinds it is:
+    <code>s -&gt; s.isBlank()</code>, <code>s -&gt; Integer.valueOf(s)</code>, <code>() -&gt; new HashMap&lt;String, Integer&gt;()</code>, <code>x -&gt; System.out.println(x)</code>.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">Predicate&lt;String&gt; blank = String::isBlank;                     // kind 3: arbitrary object
+Function&lt;String, Integer&gt; toInt = Integer::valueOf;             // kind 1: static
+Supplier&lt;Map&lt;String, Integer&gt;&gt; newMap = HashMap::new;           // kind 4: constructor
+Consumer&lt;Object&gt; print = System.out::println;                   // kind 2: particular object (System.out)</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Pricing pipeline.</strong> Using <code>Function&lt;Double, Double&gt;</code>, create <code>addDelivery</code> (+40), <code>couponOff</code> (−10%), and <code>addGst</code> (×1.05). Use <code>andThen</code> to build a pipeline: coupon → delivery → GST. Apply it to 500.0.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">Function&lt;Double, Double&gt; couponOff   = p -&gt; p * 0.90;
+Function&lt;Double, Double&gt; addDelivery = p -&gt; p + 40;
+Function&lt;Double, Double&gt; addGst      = p -&gt; p * 1.05;
+
+Function&lt;Double, Double&gt; checkout = couponOff.andThen(addDelivery).andThen(addGst);
+System.out.println(checkout.apply(500.0));   // (500*0.9 + 40) * 1.05 = 514.5</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Student filter.</strong> Create a small <code>Student</code> class (name, marks, city). Build predicates <code>passed</code> (marks ≥ 35), <code>topper</code> (marks ≥ 90) and <code>fromChennai</code>. Print: students who passed but are not toppers; toppers from Chennai. Then sort all students by city, then by marks descending, using <code>Comparator.comparing</code>.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">static class Student {
+    String name; int marks; String city;
+    Student(String n, int m, String c) { name = n; marks = m; city = c; }
+    int getMarks() { return marks; }
+    String getCity() { return city; }
+    public String toString() { return name + "(" + marks + "," + city + ")"; }
+}
+
+List&lt;Student&gt; list = new ArrayList&lt;&gt;(List.of(
+    new Student("Asha", 95, "Chennai"), new Student("Ravi", 30, "Pune"),
+    new Student("Meena", 72, "Chennai"), new Student("John", 91, "Pune")));
+
+Predicate&lt;Student&gt; passed = s -&gt; s.getMarks() &gt;= 35;
+Predicate&lt;Student&gt; topper = s -&gt; s.getMarks() &gt;= 90;
+Predicate&lt;Student&gt; fromChennai = s -&gt; s.getCity().equals("Chennai");
+
+for (Student s : list) if (passed.and(topper.negate()).test(s)) System.out.println("Passed: " + s);
+for (Student s : list) if (topper.and(fromChennai).test(s)) System.out.println("Chennai topper: " + s);
+
+list.sort(Comparator.comparing(Student::getCity)
+        .thenComparing(Student::getMarks, Comparator.reverseOrder()));
+System.out.println(list);
+// Passed: Meena(72,Chennai)
+// Chennai topper: Asha(95,Chennai)
+// [Asha(95,Chennai), Meena(72,Chennai), John(91,Pune), Ravi(30,Pune)]</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Your own functional interface.</strong> Create <code>@FunctionalInterface interface Validator&lt;T&gt; { boolean validate(T value); }</code> and give it a <code>default</code> method <code>and(Validator&lt;T&gt; other)</code> that returns a new validator passing only if both pass. Use it to validate a password: length ≥ 8 AND contains a digit.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">@FunctionalInterface
+interface Validator&lt;T&gt; {
+    boolean validate(T value);
+
+    default Validator&lt;T&gt; and(Validator&lt;T&gt; other) {
+        return value -&gt; this.validate(value) &amp;&amp; other.validate(value);
+    }
+}
+
+Validator&lt;String&gt; longEnough = p -&gt; p.length() &gt;= 8;
+Validator&lt;String&gt; hasDigit   = p -&gt; p.chars().anyMatch(Character::isDigit);
+Validator&lt;String&gt; strong     = longEnough.and(hasDigit);
+
+System.out.println(strong.validate("secret"));      // false
+System.out.println(strong.validate("secret123"));   // true</code></pre>
+    <p>This is exactly how <code>Predicate.and</code> is written inside the JDK. A <code>default</code> method does not break the "one abstract method" rule.</p>
+    </details>
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is a lambda expression in Java?</summary>
+    <p>A lambda is a short way to write an anonymous function — a block of code with parameters and a body but no name — introduced in Java 8. Syntax: <code>(params) -&gt; expression</code> or <code>(params) -&gt; { statements; }</code>. It provides an implementation for the single abstract method of a functional interface, so behaviour can be passed around like data.</p></details>
+  <details><summary>Q2. What is a functional interface? Is @FunctionalInterface mandatory?</summary>
+    <p>An interface with exactly one abstract method (default and static methods don't count; methods from <code>Object</code> like <code>equals</code> don't count either). Examples: <code>Runnable</code>, <code>Comparator</code>, <code>Predicate</code>. The annotation is <strong>not</strong> mandatory — any interface with one abstract method works with lambdas — but it makes the compiler enforce the rule and documents the intent.</p></details>
+  <details><summary>Q3. Explain Predicate, Function, Consumer and Supplier.</summary>
+    <p><code>Predicate&lt;T&gt;</code>: takes T, returns boolean (<code>test</code>). <code>Function&lt;T,R&gt;</code>: takes T, returns R (<code>apply</code>). <code>Consumer&lt;T&gt;</code>: takes T, returns nothing (<code>accept</code>). <code>Supplier&lt;T&gt;</code>: takes nothing, returns T (<code>get</code>). Variants: <code>BiFunction</code>, <code>BiConsumer</code>, <code>BiPredicate</code>, <code>UnaryOperator</code>, <code>BinaryOperator</code>, and primitive versions like <code>IntPredicate</code>.</p></details>
+  <details><summary>Q4. What are method references? Name the four types.</summary>
+    <p>A compact form of a lambda that only calls an existing method, using <code>::</code>. Types: (1) static method <code>Math::abs</code>; (2) instance method of a particular object <code>System.out::println</code>; (3) instance method of an arbitrary object of a type <code>String::length</code>; (4) constructor <code>ArrayList::new</code>.</p></details>
+  <details><summary>Q5. What does "effectively final" mean and why do lambdas require it?</summary>
+    <p>A local variable that is never reassigned after initialisation, even without the <code>final</code> keyword. Lambdas capture a <em>copy</em> of local variable values because the lambda may run after the method has returned (or on another thread). Requiring the variable to be unchanging guarantees the copy is always correct and avoids race conditions. Fields are not subject to this rule.</p></details>
+  <details><summary>Q6. Differences between a lambda and an anonymous class?</summary>
+    <p>Lambdas work only with functional interfaces; anonymous classes can implement any interface or extend a class and can have multiple methods and their own fields. Inside a lambda, <code>this</code> refers to the enclosing instance; in an anonymous class it refers to the anonymous object. Anonymous classes generate a separate <code>.class</code> file; lambdas are created at runtime via <code>invokedynamic</code>, which is usually lighter. Lambdas cannot shadow local variables of the enclosing scope.</p></details>
+  <details><summary>Q7. What's the difference between Function.andThen and Function.compose?</summary>
+    <p><code>f.andThen(g)</code> runs <code>f</code> first, then <code>g</code> on its result: <code>g(f(x))</code>. <code>f.compose(g)</code> runs <code>g</code> first, then <code>f</code>: <code>f(g(x))</code>.</p></details>
+  <details><summary>Q8. Can a functional interface have default and static methods? Can it extend another interface?</summary>
+    <p>Yes, any number of default and static methods (e.g. <code>Predicate</code> has <code>and</code>, <code>or</code>, <code>negate</code>, and static <code>not</code>, <code>isEqual</code>). It can extend another interface as long as the total number of abstract methods stays one.</p></details>
+  <details><summary>Q9. Can a lambda throw a checked exception?</summary>
+    <p>Only if the functional interface's method declares it. <code>Callable&lt;V&gt;.call()</code> declares <code>throws Exception</code>, so a <code>Callable</code> lambda may throw checked exceptions. <code>Function.apply</code> does not, so inside a <code>Function</code> lambda you must catch checked exceptions (or wrap them in an unchecked one), or define your own functional interface that declares <code>throws</code>.</p></details>
+  <details><summary>Q10. Why are lambdas important for Spring developers?</summary>
+    <p>Spring APIs are designed around them: Spring Security's Lambda DSL for <code>HttpSecurity</code>, <code>Optional.orElseThrow(() -&gt; ...)</code> with Spring Data repositories, <code>CommandLineRunner</code>/<code>ApplicationRunner</code> beans, <code>RestClient</code>/<code>WebClient</code> callbacks, <code>TransactionTemplate.execute(status -&gt; ...)</code>, <code>JdbcTemplate</code> <code>RowMapper</code>s, and Streams for transforming entities to DTOs.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../12-Generics/lesson.html"><small>← Previous</small>12. Generics</a>
+    <a class="next" href="../14-Streams-API-And-Optional/lesson.html"><small>Next →</small>14. Streams API &amp; Optional</a>
+  </nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,16 @@
+# ==================================================================
+# config-repo/product-service-dev.yml   (Topic 62)
+# ------------------------------------------------------------------
+# Extra settings for product-service when it runs with the "dev" profile:
+#   mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
+# Values here WIN over product-service.yml and application.yml.
+# ==================================================================
+shop:
+  welcome-message: Welcome, DEVELOPER! (from config-repo/product-service-dev.yml)
+  discount-percent: 50          # huge discount - easy to spot that dev config is active
+  feature:
+    new-arrivals: true          # try new features in dev first (a "feature flag")
+
+logging:
+  level:
+    com.course.configdemo: DEBUG

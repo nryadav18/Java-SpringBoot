@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>3 · Control Flow</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 3</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~3–4 hours</span>
+  <h1>3. Control Flow</h1>
+  <p class="subtitle">Make your programs take decisions (if, switch) and repeat work (loops) — and build a working ATM menu program.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="3-Control-Flow"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li><code>if</code>, <code>else if</code>, <code>else</code>, nested <code>if</code> and the ternary operator <code>? :</code>.</li>
+      <li>The classic <code>switch</code>, fall-through, and the modern Java 17 <strong>arrow switch</strong> and <strong>switch expressions</strong> with <code>yield</code>.</li>
+      <li>Loops: <code>for</code>, <code>while</code>, <code>do-while</code> and the enhanced <code>for</code> (for-each).</li>
+      <li><code>break</code>, <code>continue</code> and <strong>labelled break/continue</strong>.</li>
+      <li>Nested loops and star/number patterns.</li>
+      <li>Classic loop problems: sum, factorial, prime, FizzBuzz, multiplication table, reverse a number, Fibonacci.</li>
+      <li>A mini-project: an <strong>ATM menu</strong> that uses everything.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../2-Variables-DataTypes-Operators/lesson.html">Topic 2 · Variables, Data Types &amp; Operators</a> (especially relational and logical operators, and <code>%</code>).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>So far our programs ran straight from top to bottom, every line exactly once. Real programs are not like that. They must:</p>
+  <ul>
+    <li><strong>Decide</strong>: "If the password is wrong, show an error. Otherwise, log in." "If the cart total is above ₹500, delivery is free."</li>
+    <li><strong>Repeat</strong>: "For every item in the cart, add its price." "Keep showing the menu until the user chooses Exit." "Retry the payment up to 3 times."</li>
+  </ul>
+  <p>This is called <strong>control flow</strong> — controlling the order in which statements run. In Spring Boot applications you'll write things like <em>"if the product doesn't exist, return 404 Not Found"</em>, <em>"for each order item, reduce the stock"</em>, <em>"switch on the order status to decide the next step"</em>. Control flow is the "brain" of every method you will ever write.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🚗 Driving with a GPS</strong>
+    <ul>
+      <li><strong>if / else</strong> is a fork in the road: "If the highway is jammed, take the service road, else stay on the highway." You take exactly one path.</li>
+      <li><strong>else if ladder</strong> is a series of signboards: you take the <em>first</em> exit that matches your destination.</li>
+      <li><strong>switch</strong> is a roundabout with many numbered exits: you look at one value (your exit number) and go straight to it.</li>
+      <li><strong>Loops</strong> are going around a race track: "Drive 10 laps" (<code>for</code>), "Keep driving while there's fuel" (<code>while</code>), "Drive at least one lap, then check if you want another" (<code>do-while</code>).</li>
+      <li><strong>break</strong> is pulling into the pit stop and leaving the race; <strong>continue</strong> is skipping the rest of this lap and starting the next one.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The <code>if</code> statement</h3>
+  <p>An <code>if</code> runs a block of code only when a condition is <code>true</code>. The condition must be a <code>boolean</code> expression (something that is true or false).</p>
+  <pre><code class="lang-java">double cartTotal = 650.0;
+if (cartTotal &gt;= 500) {
+    System.out.println("You get FREE delivery!");
+}
+System.out.println("This line always runs.");</code></pre>
+  <div class="flow">
+    <span class="box info">cartTotal &gt;= 500 ?</span><span class="arrow">→ true →</span>
+    <span class="box">print "FREE delivery"</span><span class="arrow">→</span>
+    <span class="box alt">continue program</span>
+  </div>
+  <div class="flow">
+    <span class="box info">cartTotal &gt;= 500 ?</span><span class="arrow">→ false →</span>
+    <span class="box alt">continue program</span>
+  </div>
+
+  <h3>3.2 <code>if</code> / <code>else</code></h3>
+  <p>Add <code>else</code> for "otherwise". Exactly <strong>one</strong> of the two blocks runs — never both, never neither.</p>
+  <pre><code class="lang-java">int age = 16;
+if (age &gt;= 18) {
+    System.out.println("You can vote.");
+} else {
+    System.out.println("You cannot vote yet.");
+}</code></pre>
+
+  <h3>3.3 The <code>else if</code> ladder</h3>
+  <p>For more than two choices, chain conditions. Java checks them <strong>top to bottom</strong> and runs only the <strong>first</strong> block whose condition is true. Everything after it is skipped.</p>
+  <pre><code class="lang-java">int marks = 82;
+char grade;
+if (marks &gt;= 90) {
+    grade = 'A';
+} else if (marks &gt;= 75) {   // reached only if marks &lt; 90
+    grade = 'B';
+} else if (marks &gt;= 60) {
+    grade = 'C';
+} else if (marks &gt;= 40) {
+    grade = 'D';
+} else {                     // none of the above
+    grade = 'F';
+}
+// marks 82 → 'B'</code></pre>
+  <div class="callout tip"><strong>💡 Order matters</strong>Because only the first true branch runs, put the <strong>most specific / strictest</strong> condition first. If you wrote <code>marks &gt;= 40</code> first, everyone with 40+ would get 'D' — even a 95!</div>
+
+  <h3>3.4 Nested <code>if</code></h3>
+  <p>An <code>if</code> inside another <code>if</code>. The inner one is checked only when the outer one is true.</p>
+  <pre><code class="lang-java">if (applicantAge &gt;= 21 &amp;&amp; applicantAge &lt;= 60) {
+    if (monthlySalary &gt;= 25000) {
+        if (creditScore &gt;= 700) {
+            System.out.println("Loan APPROVED");
+        } else {
+            System.out.println("Loan rejected: credit score too low");
+        }
+    } else {
+        System.out.println("Loan rejected: salary too low");
+    }
+} else {
+    System.out.println("Loan rejected: age not in 21-60");
+}</code></pre>
+  <p>Nesting is useful when each level gives a different message. But deep nesting (3+ levels) becomes hard to read — the "arrow shape" problem. In Topic 4 you'll learn <strong>guard clauses</strong> (return early) to flatten it.</p>
+
+  <h3>3.5 Curly braces and a classic trap</h3>
+  <p>If a block has only one statement, Java lets you skip the braces. <strong>Don't.</strong></p>
+  <pre><code class="lang-java">if (balance &lt; 0)
+    System.out.println("Overdrawn!");
+    System.out.println("Fee charged");   // ⚠️ NOT part of the if – ALWAYS runs (indentation lies!)</code></pre>
+  <p>Only the first line belongs to the <code>if</code>. Always use braces, even for one line.</p>
+
+  <h3>3.6 The ternary operator <code>? :</code></h3>
+  <p>A compact <code>if/else</code> that <strong>produces a value</strong>:</p>
+  <pre><code class="lang-java">// condition ? valueIfTrue : valueIfFalse
+String status = stock &gt; 0 ? "In stock" : "Out of stock";
+int bigger   = (a &gt; b) ? a : b;
+System.out.println(items + (items == 1 ? " item" : " items"));</code></pre>
+  <p>It's the same as:</p>
+  <pre><code class="lang-java">String status;
+if (stock &gt; 0) {
+    status = "In stock";
+} else {
+    status = "Out of stock";
+}</code></pre>
+  <div class="callout tip"><strong>💡 Use it for simple choices only</strong>Great for picking between two values. Avoid nesting ternaries (<code>a ? b : c ? d : e</code>) — nobody can read them.</div>
+
+  <h3>3.7 The classic <code>switch</code> statement</h3>
+  <p>When you compare <strong>one value</strong> against many fixed options, <code>switch</code> is cleaner than a long else-if ladder.</p>
+  <pre><code class="lang-java">int dayNumber = 3;
+switch (dayNumber) {
+    case 1:
+        System.out.println("Monday");
+        break;            // leave the switch
+    case 2:
+        System.out.println("Tuesday");
+        break;
+    case 3:
+        System.out.println("Wednesday");
+        break;
+    default:              // no case matched
+        System.out.println("Some other day");
+}</code></pre>
+  <ul>
+    <li>The value in <code>switch (...)</code> can be <code>int</code>, <code>char</code>, <code>byte</code>, <code>short</code> (and their wrappers), <code>String</code> or an <code>enum</code> (Topic 15). <strong>Not</strong> <code>long</code>, <code>double</code>, <code>float</code> or <code>boolean</code>.</li>
+    <li>Case labels must be constants (fixed values), not conditions like <code>case marks &gt; 90</code>. For ranges, use if/else.</li>
+    <li><code>default</code> is optional but recommended.</li>
+  </ul>
+
+  <h3>3.8 Fall-through: the <code>break</code> you forgot</h3>
+  <p>In a classic switch, once a case matches, Java runs <strong>every following line</strong> until it hits a <code>break</code> (or the end). This is called <strong>fall-through</strong>.</p>
+  <pre><code class="lang-java">int level = 1;
+switch (level) {
+    case 1: System.out.print("Bronze ");   // no break
+    case 2: System.out.print("Silver ");   // falls into here
+    case 3: System.out.print("Gold ");     // and here
+}
+// prints: Bronze Silver Gold</code></pre>
+  <p>Usually a bug. But it can be used on purpose to group cases:</p>
+  <pre><code class="lang-java">switch (month) {
+    case 4: case 6: case 9: case 11:
+        daysInMonth = 30;
+        break;
+    case 2:
+        daysInMonth = 28;
+        break;
+    default:
+        daysInMonth = 31;
+}</code></pre>
+
+  <h3>3.9 Modern switch: arrow labels (Java 14+)</h3>
+  <p>Java 14 introduced <code>case X -&gt;</code>. With arrows there is <strong>no fall-through</strong>, so you never need <code>break</code>. You can also list several values in one case with commas.</p>
+  <pre><code class="lang-java">switch (paymentMethod) {
+    case "CARD" -&gt; System.out.println("Redirecting to card gateway...");
+    case "UPI"  -&gt; System.out.println("Showing UPI QR code...");
+    case "COD"  -&gt; System.out.println("Cash on delivery selected.");
+    default     -&gt; System.out.println("Unknown payment method");
+}</code></pre>
+  <p>For more than one statement, use a block <code>{ }</code> after the arrow:</p>
+  <pre><code class="lang-java">case 2 -&gt; {
+    System.out.print("Amount to deposit &gt; ");
+    double amount = scanner.nextDouble();
+    balance += amount;
+}</code></pre>
+
+  <h3>3.10 Switch <em>expressions</em> and <code>yield</code></h3>
+  <p>A switch can also <strong>produce a value</strong> that you store in a variable. This is a <strong>switch expression</strong>:</p>
+  <pre><code class="lang-java">String season = switch (monthNumber) {
+    case 12, 1, 2   -&gt; "Winter";
+    case 3, 4, 5    -&gt; "Summer";
+    case 6, 7, 8, 9 -&gt; "Monsoon";
+    case 10, 11     -&gt; "Autumn";
+    default         -&gt; "Invalid month";
+};   // ← semicolon: the whole switch is the right side of an assignment</code></pre>
+  <p>If a case needs several statements before giving its value, use a block and <code>yield</code> ("this is the value of this case"):</p>
+  <pre><code class="lang-java">int deliveryDays = switch (orderStatus) {
+    case "PLACED"  -&gt; 5;
+    case "SHIPPED" -&gt; {
+        System.out.println("Checking courier...");
+        int courierDays = 2;
+        yield courierDays;          // the value of the switch
+    }
+    default -&gt; -1;
+};</code></pre>
+  <p>A switch expression must be <strong>exhaustive</strong>: every possible input must produce a value. With <code>int</code> or <code>String</code> that means you need a <code>default</code>. The compiler checks this for you — a real safety net.</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Classic <code>case X:</code></th><th>Arrow <code>case X -&gt;</code></th></tr>
+    <tr><td>Fall-through</td><td>Yes (need <code>break</code>)</td><td>No</td></tr>
+    <tr><td>Multiple values per case</td><td><code>case 1: case 2:</code></td><td><code>case 1, 2 -&gt;</code></td></tr>
+    <tr><td>Can return a value</td><td>As an expression only with <code>yield</code> (rare)</td><td>Yes, naturally</td></tr>
+    <tr><td>Must cover all cases</td><td>No (statement)</td><td>Yes, when used as an expression</td></tr>
+    <tr><td>Recommendation</td><td>Read it in old code</td><td><strong>Use it in new code</strong></td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ In newer Java</strong>Java 21 adds <em>pattern matching for switch</em> (e.g. <code>case Circle c -&gt; ...</code>). We use Java 17 in this course, so we won't use it in code — but you'll recognise it when you see it.</div>
+
+  <h3>3.11 if/else vs switch — which one?</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Use <code>if / else if</code> when…</th><th>Use <code>switch</code> when…</th></tr>
+    <tr><td>Conditions are ranges (<code>marks &gt;= 90</code>)</td><td>You compare one value to fixed options</td></tr>
+    <tr><td>Conditions involve different variables</td><td>Options are many (menu choices, status codes, commands)</td></tr>
+    <tr><td>You need <code>&amp;&amp;</code> / <code>||</code> combinations</td><td>You want the compiler to check you covered everything (switch expression)</td></tr>
+  </table></div>
+
+  <h3>3.12 Loops: why repeat?</h3>
+  <p>Printing 1 to 1000 with 1000 <code>println</code> lines is silly. A <strong>loop</strong> repeats a block of code many times. Every loop has 3 ingredients:</p>
+  <ol>
+    <li><strong>Start</strong> — a starting value (e.g. <code>i = 1</code>).</li>
+    <li><strong>Condition</strong> — keep going while this is true (e.g. <code>i &lt;= 1000</code>).</li>
+    <li><strong>Update</strong> — move towards the end (e.g. <code>i++</code>). Forget this and the loop never ends — an <strong>infinite loop</strong>.</li>
+  </ol>
+
+  <h3>3.13 The <code>for</code> loop</h3>
+  <p>Best when you know <strong>how many times</strong> to repeat.</p>
+  <pre><code class="lang-java">for (int i = 1; i &lt;= 5; i++) {
+    System.out.print(i + " ");
+}
+// 1 2 3 4 5</code></pre>
+  <div class="flow">
+    <span class="box">① int i = 1<br><small>runs once</small></span><span class="arrow">→</span>
+    <span class="box info">② i &lt;= 5 ?</span><span class="arrow">→ true →</span>
+    <span class="box">③ body</span><span class="arrow">→</span>
+    <span class="box">④ i++</span><span class="arrow">→ back to ②</span>
+  </div>
+  <p>When ② becomes false, the loop ends. Trace table for the example:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Round</th><th>i</th><th>i &lt;= 5?</th><th>Prints</th></tr>
+    <tr><td>1</td><td>1</td><td>true</td><td>1</td></tr>
+    <tr><td>2</td><td>2</td><td>true</td><td>2</td></tr>
+    <tr><td>3</td><td>3</td><td>true</td><td>3</td></tr>
+    <tr><td>4</td><td>4</td><td>true</td><td>4</td></tr>
+    <tr><td>5</td><td>5</td><td>true</td><td>5</td></tr>
+    <tr><td>–</td><td>6</td><td><strong>false</strong> → stop</td><td></td></tr>
+  </table></div>
+  <p>Variations:</p>
+  <pre><code class="lang-java">for (int i = 5; i &gt;= 1; i--)     { ... }   // count down: 5 4 3 2 1
+for (int i = 2; i &lt;= 10; i += 2) { ... }   // step by 2: 2 4 6 8 10
+for (int i = 0; i &lt; 5; i++)      { ... }   // 0..4 – the usual style for arrays (Topic 4)</code></pre>
+  <p>The variable <code>i</code> declared in the <code>for</code> only exists inside the loop. After the loop, <code>i</code> is gone.</p>
+
+  <h3>3.14 The <code>while</code> loop</h3>
+  <p>Best when you <strong>don't know in advance</strong> how many times — you repeat <em>while</em> something is true.</p>
+  <pre><code class="lang-java">double savings = 10000;
+int years = 0;
+while (savings &lt; 20000) {     // checked BEFORE every round
+    savings = savings * 1.08;
+    years++;
+}
+// years = 10</code></pre>
+  <p>If the condition is false at the start, the body runs <strong>zero</strong> times.</p>
+
+  <h3>3.15 The <code>do-while</code> loop</h3>
+  <p>The body runs <strong>first</strong>, then the condition is checked. So it always runs <strong>at least once</strong>. Perfect for menus and "ask until valid input".</p>
+  <pre><code class="lang-java">int choice;
+do {
+    showMenu();
+    choice = scanner.nextInt();
+    // handle choice...
+} while (choice != 4);     // ← note the semicolon after while(...)</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Loop</th><th>Condition checked</th><th>Minimum runs</th><th>Typical use</th></tr>
+    <tr><td><code>for</code></td><td>before each round</td><td>0</td><td>Known number of repetitions, counting, arrays</td></tr>
+    <tr><td><code>while</code></td><td>before each round</td><td>0</td><td>Unknown number: "until done", reading data, retries</td></tr>
+    <tr><td><code>do-while</code></td><td>after each round</td><td><strong>1</strong></td><td>Menus, "ask until valid"</td></tr>
+    <tr><td>enhanced <code>for</code></td><td>automatic</td><td>0</td><td>Visit every element of an array/collection</td></tr>
+  </table></div>
+
+  <h3>3.16 The enhanced <code>for</code> (for-each)</h3>
+  <p>To visit <strong>every element</strong> of an array (or a collection, Topic 11) without counting indexes:</p>
+  <pre><code class="lang-java">double[] prices = {120.0, 45.5, 300.0, 15.25};
+double total = 0;
+for (double price : prices) {    // read as: "for each price in prices"
+    total += price;
+}
+// total = 480.75</code></pre>
+  <p>It's simpler and safer (no index mistakes). Limitation: you don't get the index, and you can't replace elements through the loop variable. Arrays are explained fully in Topic 4 — here we just use them as "a list of values in curly braces".</p>
+
+  <h3>3.17 <code>break</code> and <code>continue</code></h3>
+  <ul>
+    <li><strong><code>break</code></strong> — leave the loop immediately. Use it when you've found what you were looking for.</li>
+    <li><strong><code>continue</code></strong> — skip the rest of the current round and jump to the next round.</li>
+  </ul>
+  <pre><code class="lang-java">for (int amount : orderAmounts) {
+    if (amount &gt; 1000) {
+        System.out.println("Found big order: " + amount);
+        break;                  // stop searching
+    }
+}
+
+for (int i = 1; i &lt;= 9; i++) {
+    if (i % 2 == 0) {
+        continue;               // skip even numbers
+    }
+    System.out.print(i + " ");  // 1 3 5 7 9
+}</code></pre>
+
+  <h3>3.18 Labelled <code>break</code> and <code>continue</code></h3>
+  <p>A plain <code>break</code> only leaves the <strong>innermost</strong> loop. To leave an <strong>outer</strong> loop from inside an inner one, put a <strong>label</strong> (a name followed by a colon) before the outer loop:</p>
+  <pre><code class="lang-java">search:                                         // label
+for (int row = 0; row &lt; seatTaken.length; row++) {
+    for (int seat = 0; seat &lt; seatTaken[row].length; seat++) {
+        if (!seatTaken[row][seat]) {
+            foundRow = row;
+            foundSeat = seat;
+            break search;                       // leaves BOTH loops
+        }
+    }
+}</code></pre>
+  <p><code>continue label;</code> jumps to the next round of the labelled (outer) loop:</p>
+  <pre><code class="lang-java">nextStudent:
+for (int s = 0; s &lt; marks.length; s++) {
+    for (int m : marks[s]) {
+        if (m &lt; 40) {
+            continue nextStudent;   // skip the "passed" message for this student
+        }
+    }
+    System.out.println("Student " + s + " passed all subjects");
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ Use labels rarely</strong>Labels are handy for searching in a grid, but if you need them often, the code is probably too complex — moving the inner loop into its own method and using <code>return</code> (Topic 4) is usually clearer.</div>
+
+  <h3>3.19 Nested loops and patterns</h3>
+  <p>A loop inside a loop. Think of a clock: the minute hand (inner loop) goes all the way round for every single step of the hour hand (outer loop). For patterns: <strong>outer loop = rows, inner loop = columns</strong>.</p>
+  <pre><code class="lang-java">for (int row = 1; row &lt;= 4; row++) {         // 4 rows
+    for (int col = 1; col &lt;= row; col++) {   // row 1 → 1 star, row 2 → 2 stars...
+        System.out.print("* ");
+    }
+    System.out.println();                    // new line after each row
+}</code></pre>
+  <pre class="terminal"><code>*
+* *
+* * *
+* * * *</code></pre>
+  <p>Recipe for any pattern: (1) how many rows? (2) for row number <em>r</em>, how many spaces and how many symbols? (3) write the outer loop for rows, one inner loop per "part" of the row. For a pyramid of height n, row r has <code>n - r</code> spaces and <code>2r - 1</code> stars.</p>
+  <p>If the outer loop runs <em>n</em> times and the inner loop runs <em>n</em> times, the body runs n × n times. With n = 1,000 that's a million — remember this when you meet performance topics later.</p>
+
+  <h3>3.20 Classic loop problems (the patterns behind them)</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Problem</th><th>Pattern</th><th>Key idea</th></tr>
+    <tr><td>Sum of 1..N</td><td>Accumulator</td><td><code>sum = 0;</code> then <code>sum += i</code> each round</td></tr>
+    <tr><td>Factorial N!</td><td>Accumulator (multiply)</td><td>Start at <code>1</code>, use <code>long</code> (20! is already huge)</td></tr>
+    <tr><td>Is N prime?</td><td>Search + flag + break</td><td>Try divisors 2..√N; any divisor → not prime</td></tr>
+    <tr><td>FizzBuzz</td><td>if/else ladder in a loop</td><td>Check "divisible by 15" first</td></tr>
+    <tr><td>Multiplication table</td><td>Counting loop</td><td><code>printf</code> to align columns</td></tr>
+    <tr><td>Reverse / digit sum</td><td>Digit loop</td><td><code>n % 10</code> = last digit, <code>n / 10</code> = remove it, loop while <code>n &gt; 0</code></td></tr>
+    <tr><td>Fibonacci</td><td>Rolling variables</td><td>Keep the last two values; <code>next = a + b; a = b; b = next;</code></td></tr>
+  </table></div>
+
+  <h3>3.21 Infinite loops</h3>
+  <p>A loop whose condition never becomes false runs forever. Sometimes on purpose (a server waiting for requests), usually by mistake:</p>
+  <pre><code class="lang-java">int i = 1;
+while (i &lt;= 5) {
+    System.out.println(i);
+    // forgot i++  → prints 1 forever
+}</code></pre>
+  <p>If your program seems stuck, press <kbd>Ctrl</kbd>+<kbd>C</kbd> in the terminal to stop it. Intentional infinite loops are written <code>while (true) { ... }</code> with a <code>break</code> inside.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>Example01_IfElse.java</code></td><td>if, if/else, grade ladder, nested loan check, leap year, ternary.</td></tr>
+    <tr><td><code>Example02_Switch.java</code></td><td>Classic switch, intentional and accidental fall-through, arrow switch on String, switch expression with multiple labels and <code>yield</code>, calculator.</td></tr>
+    <tr><td><code>Example03_Loops.java</code></td><td>for (up, down, step), while (savings doubling, digit count), do-while (runs at least once), enhanced for.</td></tr>
+    <tr><td><code>Example04_BreakContinueLabels.java</code></td><td>break (search), continue (skip), labelled break (cinema seat), labelled continue (students).</td></tr>
+    <tr><td><code>Example05_NestedLoopsPatterns.java</code></td><td>Rectangle, triangles, number triangle, pyramid, Floyd's triangle.</td></tr>
+    <tr><td><code>Example06_CommonLoopProblems.java</code></td><td>Sum, factorial, prime, primes up to 30, FizzBuzz, table, reverse/digit sum/palindrome, Fibonacci.</td></tr>
+    <tr><td><code>Example07_AtmMenu.java</code></td><td>Mini-program: PIN check + menu loop with deposit/withdraw validation.</td></tr>
+  </table></div>
+
+  <h3>4.1 Example01 — leap year in one boolean</h3>
+  <pre><span class="file">Example01_IfElse.java (part)</span><code class="lang-java">boolean isLeap = (year % 4 == 0 &amp;&amp; year % 100 != 0) || year % 400 == 0;
+if (isLeap) { ... }</code></pre>
+  <p>Storing a complex condition in a well-named boolean (<code>isLeap</code>) makes the <code>if</code> read like English. 2024 → divisible by 4, not by 100 → leap. 1900 → divisible by 100, not by 400 → not leap. 2000 → divisible by 400 → leap.</p>
+
+  <h3>4.2 Example02 — switch expression with yield</h3>
+  <pre><span class="file">Example02_Switch.java (part)</span><code class="lang-java">double result = switch (op) {
+    case '+' -&gt; x + y;
+    case '-' -&gt; x - y;
+    case '*' -&gt; x * y;
+    case '/' -&gt; x / y;
+    default -&gt; throw new IllegalArgumentException("Unknown operator " + op);
+};</code></pre>
+  <p>Every branch gives a <code>double</code>. The <code>default</code> branch <strong>throws an exception</strong> (a way of saying "this is an error" — Topic 10) instead of returning a fake value. That's allowed in switch expressions and is the professional way to handle "impossible" input.</p>
+
+  <h3>4.3 Example03 — the savings loop</h3>
+  <pre><span class="file">Example03_Loops.java (part)</span><code class="lang-java">double savings = 10000;
+int years = 0;
+while (savings &lt; 20000) {
+    savings = savings * 1.08;
+    years++;
+}
+System.out.printf("Savings double after %d years (%.2f)%n", years, savings);</code></pre>
+  <p>We can't easily know the answer in advance, so <code>while</code> fits perfectly. The answer — 10 years — matches the famous "rule of 72" (72 ÷ 8 ≈ 9–10 years).</p>
+
+  <h3>4.4 Example04 — labelled break in a 2D grid</h3>
+  <p><code>seatTaken</code> is a <em>2D array</em> (a table of rows and columns — Topic 4). The outer loop walks rows, the inner loop walks seats. As soon as a free seat is found, <code>break search;</code> exits both loops, so we get the <strong>first</strong> free seat (row 1, seat 1) and don't overwrite it with later ones.</p>
+
+  <h3>4.5 Example06 — prime check, step by step</h3>
+  <pre><span class="file">Example06_CommonLoopProblems.java (part)</span><code class="lang-java">int candidate = 29;
+boolean isPrime = candidate &gt; 1;          // 0 and 1 are not prime
+for (int d = 2; d * d &lt;= candidate; d++) {
+    if (candidate % d == 0) {
+        isPrime = false;
+        break;
+    }
+}</code></pre>
+  <ul>
+    <li><strong>Flag pattern</strong>: assume prime (<code>true</code>), and switch to <code>false</code> if we find a divisor.</li>
+    <li><code>d * d &lt;= candidate</code> is the same as <code>d &lt;= √candidate</code>: if 29 had a divisor bigger than √29 ≈ 5.4, it would also have a matching one smaller than it. So we only test 2, 3, 4, 5 instead of 2…28.</li>
+    <li><code>break</code>: one divisor is enough.</li>
+  </ul>
+
+  <h3>4.6 Example07 — the ATM menu</h3>
+  <pre><span class="file">Example07_AtmMenu.java (part)</span><code class="lang-java">int attemptsLeft = MAX_PIN_ATTEMPTS;
+while (attemptsLeft &gt; 0) {
+    System.out.print("Enter PIN &gt; ");
+    int pin = scanner.nextInt();
+    if (pin == CORRECT_PIN) {
+        authenticated = true;
+        break;
+    }
+    attemptsLeft--;
+    System.out.println("Wrong PIN. Attempts left: " + attemptsLeft);
+}
+if (!authenticated) {
+    System.out.println("Card blocked. Please contact your bank.");
+    return;                                   // ends main → ends the program
+}
+
+int choice;
+do {
+    // print menu ...
+    choice = scanner.nextInt();
+    switch (choice) {
+        case 1 -&gt; System.out.printf("Your balance is: %.2f%n", balance);
+        case 2 -&gt; { /* deposit with validation */ }
+        case 3 -&gt; {
+            double amount = scanner.nextDouble();
+            if (amount &lt;= 0) { ... }
+            else if (amount &gt; DAILY_WITHDRAW_LIMIT) { ... }
+            else if (amount &gt; balance) { ... }
+            else if (amount % 100 != 0) { ... }
+            else { balance -= amount; ... }
+        }
+        case 4 -&gt; System.out.println("Thank you for banking with us. Goodbye!");
+        default -&gt; System.out.println("Invalid option. Please choose 1-4.");
+    }
+} while (choice != 4);</code></pre>
+  <ul>
+    <li><strong>while + break</strong> for limited retries.</li>
+    <li><strong>do-while</strong> for the menu: always show it once, repeat until Exit.</li>
+    <li><strong>arrow switch</strong> for menu choices — no forgotten <code>break</code>.</li>
+    <li><strong>else-if ladder</strong> for validation: check every error first, do the real work in the final <code>else</code>. This "validate first" habit is exactly what you'll do in Spring services later.</li>
+    <li><code>choice</code> is declared <em>before</em> the <code>do</code> so the <code>while (choice != 4)</code> condition can see it.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <p><strong>VS Code:</strong> open the folder <code>D:\Java-SpringBoot\3-Control-Flow</code>, open an example and click <strong>Run</strong>. For the ATM, type into the terminal panel.</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\3-Control-Flow"
+java Example01_IfElse.java
+java Example02_Switch.java
+java Example03_Loops.java
+java Example04_BreakContinueLabels.java
+java Example05_NestedLoopsPatterns.java
+java Example06_CommonLoopProblems.java
+java Example07_AtmMenu.java</code></pre>
+  <p>Expected output of <code>Example02_Switch.java</code>:</p>
+  <pre class="terminal"><code>Wednesday
+Month 4 has 30 days
+Forgot break: Bronze Silver Gold
+Showing UPI QR code...
+Month 11 is in Autumn
+(Order is on its way - checking courier...)
+Expected delivery in 2 day(s)
+20.0 * 8.0 = 160.0</code></pre>
+  <p>Expected output of <code>Example06_CommonLoopProblems.java</code>:</p>
+  <pre class="terminal"><code>1) Sum of 1..10 = 55
+2) 5! = 120
+3) 29 is prime? true
+   Primes up to 30: 2 3 5 7 11 13 17 19 23 29
+4) FizzBuzz: 1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz
+5) Table of 7:
+   7 x  1 =  7
+   7 x  2 = 14
+   ...
+   7 x 10 = 70
+6) Reverse of 4728 = 8274, digit sum = 21
+   12321 is a palindrome number? true
+7) Fibonacci (10 terms): 0 1 1 2 3 5 8 13 21 34</code></pre>
+  <p>Sample ATM session (PIN is <code>1234</code>):</p>
+  <pre class="terminal"><code>Enter PIN &gt; 1111
+Wrong PIN. Attempts left: 2
+Enter PIN &gt; 1234
+Welcome, Kiran!
+
+===== ATM MENU =====
+1. Check balance
+2. Deposit
+3. Withdraw
+4. Exit
+Choose an option &gt; 2
+Amount to deposit &gt; 1500
+Deposited 1500.00. New balance: 6500.00
+
+===== ATM MENU =====
+...
+Choose an option &gt; 3
+Amount to withdraw &gt; 10000
+Insufficient balance! You have 6500.00
+
+===== ATM MENU =====
+...
+Choose an option &gt; 3
+Amount to withdraw &gt; 2000
+Please collect your cash: 2000.00. New balance: 4500.00
+
+===== ATM MENU =====
+...
+Choose an option &gt; 4
+Thank you for banking with us. Goodbye!</code></pre>
+  <p>Try entering three wrong PINs to see <code>Card blocked. Please contact your bank.</code></p>
+  <div class="callout tip"><strong>💡 Use the debugger to watch loops</strong>In VS Code, click left of a line number inside a loop to set a red <strong>breakpoint</strong>, then press <kbd>F5</kbd>. The program pauses there; the <strong>Variables</strong> panel shows the current values. Press <kbd>F10</kbd> (step over) to run one line at a time and watch <code>i</code> change. This is the best way to understand loops.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>❌ Mistake: semicolon after <code>if</code> or <code>for</code></strong>
+    <pre><code class="lang-java">if (balance &lt; 0); {              // the ; ends the if – the block ALWAYS runs
+    System.out.println("Overdrawn");
+}
+for (int i = 0; i &lt; 5; i++); {   // loop does nothing 5 times, block runs once
+    System.out.println(i);       // and this won't even compile: i is unknown here
+}</code></pre>
+    <strong>Fix:</strong> never put <code>;</code> right after <code>if (...)</code>, <code>for (...)</code> or <code>while (...)</code>. (The <code>;</code> after <code>do { } while (...)</code> is correct.)</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting <code>break</code> in a classic switch</strong>
+    Execution falls through into the next cases.<br>
+    <strong>Fix:</strong> use the arrow form <code>case X -&gt;</code>, which never falls through.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: off-by-one errors</strong>
+    <code>for (int i = 1; i &lt; 10; i++)</code> runs 9 times, not 10. <code>i &lt;= 10</code> runs 10 times.<br>
+    <strong>Fix:</strong> trace the first and last round on paper. For arrays, the standard is <code>for (int i = 0; i &lt; arr.length; i++)</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: infinite loop</strong>
+    Forgot the update (<code>i++</code>), or updated in the wrong direction (<code>i--</code> while checking <code>i &lt;= 10</code>).<br>
+    <strong>Fix:</strong> make sure every round moves closer to the end. Stop a stuck program with <kbd>Ctrl</kbd>+<kbd>C</kbd>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: wrong order in an else-if ladder</strong>
+    <code>if (i % 3 == 0) Fizz else if (i % 15 == 0) FizzBuzz</code> — 15 prints "Fizz", the FizzBuzz branch is never reached.<br>
+    <strong>Fix:</strong> put the most specific condition first.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: comparing Strings with <code>==</code> in conditions</strong>
+    <code>if (command == "exit")</code> may be false even when the user typed <code>exit</code>.<br>
+    <strong>Fix:</strong> <code>if (command.equals("exit"))</code>. (A <code>switch</code> on a String uses <code>equals</code> internally, so it is safe.)</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: missing default in a switch expression</strong>
+    <code>String s = switch (n) { case 1 -&gt; "one"; };</code> → <code>error: the switch expression does not cover all possible input values</code>.<br>
+    <strong>Fix:</strong> add <code>default -&gt; ...</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: using a loop variable outside the loop</strong>
+    <code>for (int i = 0; i &lt; 5; i++) {...} System.out.println(i);</code> → <code>cannot find symbol</code>.<br>
+    <strong>Fix:</strong> declare the variable before the loop if you need it afterwards.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: factorial overflow</strong>
+    Using <code>int</code> for factorial: 13! = 6,227,020,800 doesn't fit in an int, and you get a wrong number silently.<br>
+    <strong>Fix:</strong> use <code>long</code> (OK up to 20!) or <code>BigInteger</code> for bigger.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Always use curly braces</strong> for if/else/loops, even for a single statement.</li>
+    <li><strong>Prefer the arrow switch</strong> and switch expressions in new code; they are shorter and can't fall through.</li>
+    <li><strong>Always handle the "else" / default case</strong> — even if just to report an error. Unexpected values happen in real systems.</li>
+    <li><strong>Name complex conditions</strong>: <code>boolean isEligible = age &gt;= 21 &amp;&amp; salary &gt;= 25000;</code> then <code>if (isEligible)</code>.</li>
+    <li><strong>Avoid deep nesting</strong> (more than 2–3 levels). Combine conditions with <code>&amp;&amp;</code>, or return early (Topic 4).</li>
+    <li><strong>Choose the right loop</strong>: <code>for</code> for counting, enhanced <code>for</code> for "every element", <code>while</code> for "until", <code>do-while</code> for "at least once".</li>
+    <li><strong>Keep loop bodies small</strong>. If a loop body grows big, move it into a method (Topic 4).</li>
+    <li><strong>Don't change the loop counter inside a for loop body</strong> — it makes the loop very hard to follow.</li>
+    <li><strong>Validate first, then act</strong> (like the ATM's withdraw): check all error cases before changing data.</li>
+    <li><strong>Use <code>break</code> to stop searching early</strong> — no need to process the rest once you have your answer.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li><code>if / else if / else</code> runs the <strong>first</strong> matching branch only; order your conditions from most specific to least.</li>
+    <li>The ternary <code>cond ? a : b</code> picks one of two values in a single expression.</li>
+    <li>Classic <code>switch</code> falls through without <code>break</code>; arrow <code>case X -&gt;</code> never falls through.</li>
+    <li>Switch <strong>expressions</strong> return a value, support <code>case 1, 2 -&gt;</code>, use <code>yield</code> in blocks, and must be exhaustive.</li>
+    <li><code>for</code> = known count; <code>while</code> = unknown count, may run 0 times; <code>do-while</code> = at least once; enhanced <code>for</code> = every element.</li>
+    <li><code>break</code> exits a loop; <code>continue</code> skips to the next round; labels let them act on an outer loop.</li>
+    <li>Nested loops: outer = rows, inner = columns; work out spaces and symbols per row.</li>
+    <li>Key loop patterns: accumulator, flag + break, digit loop (<code>%10</code>, <code>/10</code>), rolling variables.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Electricity bill.</strong> Given <code>int units</code>, calculate the bill: first 100 units ₹5/unit, next 100 units (101–200) ₹7/unit, above 200 ₹10/unit. For 250 units the bill is 100×5 + 100×7 + 50×10 = ₹1700.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public class ElectricityBill {
+    public static void main(String[] args) {
+        int units = 250;
+        double bill;
+        if (units &lt;= 100) {
+            bill = units * 5;
+        } else if (units &lt;= 200) {
+            bill = 100 * 5 + (units - 100) * 7;
+        } else {
+            bill = 100 * 5 + 100 * 7 + (units - 200) * 10;
+        }
+        System.out.println("Bill for " + units + " units: Rs " + bill);   // 1700.0
+    }
+}</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Day type with a switch expression.</strong> Given a day name as a String (<code>"MONDAY"</code>…<code>"SUNDAY"</code>), use a switch expression to produce <code>"Weekday"</code>, <code>"Weekend"</code> or <code>"Invalid"</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">String day = "SATURDAY";
+String type = switch (day) {
+    case "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY" -&gt; "Weekday";
+    case "SATURDAY", "SUNDAY" -&gt; "Weekend";
+    default -&gt; "Invalid";
+};
+System.out.println(day + " is a " + type);   // SATURDAY is a Weekend</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Number guessing game.</strong> The program picks a secret number 1–100 (<code>(int) (Math.random() * 100) + 1</code>). The user guesses with Scanner; print "Too high", "Too low" or "Correct! You took N attempts". Use a <code>do-while</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">import java.util.Scanner;
+
+public class GuessingGame {
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        int secret = (int) (Math.random() * 100) + 1;
+        int guess;
+        int attempts = 0;
+        do {
+            System.out.print("Your guess (1-100): ");
+            guess = sc.nextInt();
+            attempts++;
+            if (guess &gt; secret) {
+                System.out.println("Too high");
+            } else if (guess &lt; secret) {
+                System.out.println("Too low");
+            } else {
+                System.out.println("Correct! You took " + attempts + " attempts");
+            }
+        } while (guess != secret);
+        sc.close();
+    }
+}</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Armstrong numbers.</strong> A 3-digit number is an Armstrong number if the sum of the cubes of its digits equals the number (153 = 1³ + 5³ + 3³). Print all Armstrong numbers from 100 to 999. Expected: <code>153 370 371 407</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public class Armstrong {
+    public static void main(String[] args) {
+        for (int n = 100; n &lt;= 999; n++) {
+            int temp = n;
+            int sum = 0;
+            while (temp &gt; 0) {
+                int d = temp % 10;
+                sum += d * d * d;
+                temp /= 10;
+            }
+            if (sum == n) {
+                System.out.print(n + " ");
+            }
+        }
+        System.out.println();
+    }
+}</code></pre><p>A <code>while</code> (digit loop) nested inside a <code>for</code> (counting loop).</p></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Diamond pattern.</strong> Print a diamond of height 7 (n = 4) using nested loops:</p>
+    <pre class="terminal"><code>   *
+  ***
+ *****
+*******
+ *****
+  ***
+   *</code></pre>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public class Diamond {
+    public static void main(String[] args) {
+        int n = 4;
+        // top half including the middle row
+        for (int row = 1; row &lt;= n; row++) {
+            for (int s = 1; s &lt;= n - row; s++) System.out.print(" ");
+            for (int k = 1; k &lt;= 2 * row - 1; k++) System.out.print("*");
+            System.out.println();
+        }
+        // bottom half: same formula, rows going back down
+        for (int row = n - 1; row &gt;= 1; row--) {
+            for (int s = 1; s &lt;= n - row; s++) System.out.print(" ");
+            for (int k = 1; k &lt;= 2 * row - 1; k++) System.out.print("*");
+            System.out.println();
+        }
+    }
+}</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Extend the ATM.</strong> Add to <code>Example07_AtmMenu.java</code>: option <strong>5. Mini statement</strong> showing how many deposits and withdrawals were made and their totals; and limit the user to <strong>3 withdrawals per session</strong>. Keep the "Exit" option working.</p>
+    <details><summary>Hint / solution</summary><p>Add counters before the loop: <code>int depositCount = 0, withdrawCount = 0; double depositTotal = 0, withdrawTotal = 0;</code>. Increase them inside the successful branches. In case 3, add another check at the top of the ladder: <code>if (withdrawCount &gt;= 3) { System.out.println("Withdrawal limit reached"); }</code>. Add the menu line and:</p>
+<pre><code class="lang-java">case 5 -&gt; {
+    System.out.println("Deposits   : " + depositCount + " (total " + depositTotal + ")");
+    System.out.println("Withdrawals: " + withdrawCount + " (total " + withdrawTotal + ")");
+    System.out.printf("Balance    : %.2f%n", balance);
+}</code></pre><p>Exit stays at 4 so the <code>while (choice != 4)</code> condition doesn't change.</p></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between <code>while</code> and <code>do-while</code>?</summary>
+    <p><code>while</code> checks the condition before each iteration, so the body may run zero times. <code>do-while</code> checks after each iteration, so the body always runs at least once. <code>do-while</code> also needs a semicolon after <code>while(...)</code>.</p></details>
+  <details><summary>Q2. What is fall-through in a switch statement?</summary>
+    <p>In a classic (colon) switch, once a case matches, execution continues into the following cases until a <code>break</code> or the end of the switch. It's useful for grouping cases but is a common bug. Arrow-style cases (<code>case X -&gt;</code>) don't fall through.</p></details>
+  <details><summary>Q3. What is a switch expression, and what is <code>yield</code>?</summary>
+    <p>Since Java 14, <code>switch</code> can be an expression that returns a value: <code>String s = switch (x) { case 1 -&gt; "one"; default -&gt; "other"; };</code>. It must be exhaustive. When a case uses a block <code>{ }</code>, <code>yield value;</code> provides the result of that case.</p></details>
+  <details><summary>Q4. Which types can be used in a switch?</summary>
+    <p><code>byte</code>, <code>short</code>, <code>char</code>, <code>int</code>, their wrappers (<code>Byte</code>, <code>Short</code>, <code>Character</code>, <code>Integer</code>), <code>String</code> (Java 7+) and <code>enum</code>s. Not <code>long</code>, <code>float</code>, <code>double</code> or <code>boolean</code>. (Java 21 adds pattern matching on any object type.)</p></details>
+  <details><summary>Q5. What is the difference between <code>break</code> and <code>continue</code>?</summary>
+    <p><code>break</code> exits the loop (or switch) entirely. <code>continue</code> skips the remaining statements of the current iteration and moves to the next iteration. Both can take a label to act on an outer loop.</p></details>
+  <details><summary>Q6. How do you exit from nested loops?</summary>
+    <p>Use a labelled break (<code>outer: for (...) { for (...) { break outer; } }</code>), or put the loops into a method and <code>return</code> when done, or use a boolean flag checked by the outer loop. The method + return approach is usually the cleanest.</p></details>
+  <details><summary>Q7. Write an efficient prime check.</summary>
+    <p>Return false for n &lt; 2; then test divisors from 2 while <code>d * d &lt;= n</code>; if any divides n, it's not prime. This is O(√n) instead of O(n). Further optimisation: handle 2 separately and test only odd divisors.</p></details>
+  <details><summary>Q8. Can you use a <code>for</code> loop without any of its three parts?</summary>
+    <p>Yes. <code>for (;;) { }</code> is a valid infinite loop — all three parts are optional. The same as <code>while (true) { }</code>. You need a <code>break</code> or <code>return</code> inside to leave it.</p></details>
+  <details><summary>Q9. What does this print? <code>int i = 0; while (i++ &lt; 3) System.out.print(i);</code></summary>
+    <p><code>123</code>. Each check compares the old value (0, 1, 2 → true; 3 → false) and then increments, so inside the body <code>i</code> is 1, 2, 3.</p></details>
+  <details><summary>Q10. When would you choose the ternary operator over if/else?</summary>
+    <p>When you need to choose between two <em>values</em> in a single, simple expression (e.g. assigning or printing). For actions (statements) or anything more complex, use if/else for readability. Avoid nested ternaries.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../2-Variables-DataTypes-Operators/lesson.html"><small>← Previous</small>2. Variables, Data Types &amp; Operators</a>
+    <a class="next" href="../4-Methods-And-Arrays/lesson.html"><small>Next →</small>4. Methods &amp; Arrays</a>
+  </nav>
+</main>
+</body>
+</html>

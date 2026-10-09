@@ -1,0 +1,15 @@
+# Topic 51 - a local Redis server for the "redis" profile.
+#   Start:  docker compose up -d
+#   Check:  docker exec -it course-redis redis-cli PING        (answers PONG)
+#   Stop:   docker compose down
+services:
+  redis:
+    image: redis:7
+    container_name: course-redis
+    ports:
+      - "6379:6379"        # host port : container port
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

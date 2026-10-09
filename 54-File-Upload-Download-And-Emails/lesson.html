@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>54 · File Upload, Download &amp; Emails</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part E · Advanced Spring Boot › Topic 54</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part E · Advanced Spring Boot</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>54. File Upload, Download &amp; Emails</h1>
+  <p class="subtitle">Accept files from users without opening security holes, send them back as downloads or images, and send real-looking emails with attachments – tested for free with Mailpit.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="54-File-Upload-Download-And-Emails"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>How a file travels over HTTP (<code>multipart/form-data</code>) and how Spring gives it to you as a <code>MultipartFile</code>.</li>
+      <li>Single and multiple file uploads, and size limits (with a friendly 413 error).</li>
+      <li>Storing files on disk <strong>safely</strong>: sanitizing filenames, whitelisting types, and stopping <em>path traversal</em> attacks.</li>
+      <li>Downloads with <code>Resource</code> and the <code>Content-Disposition</code> header; serving images inline.</li>
+      <li>Sending email with <code>spring-boot-starter-mail</code>: <code>JavaMailSender</code>, <code>SimpleMailMessage</code>, <code>MimeMessage</code> with HTML and attachments.</li>
+      <li>Testing emails for free with Mailpit in Docker Compose.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../16-File-IO-And-Date-Time/lesson.html">Topic 16 · File I/O</a> (<code>Path</code>, <code>Files</code>),
+    <a href="../32-Request-Handling-And-Responses/lesson.html">Topic 32 · ResponseEntity &amp; headers</a> and <a href="../35-Global-Exception-Handling/lesson.html">Topic 35 · Exception handling</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1 -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Almost every real application handles files and emails:</p>
+  <ul>
+    <li><strong>Uploads</strong>: profile pictures, product photos, CVs in a job portal, scanned KYC documents in a bank, CSV imports of price lists.</li>
+    <li><strong>Downloads</strong>: invoices, reports, exported Excel/CSV files, images in a product page.</li>
+    <li><strong>Emails</strong>: "Confirm your email address", "Reset your password", "Your order has shipped", "Here is your invoice (PDF attached)".</li>
+  </ul>
+  <p>File upload is also one of the <strong>most attacked</strong> features on the web. A careless upload endpoint lets an attacker overwrite your files, read
+    secret files from the server, fill the disk, or host malware on your domain. In this lesson you will build it the safe way from the start – the same way
+    senior developers do it at work.</p>
+
+  <!-- ===================================================== 2 -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🧳 The hotel luggage room</strong>
+    You hand your bag to the hotel's luggage room.
+    <ul>
+      <li>The staff do <strong>not</strong> store it under the name you wrote on your tag ("put it in the manager's office!"). They give it their own <strong>numbered ticket</strong> and put it on their own shelf → we never use the client's filename as a path; we create our own safe, unique name.</li>
+      <li>They <strong>check what's inside</strong>: no fuel cans, no animals → whitelist of allowed file types.</li>
+      <li>There is a <strong>weight limit</strong> → maximum upload size.</li>
+      <li>Bags are kept in the <strong>back room</strong>, not displayed in the lobby → files are stored outside the public web folder.</li>
+      <li>When you come back, you show the ticket and get your bag → download by stored name.</li>
+    </ul>
+    <strong>📮 Email</strong> is the post office. Your app writes a letter (the message), puts it in an envelope with an address (headers), maybe adds a parcel (attachment),
+    and hands it to the post office (an <em>SMTP server</em>) which delivers it. <strong>Mailpit</strong> is a toy post office in your own room: it accepts every letter and pins it on
+    a board for you to read – nothing ever leaves the house. Perfect for practising.
+  </div>
+
+  <!-- ===================================================== 3 -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 How a file travels: <code>multipart/form-data</code></h3>
+  <p>JSON is great for text, but not for files. To send files, browsers use the content type <strong><code>multipart/form-data</code></strong>: the request body is split
+    into <em>parts</em>, separated by a random "boundary" line. Each part has its own little headers. This is what one upload looks like on the wire:</p>
+  <pre class="terminal"><code>POST /api/files HTTP/1.1
+Content-Type: multipart/form-data; boundary=CourseBoundary
+
+--CourseBoundary
+Content-Disposition: form-data; name="file"; filename="hello.txt"
+Content-Type: text/plain
+
+Hello from Topic 54!
+--CourseBoundary--</code></pre>
+  <ul>
+    <li><code>name="file"</code> – the name of the form field. Your controller asks for this name.</li>
+    <li><code>filename="hello.txt"</code> – the name on the user's computer. <strong>The user controls this text – never trust it.</strong></li>
+    <li><code>Content-Type: text/plain</code> – also set by the client. It can lie too.</li>
+  </ul>
+  <p>In HTML, a form must say <code>enctype="multipart/form-data"</code> for this to happen:</p>
+  <pre><code class="lang-xml">&lt;form action="/api/files" method="post" enctype="multipart/form-data"&gt;
+    &lt;input type="file" name="file"&gt;
+    &lt;button type="submit"&gt;Upload&lt;/button&gt;
+&lt;/form&gt;</code></pre>
+  <p>Spring Boot's web starter already includes multipart support. Tomcat reads the parts and Spring hands each file to you as a <strong><code>MultipartFile</code></strong>.</p>
+
+  <h3>3.2 The <code>MultipartFile</code> interface</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>Returns</th><th>Note</th></tr>
+    <tr><td><code>getName()</code></td><td>the form field name (<code>"file"</code>)</td><td></td></tr>
+    <tr><td><code>getOriginalFilename()</code></td><td>the client's filename (<code>"hello.txt"</code>)</td><td>⚠️ untrusted, may contain <code>../</code> or a full Windows path</td></tr>
+    <tr><td><code>getContentType()</code></td><td>the client's content type</td><td>⚠️ untrusted</td></tr>
+    <tr><td><code>getSize()</code></td><td>size in bytes</td><td></td></tr>
+    <tr><td><code>isEmpty()</code></td><td><code>true</code> if no file chosen or 0 bytes</td><td>always check!</td></tr>
+    <tr><td><code>getInputStream()</code></td><td>stream to read the content</td><td>best for big files – close it (try-with-resources)</td></tr>
+    <tr><td><code>getBytes()</code></td><td>the whole content as <code>byte[]</code></td><td>loads everything into memory – only for small files</td></tr>
+    <tr><td><code>transferTo(Path)</code></td><td>copies to a file</td><td>convenient, but you still must choose a safe path</td></tr>
+  </table></div>
+
+  <h3>3.3 Uploading one file</h3>
+  <pre><span class="file">web/FileController.java</span><code class="lang-java">@PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+public ResponseEntity&lt;StoredFile&gt; upload(@RequestParam("file") MultipartFile file) {
+    StoredFile stored = storageService.store(file);
+    return ResponseEntity.status(HttpStatus.CREATED).body(stored);
+}</code></pre>
+  <ul>
+    <li><code>consumes = MULTIPART_FORM_DATA_VALUE</code> – this endpoint only accepts multipart requests.</li>
+    <li><code>@RequestParam("file")</code> – take the part named <code>file</code>. If it is missing, Spring answers 400.</li>
+    <li>The controller stays thin; the <em>service</em> does the careful work.</li>
+  </ul>
+  <p>With curl, <code>-F</code> builds a multipart request for you (<code>@</code> means "read this file"):</p>
+  <pre class="terminal"><code>curl -F "file=@sample-files/hello.txt" http://localhost:8080/api/files</code></pre>
+  <div class="callout info"><strong>ℹ️ File + JSON in one request</strong>Sometimes you need a file plus data (e.g. a product JSON and its photo). Use <code>@RequestPart</code>:
+    <code>create(@RequestPart("product") ProductDto product, @RequestPart("image") MultipartFile image)</code>. The JSON part must be sent with <code>Content-Type: application/json</code>.</div>
+
+  <h3>3.4 Uploading many files</h3>
+  <p>The client sends several parts with the <em>same</em> name. Spring collects them into a list (or array):</p>
+  <pre><code class="lang-java">@PostMapping(path = "/batch", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+public ResponseEntity&lt;List&lt;StoredFile&gt;&gt; uploadMany(@RequestParam("files") List&lt;MultipartFile&gt; files) {
+    return ResponseEntity.status(HttpStatus.CREATED).body(storageService.storeAll(files));
+}</code></pre>
+  <pre class="terminal"><code>curl -F "files=@sample-files/hello.txt" -F "files=@sample-files/prices.csv" http://localhost:8080/api/files/batch</code></pre>
+  <p>In HTML: <code>&lt;input type="file" name="files" multiple&gt;</code>.</p>
+
+  <h3>3.5 Size limits</h3>
+  <p>Without limits, someone can upload a 50 GB file and fill your disk or memory. Spring Boot has sensible defaults (1 MB per file, 10 MB per request). Set your own:</p>
+  <pre><span class="file">application.properties</span><code class="lang-properties">spring.servlet.multipart.max-file-size=5MB        # one file
+spring.servlet.multipart.max-request-size=20MB    # all files + fields together
+spring.servlet.multipart.file-size-threshold=512KB # bigger files go to a temp file instead of memory
+server.tomcat.max-swallow-size=50MB               # see the warning below</code></pre>
+  <p>Too big → Spring throws <code>MaxUploadSizeExceededException</code>. We turn it into a clean <strong>413 Payload Too Large</strong>:</p>
+  <pre><span class="file">web/GlobalExceptionHandler.java</span><code class="lang-java">@ExceptionHandler(MaxUploadSizeExceededException.class)
+public ProblemDetail tooLarge(MaxUploadSizeExceededException ex) {
+    ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.PAYLOAD_TOO_LARGE,
+            "File too large. Maximum size per file is 5 MB, per request 20 MB.");
+    problem.setTitle("Upload too large");
+    return problem;
+}</code></pre>
+  <div class="callout warn"><strong>⚠️ "Connection reset" instead of 413?</strong>When an upload is too large, Tomcat stops reading it. If more than <code>max-swallow-size</code> (2 MB by default) is still
+    unread, Tomcat may close the connection, and the client sees "connection reset" instead of your nice 413 JSON. Raising <code>server.tomcat.max-swallow-size</code> fixes this.
+    (Behind a proxy like Nginx, also check its own limit, e.g. <code>client_max_body_size</code>.)</div>
+
+  <h3>3.6 Storing files safely – the threats</h3>
+  <p>Here is what can go wrong when you store uploads naïvely, e.g. <code>file.transferTo(Path.of("uploads/" + file.getOriginalFilename()))</code>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Threat</th><th>Example</th><th>Defence</th></tr>
+    <tr><td><strong>Path traversal</strong></td><td>filename <code>../../app/config/application.properties</code> overwrites your config</td><td>Strip folders from the name; after resolving, check the path is still inside the upload folder</td></tr>
+    <tr><td>Overwriting other users' files</td><td>Two users upload <code>photo.jpg</code></td><td>Unique names (random prefix / UUID)</td></tr>
+    <tr><td>Dangerous types</td><td><code>evil.html</code> or <code>evil.svg</code> with JavaScript, <code>.exe</code>, <code>.jsp</code></td><td>Whitelist of extensions; never serve uploads as HTML; <code>X-Content-Type-Options: nosniff</code></td></tr>
+    <tr><td>Lying content type</td><td>A script sent as <code>Content-Type: image/png</code></td><td>Decide the type yourself (from the extension, or better from the file's first bytes)</td></tr>
+    <tr><td>Huge files / many files</td><td>Disk full, server down</td><td>Size limits, quotas, rate limiting</td></tr>
+    <tr><td>Strange characters</td><td><code>&lt;script&gt;.txt</code>, very long names, names like <code>CON</code> on Windows</td><td>Allow only <code>[a-zA-Z0-9._-]</code>, limit length</td></tr>
+    <tr><td>Executable web folder</td><td>Uploads saved into <code>static/</code> are instantly public</td><td>Store outside the app and outside <code>static/</code>; serve through a controller</td></tr>
+    <tr><td>Malware</td><td>An infected PDF passed on to other users</td><td>In serious systems: virus scanning (e.g. ClamAV) before accepting</td></tr>
+  </table></div>
+
+  <h4>Path traversal, explained simply</h4>
+  <p><code>..</code> means "the parent folder". If your upload folder is <code>D:\app\uploads</code> and you blindly join it with the name <code>..\..\Windows\win.ini</code>, the result
+    <code>D:\app\uploads\..\..\Windows\win.ini</code> really means <code>D:\Windows\win.ini</code>. An attacker escapes your folder. The same trick works on downloads to <em>read</em> secret files.</p>
+  <div class="flow">
+    <span class="box">uploads</span><span class="arrow">+ "../../Windows/win.ini" →</span>
+    <span class="box alt">uploads/../../Windows/win.ini</span><span class="arrow">normalize() →</span>
+    <span class="box info">/Windows/win.ini 😱 outside!</span>
+  </div>
+  <p>The guard: build the path, <code>normalize()</code> it (which resolves the <code>..</code> parts), and check that its parent is exactly the upload folder:</p>
+  <pre><span class="file">storage/FileStorageService.java</span><code class="lang-java">private Path resolveSafely(String filename) {
+    Path target = rootLocation.resolve(filename).normalize();
+    if (!target.getParent().equals(rootLocation)) {
+        throw new StorageException("Invalid file name (outside the upload folder): " + filename);
+    }
+    return target;
+}</code></pre>
+
+  <h4>Sanitizing the filename</h4>
+  <pre><code class="lang-java">static String sanitizeFilename(String originalName) {
+    String cleaned = StringUtils.cleanPath(originalName);   // "\" -&gt; "/", resolves "a/../b"
+    String nameOnly = StringUtils.getFilename(cleaned);     // keep only the part after the last "/"
+    String safe = nameOnly.replaceAll("[^a-zA-Z0-9._-]", "_"); // anything unusual -&gt; "_"
+    safe = safe.replaceAll("^\\.+", "");                   // no ".hidden" files
+    ...
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Client sent</th><th>We store (after a random prefix)</th></tr>
+    <tr><td><code>My Photo (1).PNG</code></td><td><code>3f2a9c1b7d4e_My_Photo__1_.PNG</code></td></tr>
+    <tr><td><code>../../etc/passwd.txt</code></td><td><code>…_passwd.txt</code></td></tr>
+    <tr><td><code>C:\Users\me\cv.pdf</code></td><td><code>…_cv.pdf</code></td></tr>
+    <tr><td><code>&lt;script&gt;.txt</code></td><td><code>…__script_.txt</code></td></tr>
+  </table></div>
+  <p>Then: check the extension against the whitelist, add a unique prefix, resolve safely, and copy the stream:</p>
+  <pre><code class="lang-java">String storedName = UUID.randomUUID().toString().replace("-", "").substring(0, 12) + "_" + safeName;
+Path target = resolveSafely(storedName);
+try (InputStream in = file.getInputStream()) {
+    Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+}</code></pre>
+
+  <h3>3.7 Where should files live?</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Option</th><th>Pros</th><th>Cons</th><th>When</th></tr>
+    <tr><td><strong>Local disk</strong> (this lesson)</td><td>Simple, fast, free</td><td>Lost if the server/container is replaced; not shared between several instances</td><td>Learning, single server, with a mounted volume</td></tr>
+    <tr><td>Database (BLOB column)</td><td>Backed up with the data, transactional</td><td>DB grows fast, slower, expensive</td><td>Small files, few of them</td></tr>
+    <tr><td><strong>Object storage</strong> (Amazon S3, Azure Blob, Google Cloud Storage, MinIO)</td><td>Unlimited, cheap, durable, shared, CDN-friendly</td><td>Extra service and SDK</td><td><strong>Most production systems</strong></td></tr>
+  </table></div>
+  <p>A common pattern: store the file in object storage and keep only its <em>metadata</em> (stored name, original name, size, owner, upload date) in a database table.
+    Because our <code>FileStorageService</code> hides <em>where</em> files go, switching to S3 later only changes that one class.</p>
+
+  <h3>3.8 Downloading files</h3>
+  <p>To send a file back, return a <code>ResponseEntity&lt;Resource&gt;</code>. A <strong><code>Resource</code></strong> is Spring's abstraction for "something you can read" – a file, a classpath entry, a URL.
+    Spring <em>streams</em> it to the client in chunks, so even a 1 GB file does not fill your memory.</p>
+  <pre><span class="file">web/FileController.java</span><code class="lang-java">@GetMapping("/{filename}")
+public ResponseEntity&lt;Resource&gt; download(@PathVariable String filename) {
+    Resource resource = storageService.loadAsResource(filename);
+    ContentDisposition disposition = ContentDisposition.attachment()
+            .filename(FileStorageService.originalNameOf(filename), StandardCharsets.UTF_8)
+            .build();
+    return ResponseEntity.ok()
+            .contentType(storageService.mediaTypeOf(filename))
+            .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+            .body(resource);
+}</code></pre>
+  <p>The <strong><code>Content-Disposition</code></strong> header tells the browser what to do:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Header</th><th>Browser behaviour</th></tr>
+    <tr><td><code>attachment; filename="invoice.pdf"</code></td><td>Shows "Save as…" / downloads the file with that name</td></tr>
+    <tr><td><code>inline; filename="photo.png"</code></td><td>Tries to show it in the tab (images, PDFs)</td></tr>
+  </table></div>
+  <p>Real header from our app:</p>
+  <pre class="terminal"><code>Content-Disposition: attachment; filename="=?UTF-8?Q?hello.txt?="; filename*=UTF-8''hello.txt
+Content-Type: text/plain</code></pre>
+  <p>The <code>filename*=UTF-8''…</code> form (RFC 6266) allows names like <code>résumé.pdf</code> or <code>चालान.pdf</code>; Spring builds it for you when you pass a charset.</p>
+  <p><strong>Content type</strong>: we decide it ourselves from the extension with <code>MediaTypeFactory.getMediaType(filename)</code>, falling back to <code>application/octet-stream</code> ("unknown binary – just download it").</p>
+
+  <h3>3.9 Serving images</h3>
+  <p>For an <code>&lt;img src="..."&gt;</code> tag, the browser needs the bytes with the correct <code>Content-Type</code> (e.g. <code>image/png</code>) and <code>inline</code> disposition:</p>
+  <pre><span class="file">web/FileController.java</span><code class="lang-java">@GetMapping("/{filename}/view")
+public ResponseEntity&lt;Resource&gt; view(@PathVariable String filename) {
+    MediaType type = storageService.mediaTypeOf(filename);
+    if (!INLINE_TYPES.contains(type)) {
+        return download(filename);              // only images/PDF may be shown inline
+    }
+    return ResponseEntity.ok()
+            .contentType(type)
+            .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline()...build().toString())
+            .header("X-Content-Type-Options", "nosniff")
+            .header(HttpHeaders.CACHE_CONTROL, "max-age=3600")
+            .body(storageService.loadAsResource(filename));
+}</code></pre>
+  <ul>
+    <li><strong>Whitelist</strong> of inline types: an uploaded <code>.html</code> shown inline would run its JavaScript on <em>your</em> domain (stored XSS).</li>
+    <li><strong><code>X-Content-Type-Options: nosniff</code></strong> stops browsers from "guessing" a different type than the one you sent.</li>
+    <li><strong><code>Cache-Control</code></strong> lets the browser reuse the image for an hour.</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ What about <code>src/main/resources/static</code>?</strong>Files in <code>static/</code> (like our <code>index.html</code>) are served automatically at <code>/</code> – perfect for your own CSS,
+    JS and logo, which are packed into the jar at build time. User uploads must <strong>never</strong> go there: the folder is inside the jar (read-only) and anything in it is public without checks.</div>
+
+  <h3>3.10 Email basics</h3>
+  <p>Email is sent with <strong>SMTP</strong> (Simple Mail Transfer Protocol). Your app connects to an SMTP server and hands over the message; the server delivers it.
+    Common ports: <code>25</code> (server-to-server), <code>587</code> (submission with STARTTLS – the usual one for apps), <code>465</code> (SMTP over TLS). Mailpit uses <code>1025</code>.</p>
+  <p>An email is a <strong>MIME</strong> message: headers (From, To, Subject) and a body that can contain several parts – plain text, HTML, attachments, inline images.</p>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-mail&lt;/artifactId&gt;
+&lt;/dependency&gt;</code></pre>
+  <pre><span class="file">application.properties</span><code class="lang-properties">spring.mail.host=localhost
+spring.mail.port=1025
+spring.mail.default-encoding=UTF-8
+spring.mail.properties.mail.smtp.connectiontimeout=3000
+spring.mail.properties.mail.smtp.timeout=3000
+spring.mail.properties.mail.smtp.writetimeout=3000</code></pre>
+  <p>When <code>spring.mail.host</code> is set, Spring Boot auto-configures a <strong><code>JavaMailSender</code></strong> bean. Inject it and send. Without <code>spring.mail.host</code>,
+    there is no <code>JavaMailSender</code> bean, and any class that needs one fails at startup.</p>
+  <div class="callout warn"><strong>⚠️ Always set mail timeouts</strong>By default JavaMail waits <em>forever</em> for a slow mail server, blocking your request thread. The three <code>mail.smtp.*timeout</code> properties make it fail after 3 seconds.</div>
+
+  <h3>3.11 Plain text: <code>SimpleMailMessage</code></h3>
+  <pre><span class="file">mail/EmailService.java</span><code class="lang-java">public void sendSimpleEmail(String to, String subject, String text) {
+    SimpleMailMessage message = new SimpleMailMessage();
+    message.setFrom(from);
+    message.setTo(to);              // also setCc(...), setBcc(...), setReplyTo(...)
+    message.setSubject(subject);
+    message.setText(text);
+    mailSender.send(message);       // throws MailException if it fails
+}</code></pre>
+
+  <h3>3.12 HTML and attachments: <code>MimeMessage</code> + <code>MimeMessageHelper</code></h3>
+  <p><code>SimpleMailMessage</code> cannot do HTML or attachments. For that, create a <code>MimeMessage</code> and fill it with the friendly <code>MimeMessageHelper</code>:</p>
+  <pre><span class="file">mail/EmailService.java</span><code class="lang-java">MimeMessage message = mailSender.createMimeMessage();
+MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");   // true = multipart
+helper.setFrom(from);
+helper.setTo(to);
+helper.setSubject(subject);
+helper.setText("Please open this email in an HTML-capable mail client.", html);  // plain fallback + HTML
+
+Path file = storageService.pathOf(storedFileName);
+helper.addAttachment(FileStorageService.originalNameOf(storedFileName), new FileSystemResource(file));
+
+mailSender.send(message);</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Helper method</th><th>Purpose</th></tr>
+    <tr><td><code>setText(html, true)</code></td><td>HTML body only</td></tr>
+    <tr><td><code>setText(plain, html)</code></td><td>Both versions; the mail client picks one (best practice)</td></tr>
+    <tr><td><code>addAttachment(name, resource)</code></td><td>A file the user can download</td></tr>
+    <tr><td><code>addInline("logo", resource)</code></td><td>An image shown <em>inside</em> the HTML with <code>&lt;img src="cid:logo"&gt;</code></td></tr>
+    <tr><td><code>setCc / setBcc / setReplyTo / setPriority</code></td><td>The usual email extras</td></tr>
+  </table></div>
+  <p>The <code>true</code> in the constructor means "multipart" – required as soon as you add attachments or inline images. <code>"UTF-8"</code> keeps names like "Zoë" or "₹" intact.</p>
+
+  <h3>3.13 Mailpit – a free fake mail server</h3>
+  <p>You do not want to send real emails while developing (spam, accidental mails to customers, provider limits). <strong>Mailpit</strong> pretends to be an SMTP server, accepts
+    everything, and shows the emails in a web inbox.</p>
+  <pre><span class="file">docker-compose.yml</span><code class="lang-yaml">services:
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: course-mailpit
+    ports:
+      - "1025:1025"   # SMTP  - the Spring Boot app sends here
+      - "8025:8025"   # Web UI - open in your browser</code></pre>
+  <p>(MailHog is an older tool that works the same way; Mailpit is its maintained successor.)</p>
+
+  <h3>3.14 Sending real email in production</h3>
+  <p>Use a provider: Amazon SES, SendGrid, Mailgun, Postmark, Brevo, or your company's SMTP relay (Gmail works for tests with an "app password"). Only the properties change:</p>
+  <pre><code class="lang-properties">spring.mail.host=smtp.sendgrid.net
+spring.mail.port=587
+spring.mail.username=${MAIL_USERNAME}
+spring.mail.password=${MAIL_PASSWORD}          # from an environment variable - never commit secrets!
+spring.mail.properties.mail.smtp.auth=true
+spring.mail.properties.mail.smtp.starttls.enable=true</code></pre>
+  <p>Two more production habits:</p>
+  <ul>
+    <li><strong>Send asynchronously</strong> – an SMTP call can take seconds. Combine with topic 52: publish a <code>UserRegisteredEvent</code> and send the mail from an <code>@Async @TransactionalEventListener</code>. For must-not-lose emails, use a queue (topic 57).</li>
+    <li><strong>Use templates</strong> – build the HTML with Thymeleaf (topic 36) instead of string concatenation, and <em>escape</em> user data to avoid HTML injection.</li>
+  </ul>
+
+  <!-- ===================================================== 4 -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>A small "Document Center", package <code>com.course.files</code>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>web, validation, mail starters.</td></tr>
+    <tr><td><code>FilesApplication.java</code></td><td>Main class with <code>@ConfigurationPropertiesScan</code>.</td></tr>
+    <tr><td><code>config/StorageProperties.java</code></td><td>Record bound to <code>app.storage.*</code> (folder + allowed extensions).</td></tr>
+    <tr><td><code>config/AppMailProperties.java</code></td><td>Record bound to <code>app.mail.from</code>.</td></tr>
+    <tr><td><code>storage/FileStorageService.java</code></td><td>All storage rules: sanitize, whitelist, unique names, traversal guard, list, load, delete.</td></tr>
+    <tr><td><code>storage/StoredFile.java</code></td><td>JSON answer with stored name, original name, size, type and URLs.</td></tr>
+    <tr><td><code>storage/StorageException.java</code>, <code>StoredFileNotFoundException.java</code></td><td>400 and 404 cases.</td></tr>
+    <tr><td><code>web/FileController.java</code></td><td>Single/batch upload, list, download, inline view, delete.</td></tr>
+    <tr><td><code>web/GlobalExceptionHandler.java</code></td><td><code>ProblemDetail</code> responses: 413, 400, 404, 503 (mail down).</td></tr>
+    <tr><td><code>mail/EmailService.java</code></td><td><code>SimpleMailMessage</code> and <code>MimeMessage</code> with attachment.</td></tr>
+    <tr><td><code>mail/EmailController.java</code></td><td>Validated request records (<code>@Email</code>, <code>@NotBlank</code>).</td></tr>
+    <tr><td><code>resources/static/index.html</code></td><td>Upload page at <code>http://localhost:8080</code>.</td></tr>
+    <tr><td><code>application.properties</code></td><td>Multipart limits, storage, Mailpit SMTP, timeouts.</td></tr>
+    <tr><td><code>src/test/.../FileStorageServiceTest.java</code></td><td>6 unit tests for the security rules using <code>@TempDir</code> and <code>MockMultipartFile</code>.</td></tr>
+    <tr><td><code>docker-compose.yml</code></td><td>Mailpit.</td></tr>
+    <tr><td><code>sample-files/</code>, <code>requests.http</code></td><td><code>hello.txt</code>, <code>prices.csv</code>, <code>green-dot.png</code> and ready-made requests.</td></tr>
+  </table></div>
+
+  <h3>4.1 <code>FileStorageService</code> – the safe store method</h3>
+  <pre><span class="file">storage/FileStorageService.java</span><code class="lang-java">public StoredFile store(MultipartFile file) {
+    if (file == null || file.isEmpty()) {                                   // 1. something to store?
+        throw new StorageException("Please choose a non-empty file");
+    }
+    String originalName = file.getOriginalFilename() == null ? "file" : file.getOriginalFilename();
+    String safeName = sanitizeFilename(originalName);                       // 2. harmless name
+
+    String extension = StringUtils.getFilenameExtension(safeName);          // 3. allowed type?
+    if (extension == null || !allowedExtensions.contains(extension.toLowerCase(Locale.ROOT))) {
+        throw new StorageException("File type not allowed: '" + originalName + "'. Allowed: " + allowedExtensions);
+    }
+
+    String storedName = UUID.randomUUID().toString().replace("-", "").substring(0, 12) + "_" + safeName; // 4. unique
+    Path target = resolveSafely(storedName);                                // 5. still inside uploads/?
+
+    try (InputStream in = file.getInputStream()) {                          // 6. stream to disk
+        Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+    } catch (IOException e) {
+        throw new StorageException("Failed to store " + originalName, e);
+    }
+    return toStoredFile(target);
+}</code></pre>
+  <p>The constructor turns <code>app.storage.location=uploads</code> into an absolute, normalized path and creates the folder with <code>Files.createDirectories</code>.
+    <code>loadAsResource</code> and <code>delete</code> also go through <code>resolveSafely</code>, so the traversal check protects downloads too.</p>
+
+  <h3>4.2 Errors as <code>ProblemDetail</code></h3>
+  <p>All errors come back in the standard RFC 9457 format (topic 35). Real responses from our app:</p>
+  <pre class="terminal"><code>{"type":"about:blank","title":"Upload rejected","status":400,
+ "detail":"File type not allowed: 'evil.html'. Allowed: [jpg, jpeg, png, gif, webp, pdf, txt, csv]","instance":"/api/files"}
+
+{"type":"about:blank","title":"Upload too large","status":413,
+ "detail":"File too large. Maximum size per file is 5 MB, per request 20 MB.","instance":"/api/files"}
+
+{"type":"about:blank","title":"Mail server unavailable","status":503,
+ "detail":"Could not send the email. Is the mail server running? Try: docker compose up -d (Mailpit on port 1025)","instance":"/api/emails/simple"}</code></pre>
+
+  <h3>4.3 The email endpoints</h3>
+  <pre><span class="file">mail/EmailController.java</span><code class="lang-java">public record SimpleEmailRequest(@NotBlank @Email String to, @NotBlank String subject, @NotBlank String text) { }
+
+@PostMapping("/simple")
+public ResponseEntity&lt;Map&lt;String, String&gt;&gt; sendSimple(@Valid @RequestBody SimpleEmailRequest request) {
+    emailService.sendSimpleEmail(request.to(), request.subject(), request.text());
+    return ResponseEntity.ok(Map.of("status", "sent", "to", request.to()));
+}</code></pre>
+  <p>The attachment endpoint takes the <code>storedName</code> of a file you uploaded earlier – the service looks it up safely with <code>pathOf</code>, so nobody can attach <code>../../secrets.txt</code>.</p>
+
+  <h3>4.4 The tests</h3>
+  <pre><span class="file">src/test/java/com/course/files/storage/FileStorageServiceTest.java (excerpt)</span><code class="lang-java">@TempDir
+Path uploadDir;
+
+@Test
+void pathTraversalInTheUploadNameIsNeutralised() {
+    MockMultipartFile evil = new MockMultipartFile("file", "../../../Windows/evil.txt", "text/plain", "x".getBytes());
+    StoredFile stored = service.store(evil);
+    assertThat(uploadDir.resolve(stored.storedName())).exists();
+    assertThat(stored.storedName()).endsWith("_evil.txt").doesNotContain("..");
+}
+
+@Test
+void pathTraversalOnDownloadIsRejected() {
+    assertThatThrownBy(() -&gt; service.loadAsResource("../pom.xml")).isInstanceOf(StorageException.class);
+}</code></pre>
+  <p>These are plain unit tests – no Spring context – so they run in about one second. <code>@TempDir</code> gives each test a fresh folder that JUnit deletes afterwards.</p>
+
+  <!-- ===================================================== 5 -->
+  <h2 id="run">5. How to run</h2>
+  <p><strong>VS Code:</strong> run <code>FilesApplication.java</code>. <strong>Terminal:</strong></p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\54-File-Upload-Download-And-Emails"
+mvn spring-boot:run</code></pre>
+  <p>Open <code>http://localhost:8080</code> – a small upload page. Pick a file, upload it, and see it in the list (images get a thumbnail via the <code>/view</code> endpoint).</p>
+  <p>Or use the terminal (in PowerShell type <code>curl.exe</code>), from the project folder:</p>
+  <pre class="terminal"><code>curl -F "file=@sample-files/hello.txt" http://localhost:8080/api/files
+{"storedName":"87c1a8e97115_hello.txt","originalName":"hello.txt","size":84,"contentType":"text/plain",
+ "downloadUrl":"/api/files/87c1a8e97115_hello.txt","viewUrl":"/api/files/87c1a8e97115_hello.txt/view"}
+
+curl -F "files=@sample-files/hello.txt" -F "files=@sample-files/prices.csv" http://localhost:8080/api/files/batch
+curl -F "file=@sample-files/green-dot.png" http://localhost:8080/api/files
+curl http://localhost:8080/api/files
+
+curl -O -J http://localhost:8080/api/files/87c1a8e97115_hello.txt      # -O -J = save with the name from Content-Disposition
+curl -i http://localhost:8080/api/files/366d65458035_green-dot.png/view   # shows the headers
+curl -X DELETE http://localhost:8080/api/files/87c1a8e97115_hello.txt</code></pre>
+  <p>Your stored names will differ (they are random). The files land in <code>54-File-Upload-Download-And-Emails\uploads\</code>.</p>
+  <h3>Emails</h3>
+  <pre class="terminal"><code>docker compose up -d
+# open http://localhost:8025  (Mailpit inbox)
+
+curl -X POST http://localhost:8080/api/emails/simple -H "Content-Type: application/json" -d "{\"to\":\"asha@example.com\",\"subject\":\"Your order has shipped\",\"text\":\"Hi Asha!\"}"
+{"status":"sent","to":"asha@example.com"}</code></pre>
+  <p>The email appears in Mailpit immediately. For the HTML email with attachment, use request 10 in <code>requests.http</code> after pasting a stored file name. In Mailpit you
+    can see the HTML view, the plain-text fallback, the attachment and even the raw MIME source – worth a look!</p>
+  <p>Without Mailpit running, the email endpoints answer <strong>503</strong> after a moment (thanks to the timeouts) with a helpful message.</p>
+  <pre class="terminal"><code>mvn test             # 6 tests
+docker compose down  # stop Mailpit</code></pre>
+
+  <!-- ===================================================== 6 -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>🛑 Mistake: using <code>getOriginalFilename()</code> as the path</strong>
+    <pre><code class="lang-java">file.transferTo(Path.of("uploads/" + file.getOriginalFilename()));   // path traversal + overwrite!</code></pre>
+    <strong>Fix:</strong> sanitize, add a unique prefix, resolve + <code>normalize()</code> + check the parent folder.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>Required part 'file' is not present</code> (400)</strong>The form field name does not match <code>@RequestParam("file")</code>, or the form is missing <code>enctype="multipart/form-data"</code>.
+    <br><strong>Fix:</strong> same name on both sides; in Postman choose Body → form-data, key type "File".</div>
+  <div class="callout warn"><strong>⚠️ Mistake: setting <code>Content-Type: multipart/form-data</code> by hand in JavaScript</strong>With <code>fetch</code> + <code>FormData</code>, the browser must add the header itself, including the <code>boundary</code>.
+    <br><strong>Fix:</strong> do not set the header; just pass <code>body: new FormData(form)</code> (see <code>index.html</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "Maximum upload size exceeded" at 1 MB</strong>The default limit is 1 MB per file.
+    <br><strong>Fix:</strong> <code>spring.servlet.multipart.max-file-size</code> / <code>max-request-size</code>, and handle <code>MaxUploadSizeExceededException</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>file.getBytes()</code> for big files</strong>A 500 MB video in a <code>byte[]</code> = 500 MB of heap per upload.
+    <br><strong>Fix:</strong> stream with <code>getInputStream()</code> + <code>Files.copy</code>, and return downloads as a <code>Resource</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: saving uploads into <code>src/main/resources/static</code></strong>It works on your laptop by accident, but in a jar the folder is read-only, and uploads become public with no checks.
+    <br><strong>Fix:</strong> a configurable folder outside the app (or object storage).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>No qualifying bean of type 'JavaMailSender'</code></strong><code>spring.mail.host</code> is missing, so Spring Boot did not create the bean.
+    <br><strong>Fix:</strong> set <code>spring.mail.host</code> (and port) – e.g. Mailpit on <code>localhost:1025</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>MailSendException: Couldn't connect to host, port: localhost, 1025</code></strong>Mailpit is not running.
+    <br><strong>Fix:</strong> <code>docker compose up -d</code> and check with <code>docker ps</code>.</div>
+  <div class="callout danger"><strong>🛑 Mistake: committing the SMTP password</strong><code>spring.mail.password=MySecret123</code> in git is a leaked credential.
+    <br><strong>Fix:</strong> <code>${MAIL_PASSWORD}</code> from an environment variable or a secret manager.</div>
+  <div class="callout info"><strong>ℹ️ A surprise we hit while building this project: <code>illegal unicode escape</code></strong>
+    A comment in <code>FileStorageService.java</code> contained a Windows path like <code>D:\Java-SpringBoot\...\uploads</code>. The compiler failed with "illegal unicode escape"! Java processes
+    <code>\u</code> followed by four hex digits as a Unicode character <em>before</em> anything else – even inside comments – and <code>\uploads</code> is not valid hex.
+    <br><strong>Fix:</strong> write paths with forward slashes in comments (<code>D:/Java-SpringBoot/...</code>), and use <code>\\</code> in Java strings (or better, <code>Path.of("D:", "folder")</code>).</div>
+
+  <!-- ===================================================== 7 -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Never trust the client</strong>: not the filename, not the content type, not the size it claims.</li>
+    <li><strong>Whitelist</strong> allowed extensions (and ideally check the file's "magic bytes", e.g. with Apache Tika). Never allow <code>.html</code>, <code>.svg</code>, <code>.js</code>, <code>.exe</code>, <code>.jsp</code> unless you really must.</li>
+    <li><strong>Generate your own stored names</strong> and keep the original name only as metadata for display.</li>
+    <li><strong>Always check the resolved path</strong> stays inside the upload folder – for uploads, downloads and deletes.</li>
+    <li><strong>Set size limits</strong> in Spring, Tomcat and any proxy in front; return 413 with a clear message.</li>
+    <li><strong>Stream</strong> large files in both directions; don't load them into memory.</li>
+    <li><strong>Store outside the application</strong>: a mounted volume or, in most production systems, object storage (S3 and friends). Keep metadata in the database.</li>
+    <li><strong>Check authorization on downloads</strong>: user A must not download user B's invoice just by guessing a name (store the owner and check it – topic 48).</li>
+    <li><strong>Serve user content carefully</strong>: <code>attachment</code> by default, <code>inline</code> only for safe types, <code>X-Content-Type-Options: nosniff</code>.</li>
+    <li><strong>Emails</strong>: set timeouts, send asynchronously, send both HTML and plain text, use templates with escaping, keep credentials in environment variables, and use Mailpit in development.</li>
+  </ul>
+
+  <!-- ===================================================== 8 -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Files are uploaded as <code>multipart/form-data</code>; Spring gives each file part to you as a <code>MultipartFile</code>.</li>
+    <li>Single upload: <code>@RequestParam("file") MultipartFile</code>; multiple: <code>@RequestParam("files") List&lt;MultipartFile&gt;</code>.</li>
+    <li>Limit sizes with <code>spring.servlet.multipart.max-file-size</code>/<code>max-request-size</code>; map <code>MaxUploadSizeExceededException</code> to 413.</li>
+    <li>Store safely: sanitize names, whitelist extensions, unique stored names, <code>normalize()</code> + parent check against path traversal.</li>
+    <li>Download with <code>ResponseEntity&lt;Resource&gt;</code> and <code>Content-Disposition: attachment</code>; show images with <code>inline</code> + correct content type + <code>nosniff</code>.</li>
+    <li><code>spring-boot-starter-mail</code> + <code>spring.mail.host</code> → an auto-configured <code>JavaMailSender</code>.</li>
+    <li><code>SimpleMailMessage</code> for plain text; <code>MimeMessage</code> + <code>MimeMessageHelper(msg, true, "UTF-8")</code> for HTML, attachments and inline images.</li>
+    <li>Use Mailpit (SMTP 1025, UI 8025) to test emails for free; use a real provider with env-var credentials in production.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9 -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Allow Word documents.</strong> Users want to upload <code>.docx</code> CVs. What do you change? Then try uploading <code>cv.DOCX</code> (upper case) – does it work?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-properties">app.storage.allowed-extensions=jpg,jpeg,png,gif,webp,pdf,txt,csv,docx</code></pre>
+    <p>Only the property changes. Upper case works because the service compares <code>extension.toLowerCase(Locale.ROOT)</code>. Downloads get the right content type from <code>MediaTypeFactory</code>.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Lower the limit.</strong> Set the maximum file size to 100 KB and confirm you get a 413 for a bigger file. Why did we also raise <code>server.tomcat.max-swallow-size</code>?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-properties">spring.servlet.multipart.max-file-size=100KB</code></pre>
+    <p>Create a big test file in PowerShell: <code>fsutil file createnew big.txt 300000</code>, then <code>curl.exe -F "file=@big.txt" http://localhost:8080/api/files</code> → 413 ProblemDetail.
+    Without a larger swallow size, Tomcat may cut the connection for big uploads and the client never reads the 413.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Upload a product with a photo in one request.</strong> Add <code>POST /api/products</code> that accepts a JSON part <code>product</code> (<code>name</code>, <code>price</code>) and a file part <code>image</code>. Return the product with the image's view URL.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public record ProductRequest(String name, BigDecimal price) { }
+public record ProductResponse(String name, BigDecimal price, String imageUrl) { }
+
+@PostMapping(path = "/api/products", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+public ProductResponse create(@RequestPart("product") ProductRequest product,
+                              @RequestPart("image") MultipartFile image) {
+    StoredFile stored = storageService.store(image);
+    return new ProductResponse(product.name(), product.price(), stored.viewUrl());
+}</code></pre>
+    <pre class="terminal"><code>curl -F "product={\"name\":\"Mug\",\"price\":12.5};type=application/json" -F "image=@sample-files/green-dot.png" http://localhost:8080/api/products</code></pre>
+    <p><code>;type=application/json</code> tells curl the content type of that part – Spring needs it to convert the part with Jackson.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Inline logo in the HTML email.</strong> Put <code>green-dot.png</code> into <code>src/main/resources/mail/logo.png</code> and show it at the top of every HTML email (not as an attachment).</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">helper.setText("Plain text fallback",
+        "&lt;img src='cid:logo' width='32'&gt;" + html);          // "cid:" = content-id reference
+helper.addInline("logo", new ClassPathResource("mail/logo.png"), "image/png");   // AFTER setText!</code></pre>
+    <p><code>addInline</code> must be called after <code>setText</code>. In Mailpit, the image appears inside the message body.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Check the real file type.</strong> Someone renames <code>evil.exe</code> to <code>photo.png</code>. Reject PNG uploads whose first bytes are not the PNG signature (<code>89 50 4E 47</code>).</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">private static final byte[] PNG_MAGIC = {(byte) 0x89, 0x50, 0x4E, 0x47};
+
+private void checkMagicBytes(MultipartFile file, String extension) throws IOException {
+    if (!"png".equalsIgnoreCase(extension)) {
+        return;
+    }
+    try (InputStream in = file.getInputStream()) {
+        byte[] head = in.readNBytes(4);
+        if (!Arrays.equals(head, PNG_MAGIC)) {
+            throw new StorageException("File content is not a real PNG image");
+        }
+    }
+}</code></pre>
+    <p>Call it in <code>store()</code> after the extension check. For many types, a library like Apache Tika (<code>tika.detect(inputStream)</code>) does this for you.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Email the uploader.</strong> Combine with topic 52: after a successful upload, publish a <code>FileUploadedEvent</code>, and send "We received your file" from an <code>@Async</code> listener so the upload response is not slowed down by SMTP.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public record FileUploadedEvent(String storedName, String uploaderEmail) { }
+
+// FileController (inject ApplicationEventPublisher)
+StoredFile stored = storageService.store(file);
+events.publishEvent(new FileUploadedEvent(stored.storedName(), email));   // email from a @RequestParam
+
+// listener
+@Component
+public class UploadMailListener {
+    private final EmailService emailService;
+    public UploadMailListener(EmailService emailService) { this.emailService = emailService; }
+
+    @Async
+    @EventListener
+    public void onUpload(FileUploadedEvent event) {
+        emailService.sendSimpleEmail(event.uploaderEmail(), "We received your file",
+                "Thanks! Stored as " + event.storedName());
+    }
+}</code></pre>
+    <p>Remember <code>@EnableAsync</code> on a configuration class. There is no transaction here, so a plain <code>@EventListener</code> is right (a <code>@TransactionalEventListener</code> would never fire).</p></details>
+  </div>
+
+  <!-- ===================================================== 10 -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. How do you upload a file in Spring Boot?</summary>
+    <p>Send a <code>multipart/form-data</code> request; in the controller accept <code>@RequestParam("file") MultipartFile file</code> (or <code>List&lt;MultipartFile&gt;</code> for many, or <code>@RequestPart</code>
+    for mixed JSON + file). Validate it, then store it via <code>getInputStream()</code>/<code>transferTo</code>. Multipart support is auto-configured by the web starter.</p></details>
+  <details><summary>Q2. How do you limit the upload size?</summary>
+    <p><code>spring.servlet.multipart.max-file-size</code> and <code>max-request-size</code>. Exceeding them throws <code>MaxUploadSizeExceededException</code>, which you map to 413 in a
+    <code>@RestControllerAdvice</code>. Also consider <code>server.tomcat.max-swallow-size</code> and limits in reverse proxies.</p></details>
+  <details><summary>Q3. What is path traversal and how do you prevent it?</summary>
+    <p>An attack where a filename or path parameter contains <code>../</code> sequences to escape the intended folder and read or overwrite other files. Prevent it by never using client
+    names as paths, sanitizing names (strip directories, whitelist characters), generating your own names, and after <code>resolve(...).normalize()</code> verifying the result is inside the base directory.</p></details>
+  <details><summary>Q4. Why shouldn't you trust getOriginalFilename() and getContentType()?</summary>
+    <p>Both are sent by the client and can contain anything: paths, special characters, a fake type such as <code>image/png</code> for a script. Determine the type yourself (extension
+    whitelist, magic bytes, Tika) and generate your own stored name.</p></details>
+  <details><summary>Q5. How do you return a file for download?</summary>
+    <p>Return <code>ResponseEntity&lt;Resource&gt;</code> (e.g. <code>UrlResource</code>/<code>FileSystemResource</code>) with the correct <code>Content-Type</code> and
+    <code>Content-Disposition: attachment; filename="..."</code> (built with <code>ContentDisposition</code>, using <code>filename*</code> for UTF-8). Spring streams the resource without loading it fully into memory.</p></details>
+  <details><summary>Q6. Difference between Content-Disposition inline and attachment?</summary>
+    <p><code>inline</code> asks the browser to display the content (images, PDFs) in the page/tab; <code>attachment</code> asks it to download/save the file with the given filename.
+    For user-uploaded content, default to <code>attachment</code> and only allow <code>inline</code> for safe types, plus <code>X-Content-Type-Options: nosniff</code>.</p></details>
+  <details><summary>Q7. Where would you store uploaded files in production?</summary>
+    <p>Usually in object storage (Amazon S3, Azure Blob, GCS, MinIO) with metadata (owner, original name, size, type, key) in the database. Local disk only with a persistent, shared volume;
+    database BLOBs only for small, few files. Avoid the application folder or <code>static/</code>.</p></details>
+  <details><summary>Q8. How do you send an email with an attachment in Spring Boot?</summary>
+    <p>Add <code>spring-boot-starter-mail</code>, configure <code>spring.mail.*</code>, inject <code>JavaMailSender</code>, create a <code>MimeMessage</code>, wrap it in
+    <code>new MimeMessageHelper(message, true, "UTF-8")</code>, set from/to/subject/text (HTML with <code>setText(plain, html)</code>), call <code>addAttachment(name, resource)</code>, then <code>mailSender.send(message)</code>.</p></details>
+  <details><summary>Q9. SimpleMailMessage vs MimeMessage?</summary>
+    <p><code>SimpleMailMessage</code> is a simple value object for plain-text emails (from, to, cc, subject, text). <code>MimeMessage</code> is the full JavaMail message supporting HTML, multiple parts,
+    attachments, inline images and custom headers; <code>MimeMessageHelper</code> makes it easy to build.</p></details>
+  <details><summary>Q10. How do you test email sending without sending real emails?</summary>
+    <p>Use a local fake SMTP server such as Mailpit or MailHog (Docker), or GreenMail in automated tests; in unit tests, mock <code>JavaMailSender</code> with Mockito and verify <code>send(...)</code> was called.
+    Never point development environments at a real provider with real customer addresses.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../53-Actuator-Monitoring-And-Observability/lesson.html"><small>← Previous</small>53. Actuator, Monitoring &amp; Observability</a>
+    <a class="next" href="../55-Reactive-Programming-With-WebFlux/lesson.html"><small>Next →</small>55. Reactive Programming with WebFlux</a>
+  </nav>
+</main>
+</body>
+</html>

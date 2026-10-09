@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>29 · Configuration Properties &amp; Profiles</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 29</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~2 hours</span>
+  <h1>29. Configuration Properties &amp; Profiles</h1>
+  <p class="subtitle">Keep settings OUT of your Java code, read them safely, switch between dev and prod with one word, and keep secrets out of Git.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="29-Configuration-Properties-And-Profiles"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li><code>application.properties</code> vs <code>application.yml</code> — the same configuration written both ways.</li>
+      <li>Common built-in properties such as <code>server.port</code> and <code>spring.application.name</code>.</li>
+      <li>Reading custom values with <code>@Value</code> (with defaults).</li>
+      <li>Type-safe configuration with <code>@ConfigurationProperties</code> on a <strong>record</strong>, plus <strong>validation</strong> at startup.</li>
+      <li>Profiles: <code>application-dev.yml</code>, <code>application-prod.yml</code>, <code>spring.profiles.active</code>.</li>
+      <li>The external configuration order (command line &gt; environment variables &gt; files).</li>
+      <li>Environment variables for secrets, and good advice about <code>.env</code> files.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../28-Spring-Boot-Introduction/lesson.html">Topic 28 · Spring Boot Introduction</a> and the ideas of <code>@Value</code>/<code>@Profile</code> from <a href="../26-Spring-Configuration-Profiles-And-Environment/lesson.html">Topic 26</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ 1. WHY -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Your app runs in several places: on your laptop, on a test server, and in production. Each place needs <em>different settings</em>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Setting</th><th>On your laptop (dev)</th><th>In production (prod)</th></tr>
+    <tr><td>Database</td><td>H2 in memory</td><td>Real MySQL server</td></tr>
+    <tr><td>Port</td><td>8080</td><td>80 / 443 behind a load balancer</td></tr>
+    <tr><td>Log level</td><td>DEBUG (lots of detail)</td><td>INFO / WARN (quiet)</td></tr>
+    <tr><td>Payment API key</td><td>A free test key</td><td>The real secret key</td></tr>
+  </table></div>
+  <p>If these values were written <em>inside Java code</em>, you would need to change code and rebuild for every environment — slow and risky.
+    And a password in code ends up in Git, where anyone with access can read it. Real incidents have happened because a secret key was pushed to a public GitHub repo.</p>
+  <p>Spring Boot's answer: <strong>one jar, configured from outside</strong>. The code stays the same; only the configuration changes. This idea is also rule #3 of the famous
+    "Twelve-Factor App" guidelines: <em>store config in the environment</em>. You will use it in every Spring project, every day.</p>
+
+  <!-- ============================================================ 2. ANALOGY -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>📺 The TV and its settings menu</strong>
+    <p>A TV factory builds <strong>one model</strong> of TV and ships it to many countries. The factory does not build a different TV for each home. Instead, each owner opens the
+      <strong>settings menu</strong>: language, brightness, channel list, Wi-Fi password.</p>
+    <ul>
+      <li>The TV = your <strong>jar</strong> (same everywhere).</li>
+      <li>The settings menu = <strong>application.yml</strong>.</li>
+      <li>"Picture modes" like <em>Cinema</em> or <em>Sports</em> = <strong>profiles</strong> (<code>dev</code>, <code>prod</code>): a whole group of settings switched with one choice.</li>
+      <li>The remote control overriding everything for tonight = <strong>command-line arguments</strong> (highest priority).</li>
+      <li>The Wi-Fi password you type in privately, never printed in the manual = <strong>secrets in environment variables</strong>.</li>
+    </ul>
+  </div>
+
+  <!-- ============================================================ 3. CONCEPTS -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Where Spring Boot looks for configuration</h3>
+  <p>At startup Spring Boot automatically reads <code>src/main/resources/application.properties</code> <strong>and/or</strong> <code>application.yml</code>
+    (they end up inside the jar). You don't need <code>@PropertySource</code> like in topic 26 — it just works. All values go into Spring's <code>Environment</code>,
+    which every bean can read.</p>
+
+  <h3>3.2 .properties vs .yml — the same config written two ways</h3>
+  <p><strong>.properties</strong> = one <code>key=value</code> per line, with dots in the key. <strong>.yml</strong> (YAML) = a tree; indentation shows nesting.</p>
+  <div class="grid">
+    <pre><span class="file">application.properties</span><code class="lang-properties">spring.application.name=config-props
+server.port=8080
+
+shop.name=ShopEasy
+shop.currency=INR
+shop.discount-percent=5
+shop.session-timeout=30m
+shop.supported-payment-methods[0]=UPI
+shop.supported-payment-methods[1]=CARD
+shop.contact.email=support@shopeasy.example
+shop.contact.phone=+91-98765-43210</code></pre>
+    <pre><span class="file">application.yml</span><code class="lang-yaml">spring:
+  application:
+    name: config-props
+server:
+  port: 8080
+
+shop:
+  name: ShopEasy
+  currency: INR
+  discount-percent: 5
+  session-timeout: 30m
+  supported-payment-methods:
+    - UPI
+    - CARD
+  contact:
+    email: support@shopeasy.example
+    phone: "+91-98765-43210"</code></pre>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>.properties</th><th>.yml</th></tr>
+    <tr><td>Look</td><td>Flat, repetitive prefixes</td><td>Tree, no repetition, easy to read for big configs</td></tr>
+    <tr><td>Lists</td><td><code>key[0]=a</code> or <code>key=a,b</code></td><td><code>- a</code> on separate lines</td></tr>
+    <tr><td>Danger</td><td>Few surprises</td><td>Indentation errors; TAB characters are not allowed</td></tr>
+    <tr><td>Multiple profiles in one file</td><td>Possible with <code>#---</code></td><td>Possible with <code>---</code></td></tr>
+  </table></div>
+  <p>Both are fully supported. Pick <strong>one</strong> per project. This project uses YAML, and the folder <code>examples/</code> contains the identical config as
+    <code>.properties</code> for comparison.</p>
+  <div class="callout warn"><strong>⚠️ YAML rules for beginners</strong> Use <strong>spaces</strong>, never TABs. Put a space after the colon (<code>port: 8080</code>, not <code>port:8080</code>).
+    Quote values that start with special characters (<code>"+91..."</code>, <code>"*"</code>, <code>"@"</code>). Same indentation = same level.</div>
+
+  <h3>3.3 Common built-in properties</h3>
+  <p>Spring Boot knows over a thousand properties. A few you will use all the time:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Property</th><th>Example</th><th>Meaning</th></tr>
+    <tr><td><code>server.port</code></td><td><code>8081</code></td><td>Port of the embedded server (0 = random)</td></tr>
+    <tr><td><code>spring.application.name</code></td><td><code>order-service</code></td><td>The app's name (logs, Actuator, microservices)</td></tr>
+    <tr><td><code>server.servlet.context-path</code></td><td><code>/shop</code></td><td>Prefix for all URLs: <code>/shop/hello</code></td></tr>
+    <tr><td><code>logging.level.&lt;package&gt;</code></td><td><code>logging.level.com.course=DEBUG</code></td><td>Log level per package (topic 30)</td></tr>
+    <tr><td><code>spring.profiles.active</code></td><td><code>dev</code></td><td>Which profile(s) to activate</td></tr>
+    <tr><td><code>spring.datasource.url</code></td><td><code>jdbc:h2:mem:testdb</code></td><td>Database URL (topic 37)</td></tr>
+    <tr><td><code>spring.jackson.serialization.indent-output</code></td><td><code>true</code></td><td>Pretty JSON</td></tr>
+    <tr><td><code>spring.main.banner-mode</code></td><td><code>off</code></td><td>Hide the banner</td></tr>
+  </table></div>
+  <p>VS Code (Spring Boot Tools extension) auto-completes these keys in both file types — press <strong>Ctrl + Space</strong>. The full list is in the Spring Boot docs under
+    "Common Application Properties".</p>
+
+  <h3>3.4 Your own properties with @Value</h3>
+  <p>You can invent your own keys (<code>shop.welcome-message</code>) and inject them with <code>@Value("${...}")</code>:</p>
+  <pre><code class="lang-java">@Value("${spring.application.name}")            // required: startup fails if missing
+private String appName;
+
+@Value("${shop.welcome-message:Welcome!}")      // default after the colon
+private String welcomeMessage;
+
+@Value("${features.new-checkout:false}")        // "true"/"false" text -&gt; boolean
+private boolean newCheckoutEnabled;</code></pre>
+  <p><code>${key:default}</code> means "the value of <em>key</em>, or <em>default</em> if nobody set it". Spring converts the text to the field's type (int, boolean, Duration…).</p>
+  <div class="callout info"><strong>ℹ️ @Value is fine for one or two values</strong> But when you have a <em>group</em> of related settings, @Value strings get copied around, have no
+    auto-complete and are easy to mistype. A typo like <code>${shop.dicount-percent}</code> only fails at runtime. For groups, use <code>@ConfigurationProperties</code>.</div>
+
+  <h3>3.5 Type-safe configuration with @ConfigurationProperties</h3>
+  <p>Idea: describe a group of settings as a <strong>Java type</strong>, and let Spring Boot fill it from every key that starts with a prefix.
+    A <strong>record</strong> (topic 15) is perfect — immutable, short and clear:</p>
+  <pre><code class="lang-java">@ConfigurationProperties(prefix = "shop")
+public record ShopProperties(
+        String name,
+        String currency,
+        int discountPercent,           // from shop.discount-percent
+        Duration sessionTimeout,       // "30m" -&gt; Duration.ofMinutes(30)
+        List&lt;String&gt; supportedPaymentMethods,
+        Contact contact) {             // nested group shop.contact.*
+
+    public record Contact(String email, String phone) { }
+}</code></pre>
+  <p>Then you register it (we use <code>@ConfigurationPropertiesScan</code> on the main class) and inject it like any bean:</p>
+  <pre><code class="lang-java">public ConfigController(ShopProperties shop) { this.shop = shop; }
+...
+shop.discountPercent();   // 5 - a real int, checked by the compiler</code></pre>
+  <div class="flow">
+    <span class="box">application.yml<br><small>shop.discount-percent: 5</small></span><span class="arrow">→ binding →</span>
+    <span class="box alt">ShopProperties record<br><small>discountPercent = 5</small></span><span class="arrow">→ inject →</span>
+    <span class="box info">Any bean</span>
+  </div>
+  <p><strong>Relaxed binding:</strong> Spring matches <code>discount-percent</code> (kebab-case, recommended in files), <code>discountPercent</code>, <code>discount_percent</code> and the
+    environment variable <code>SHOP_DISCOUNTPERCENT</code> to the same Java component <code>discountPercent</code>.</p>
+  <p><strong>Default values:</strong> use <code>@DefaultValue("INR")</code> on a record component — used when the key is missing.</p>
+
+  <h3>3.6 Validating configuration at startup</h3>
+  <p>Add <code>spring-boot-starter-validation</code>, put <code>@Validated</code> on the class and constraint annotations on the components:</p>
+  <pre><code class="lang-java">@Validated
+@ConfigurationProperties(prefix = "shop")
+public record ShopProperties(
+        @NotBlank String name,
+        @Min(0) @Max(50) @DefaultValue("0") int discountPercent,
+        @NotEmpty List&lt;String&gt; supportedPaymentMethods,
+        @Valid Contact contact) {                    // @Valid = validate inside the nested record too
+    public record Contact(@Email @NotBlank String email, String phone) { }
+}</code></pre>
+  <p>Now a wrong value stops the app <strong>immediately</strong> with a clear message — this is the real output when starting with <code>--shop.discount-percent=80</code>:</p>
+  <pre class="terminal"><code>***************************
+APPLICATION FAILED TO START
+***************************
+
+Description:
+
+Binding to target com.course.configprops.ShopProperties failed:
+
+    Property: shop.discountPercent
+    Value: "80"
+    Origin: "shop.discount-percent" from property source "commandLineArgs"
+    Reason: must be less than or equal to 50</code></pre>
+  <div class="callout tip"><strong>💡 Fail fast</strong> It is much better that a wrong config stops the deploy in 3 seconds than that customers get an 80% discount for a week.</div>
+  <div class="table-wrap"><table>
+    <tr><th></th><th><code>@Value</code></th><th><code>@ConfigurationProperties</code></th></tr>
+    <tr><td>Best for</td><td>1–2 single values</td><td>Groups of related values</td></tr>
+    <tr><td>Type safety</td><td>Weak (strings in annotations)</td><td>Strong (a Java type)</td></tr>
+    <tr><td>Validation</td><td>No</td><td>Yes, with <code>@Validated</code></td></tr>
+    <tr><td>Relaxed binding</td><td>Limited</td><td>Full</td></tr>
+    <tr><td>IDE auto-complete for your keys</td><td>No</td><td>Yes (with <code>spring-boot-configuration-processor</code>)</td></tr>
+    <tr><td>SpEL (<code>#{...}</code>)</td><td>Yes</td><td>No</td></tr>
+  </table></div>
+
+  <h3>3.7 Profiles — groups of settings for each environment</h3>
+  <p>A <strong>profile</strong> is a named set of configuration. Spring Boot loads <code>application.yml</code> first, then <code>application-{profile}.yml</code> for each active
+    profile, and the profile file <strong>overrides</strong> matching keys.</p>
+  <div class="flow">
+    <span class="box">application.yml<br><small>shared by all</small></span><span class="arrow">+</span>
+    <span class="box alt">application-dev.yml<br><small>only when "dev" is active</small></span><span class="arrow">=</span>
+    <span class="box info">final config</span>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th>Key</th><th>application.yml</th><th>application-dev.yml</th><th>application-prod.yml</th><th>Result with dev</th><th>Result with prod</th></tr>
+    <tr><td><code>shop.name</code></td><td>ShopEasy</td><td>ShopEasy (DEV)</td><td>ShopEasy</td><td>ShopEasy (DEV)</td><td>ShopEasy</td></tr>
+    <tr><td><code>shop.discount-percent</code></td><td>5</td><td>20</td><td>0</td><td>20</td><td>0</td></tr>
+    <tr><td><code>shop.currency</code></td><td>INR</td><td>–</td><td>–</td><td>INR</td><td>INR</td></tr>
+    <tr><td><code>server.port</code></td><td>8080</td><td>–</td><td>8081</td><td>8080</td><td>8081</td></tr>
+    <tr><td><code>features.new-checkout</code></td><td>false</td><td>true</td><td>false</td><td>true</td><td>false</td></tr>
+  </table></div>
+  <p><strong>Activating a profile</strong> (any one of these):</p>
+  <pre class="terminal"><code># in application.yml (a default for the team):
+spring.profiles.active: dev
+
+# command line (overrides the file):
+java -jar app.jar --spring.profiles.active=prod
+mvn spring-boot:run -Dspring-boot.run.profiles=prod
+
+# environment variable (typical in Docker / Kubernetes):
+$env:SPRING_PROFILES_ACTIVE="prod"      # PowerShell
+export SPRING_PROFILES_ACTIVE=prod      # Linux / macOS</code></pre>
+  <p>Several profiles at once: <code>--spring.profiles.active=prod,mysql</code> (later ones win on conflicts). Profiles also switch <strong>beans</strong> on and off with
+    <code>@Profile("dev")</code> exactly as in topic 26. If no profile is active, Spring Boot uses the profile named <code>default</code>.</p>
+  <div class="callout info"><strong>ℹ️ One file, many profiles</strong> You can also put several profiles in one YAML file separated by <code>---</code> and
+    <code>spring.config.activate.on-profile: prod</code>. Separate files are easier for beginners, so we use them.</div>
+
+  <h3>3.8 Externalized configuration — who wins?</h3>
+  <p>The same key can be set in many places. Spring Boot has a fixed order. <strong>Higher in the table wins.</strong> (Simplified — the full list in the docs has 15+ entries.)</p>
+  <div class="table-wrap"><table>
+    <tr><th>Priority</th><th>Source</th><th>Example</th></tr>
+    <tr><td>1 (highest)</td><td>Command-line arguments</td><td><code>--server.port=9000</code></td></tr>
+    <tr><td>2</td><td>Java system properties</td><td><code>java -Dserver.port=9000 -jar app.jar</code></td></tr>
+    <tr><td>3</td><td>OS environment variables</td><td><code>SERVER_PORT=9000</code></td></tr>
+    <tr><td>4</td><td>Profile files <em>outside</em> the jar</td><td><code>./config/application-prod.yml</code></td></tr>
+    <tr><td>5</td><td>Normal files <em>outside</em> the jar</td><td><code>./application.yml</code> next to the jar</td></tr>
+    <tr><td>6</td><td>Profile files <em>inside</em> the jar</td><td><code>application-prod.yml</code> in resources</td></tr>
+    <tr><td>7 (lowest)</td><td>Normal files <em>inside</em> the jar</td><td><code>application.yml</code> in resources</td></tr>
+  </table></div>
+  <p>Easy way to remember: <strong>"the closer to the moment of starting, the stronger"</strong>. Files packed in the jar are the defaults; the operator starting the app
+    can override anything without rebuilding.</p>
+  <p><strong>Environment variable names:</strong> uppercase, replace dots and dashes with underscores:
+    <code>server.port</code> → <code>SERVER_PORT</code>, <code>shop.discount-percent</code> → <code>SHOP_DISCOUNTPERCENT</code> (dashes are simply removed),
+    <code>spring.profiles.active</code> → <code>SPRING_PROFILES_ACTIVE</code>.</p>
+
+  <h3>3.9 Secrets: environment variables, not Git</h3>
+  <p>Passwords, API keys and tokens must never be committed. Use a <strong>placeholder</strong> in the file, and give the real value through an environment variable:</p>
+  <pre><code class="lang-yaml">payment:
+  api-key: ${PAYMENT_API_KEY:not-set}    # env var, or "not-set" if missing</code></pre>
+  <pre class="terminal"><code># PowerShell (only for this terminal window):
+$env:PAYMENT_API_KEY="sk_test_12345678"
+mvn spring-boot:run</code></pre>
+  <p>In production, the platform injects the variable (Docker <code>-e</code>, Kubernetes Secrets, cloud secret managers, CI secrets — topics 66–69).</p>
+  <div class="callout warn"><strong>⚠️ About <code>.env</code> files</strong>
+    <ul>
+      <li>A <code>.env</code> file is a simple text file with <code>KEY=value</code> lines, used by Docker Compose (topic 67) and many tools to set environment variables.</li>
+      <li><strong>Spring Boot does not read <code>.env</code> by itself.</strong> Docker Compose, your IDE run configuration or a tool loads it into the environment, and Spring reads the environment.</li>
+      <li><strong>Always add <code>.env</code> to <code>.gitignore</code>.</strong> Commit a <code>.env.example</code> with fake values so teammates know which variables exist.</li>
+      <li>Never print secrets in logs or return them from an API (our <code>/config/secret</code> endpoint only shows a masked value).</li>
+    </ul></div>
+
+  <!-- ============================================================ 4. CODE -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>web + validation + <code>spring-boot-configuration-processor</code></td></tr>
+    <tr><td><code>ConfigPropsApplication.java</code></td><td><code>@ConfigurationPropertiesScan</code> and a runner that prints the final config</td></tr>
+    <tr><td><code>ShopProperties.java</code></td><td>Validated <code>@ConfigurationProperties</code> record with defaults and a nested record</td></tr>
+    <tr><td><code>ConfigController.java</code></td><td><code>@Value</code>, defaults, <code>Environment</code>, masked secret</td></tr>
+    <tr><td><code>application.yml</code></td><td>Base config for all profiles</td></tr>
+    <tr><td><code>application-dev.yml</code>, <code>application-prod.yml</code></td><td>Profile overrides</td></tr>
+    <tr><td><code>examples/application.properties.example</code></td><td>Same config as <code>.properties</code> (reference only)</td></tr>
+    <tr><td><code>ConfigPropsApplicationTests.java</code></td><td>Checks binding and the dev override</td></tr>
+    <tr><td><code>requests.http</code></td><td>Requests for the REST Client</td></tr>
+  </table></div>
+
+  <h3>4.1 pom.xml — the configuration processor</h3>
+  <pre><span class="file">pom.xml (part)</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-validation&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-configuration-processor&lt;/artifactId&gt;
+    &lt;optional&gt;true&lt;/optional&gt;
+&lt;/dependency&gt;</code></pre>
+  <p>The processor runs while compiling and writes <code>META-INF/spring-configuration-metadata.json</code> describing our <code>shop.*</code> keys. VS Code reads that file
+    and gives auto-complete and hover help for <em>your own</em> properties in <code>application.yml</code>.</p>
+
+  <h3>4.2 ConfigPropsApplication</h3>
+  <pre><span class="file">src/main/java/com/course/configprops/ConfigPropsApplication.java</span><code class="lang-java">@SpringBootApplication
+@ConfigurationPropertiesScan          // find @ConfigurationProperties types and make them beans
+public class ConfigPropsApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(ConfigPropsApplication.class, args);
+    }
+
+    @Bean
+    CommandLineRunner printConfig(ShopProperties shop, Environment env) {
+        return args -&gt; {
+            System.out.println(" Active profiles : " + Arrays.toString(env.getActiveProfiles()));
+            System.out.println(" Server port     : " + env.getProperty("server.port"));
+            System.out.println(" Shop name       : " + shop.name());
+            System.out.println(" Discount        : " + shop.discountPercent() + "%");
+            ...
+        };
+    }
+}</code></pre>
+  <p>The runner prints the <em>final</em> values after all files, profiles, env vars and arguments are merged — a quick way to see what you really got.
+    (Alternative to the scan: <code>@EnableConfigurationProperties(ShopProperties.class)</code> on any <code>@Configuration</code> class.)</p>
+
+  <h3>4.3 ShopProperties</h3>
+  <pre><span class="file">src/main/java/com/course/configprops/ShopProperties.java</span><code class="lang-java">@Validated
+@ConfigurationProperties(prefix = "shop")
+public record ShopProperties(
+        @NotBlank String name,
+        @NotBlank @DefaultValue("INR") String currency,
+        @Min(0) @Max(50) @DefaultValue("0") int discountPercent,
+        @Positive @DefaultValue("10") int maxItemsPerOrder,
+        @DefaultValue("30m") Duration sessionTimeout,
+        @NotEmpty List&lt;String&gt; supportedPaymentMethods,
+        @Valid Contact contact
+) {
+    public record Contact(@Email @NotBlank String email, String phone) { }
+}</code></pre>
+  <p>Line by line:</p>
+  <ul>
+    <li><code>prefix = "shop"</code> — only keys beginning with <code>shop.</code> are bound.</li>
+    <li>Each record component maps to a key: <code>maxItemsPerOrder</code> ← <code>shop.max-items-per-order</code>.</li>
+    <li><code>Duration</code> understands <code>30m</code>, <code>10s</code>, <code>2h</code>, <code>500ms</code>. (There is also <code>DataSize</code> for <code>10MB</code>.)</li>
+    <li><code>List&lt;String&gt;</code> is filled from the YAML list.</li>
+    <li><code>@Valid Contact contact</code> — without <code>@Valid</code>, the rules inside <code>Contact</code> would be ignored.</li>
+  </ul>
+
+  <h3>4.4 ConfigController</h3>
+  <pre><span class="file">src/main/java/com/course/configprops/ConfigController.java (key parts)</span><code class="lang-java">@Value("${shop.welcome-message:Welcome to our shop!}")
+private String welcomeMessage;
+
+@Value("${payment.api-key}")
+private String paymentApiKey;
+
+private final ShopProperties shop;
+private final Environment environment;
+
+@GetMapping("/shop")
+public ShopProperties shop() {
+    return shop;                                   // record -&gt; JSON
+}
+
+@GetMapping("/profile")
+public Map&lt;String, Object&gt; profile() {
+    Map&lt;String, Object&gt; result = new LinkedHashMap&lt;&gt;();
+    result.put("activeProfiles", Arrays.asList(environment.getActiveProfiles()));
+    result.put("serverPort", environment.getProperty("server.port"));
+    return result;
+}
+
+@GetMapping("/secret")
+public Map&lt;String, Object&gt; secret() {
+    boolean isSet = !"not-set".equals(paymentApiKey);
+    String masked = isSet &amp;&amp; paymentApiKey.length() &gt; 4
+            ? "****" + paymentApiKey.substring(paymentApiKey.length() - 4)
+            : "****";
+    ...
+}</code></pre>
+  <p>The three ways of reading config side by side. In real code you mostly use <code>@ConfigurationProperties</code>, sometimes <code>@Value</code>, rarely <code>Environment</code>.</p>
+
+  <h3>4.5 The YAML files</h3>
+  <pre><span class="file">src/main/resources/application.yml (part)</span><code class="lang-yaml">spring:
+  application:
+    name: config-props
+  profiles:
+    active: dev                 # default profile for local runs
+
+shop:
+  name: ShopEasy
+  discount-percent: 5
+  supported-payment-methods:
+    - UPI
+    - CARD
+    - CASH_ON_DELIVERY
+
+payment:
+  api-key: ${PAYMENT_API_KEY:not-set}</code></pre>
+  <pre><span class="file">src/main/resources/application-dev.yml</span><code class="lang-yaml">shop:
+  name: ShopEasy (DEV)
+  discount-percent: 20
+features:
+  new-checkout: true
+logging:
+  level:
+    com.course: DEBUG</code></pre>
+  <pre><span class="file">src/main/resources/application-prod.yml</span><code class="lang-yaml">server:
+  port: 8081
+shop:
+  name: ShopEasy
+  discount-percent: 0
+logging:
+  level:
+    root: WARN
+    com.course: INFO</code></pre>
+  <p>Notice that profile files contain <strong>only the differences</strong>. Everything else comes from <code>application.yml</code>.</p>
+
+  <h3>4.6 The test</h3>
+  <pre><span class="file">src/test/java/com/course/configprops/ConfigPropsApplicationTests.java</span><code class="lang-java">@SpringBootTest
+class ConfigPropsApplicationTests {
+    @Autowired
+    private ShopProperties shop;
+
+    @Test
+    void devProfileOverridesTheBaseFile() {
+        assertThat(shop.name()).isEqualTo("ShopEasy (DEV)");
+        assertThat(shop.discountPercent()).isEqualTo(20);
+    }
+
+    @Test
+    void baseValuesAreStillThere() {
+        assertThat(shop.currency()).isEqualTo("INR");
+        assertThat(shop.sessionTimeout()).isEqualTo(Duration.ofMinutes(30));
+    }
+}</code></pre>
+
+  <!-- ============================================================ 5. RUN -->
+  <h2 id="run">5. How to run</h2>
+  <h3>In VS Code</h3>
+  <p>Open the folder, run <code>ConfigPropsApplication</code> with the <strong>Run</strong> link or the Spring Boot Dashboard. To pick a profile, add to
+    <code>.vscode/launch.json</code> in your configuration: <code>"args": "--spring.profiles.active=prod"</code>, or <code>"env": { "PAYMENT_API_KEY": "sk_test_12345678" }</code>.</p>
+
+  <h3>From the terminal — dev profile (default)</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\29-Configuration-Properties-And-Profiles"
+mvn spring-boot:run</code></pre>
+  <pre class="terminal"><code>INFO ... The following 1 profile is active: "dev"
+INFO ... Tomcat started on port 8080 (http)
+----------------------------------------------------
+ Active profiles : [dev]
+ Server port     : 8080
+ Shop name       : ShopEasy (DEV)
+ Currency        : INR
+ Discount        : 20%
+ Payment methods : [UPI, CARD, CASH_ON_DELIVERY]
+----------------------------------------------------</code></pre>
+  <pre class="terminal"><code>curl.exe http://localhost:8080/config/welcome
+{"application":"config-props","message":"Welcome to ShopEasy - happy shopping!","newCheckoutEnabled":true}
+
+curl.exe http://localhost:8080/config/shop
+{"name":"ShopEasy (DEV)","currency":"INR","discountPercent":20,"maxItemsPerOrder":10,"sessionTimeout":"PT30M",
+ "supportedPaymentMethods":["UPI","CARD","CASH_ON_DELIVERY"],"contact":{"email":"support@shopeasy.example","phone":"+91-98765-43210"}}
+
+curl.exe http://localhost:8080/config/secret
+{"paymentApiKeyConfigured":false,"maskedValue":"****"}</code></pre>
+
+  <h3>prod profile + a secret from an environment variable</h3>
+  <pre class="terminal"><code>$env:PAYMENT_API_KEY="sk_test_12345678"
+mvn spring-boot:run -Dspring-boot.run.profiles=prod</code></pre>
+  <pre class="terminal"><code>curl.exe http://localhost:8081/config/profile
+{"activeProfiles":["prod"],"serverPort":"8081","loggingLevelOfOurCode":"INFO"}
+
+curl.exe http://localhost:8081/config/secret
+{"paymentApiKeyConfigured":true,"maskedValue":"****5678"}</code></pre>
+  <p>Remove the variable afterwards with <code>Remove-Item Env:PAYMENT_API_KEY</code>.</p>
+
+  <h3>Override anything from the command line</h3>
+  <pre class="terminal"><code>mvn clean package
+java -jar target\config-props-0.0.1-SNAPSHOT.jar --shop.name="Diwali Sale" --server.port=9000
+
+# an environment variable also works (lower priority than --args):
+$env:SHOP_DISCOUNTPERCENT="15"
+java -jar target\config-props-0.0.1-SNAPSHOT.jar
+
+# try breaking the validation on purpose:
+java -jar target\config-props-0.0.1-SNAPSHOT.jar --shop.discount-percent=80
+# -&gt; APPLICATION FAILED TO START ... Reason: must be less than or equal to 50</code></pre>
+  <h3>Tests</h3>
+  <pre class="terminal"><code>mvn test
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0</code></pre>
+
+  <!-- ============================================================ 6. MISTAKES -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>❌ Mistake: TABs or wrong indentation in YAML</strong>
+    Error like <code>found character '\t' that cannot start any token</code> or values silently ending up under the wrong parent.<br>
+    <strong>Fix:</strong> use 2 spaces per level. In VS Code, the status bar shows "Spaces: 2" — click it to convert tabs.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "Could not resolve placeholder 'shop.welcom-message'"</strong>
+    A typo in a <code>@Value</code> key, or a key with no value and no default.<br>
+    <strong>Fix:</strong> check the spelling, or add a default: <code>${key:default}</code>. Better: move groups of values into <code>@ConfigurationProperties</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: profile file named wrongly</strong>
+    <code>application_dev.yml</code> or <code>dev-application.yml</code> is ignored. The pattern is exactly <code>application-{profile}.yml</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: @ConfigurationProperties class is never filled</strong>
+    You forgot <code>@ConfigurationPropertiesScan</code> / <code>@EnableConfigurationProperties</code> → "No qualifying bean of type ShopProperties".<br>
+    <strong>Fix:</strong> add one of them (or, for a normal class, <code>@Component</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: validation annotations are ignored</strong>
+    You forgot <code>@Validated</code> on the class, <code>@Valid</code> on a nested object, or the <code>spring-boot-starter-validation</code> dependency.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: having BOTH application.properties and application.yml</strong>
+    Both are loaded (properties wins on conflicts). Debugging which value you get becomes painful. Pick one format per project.</div>
+  <div class="callout danger"><strong>❌ Mistake: committing secrets</strong>
+    <code>spring.datasource.password=SuperSecret123</code> in Git stays in history forever, even if you delete it later.<br>
+    <strong>Fix:</strong> <code>${DB_PASSWORD}</code> placeholders + environment variables; <code>.env</code> in <code>.gitignore</code>; rotate any leaked secret immediately.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: putting <code>spring.profiles.active</code> inside a profile file</strong>
+    Spring Boot does not allow activating profiles from <code>application-dev.yml</code> (it fails at startup). Set it in <code>application.yml</code>, on the command line or as an env var.</div>
+
+  <!-- ============================================================ 7. BEST -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Prefer <code>@ConfigurationProperties</code> records</strong> for anything more than one value; validate them with <code>@Validated</code>.</li>
+    <li><strong>Use kebab-case keys</strong> in files (<code>max-items-per-order</code>) and a clear prefix per feature (<code>shop.*</code>, <code>payment.*</code>).</li>
+    <li><strong>Defaults in <code>application.yml</code>, differences in profile files.</strong> Keep profile files small.</li>
+    <li><strong>Common profile names:</strong> <code>dev</code>, <code>test</code>, <code>prod</code> (plus technology profiles like <code>mysql</code> in topic 43).</li>
+    <li><strong>Secrets only via environment variables</strong> or a secret manager (Vault, AWS Secrets Manager, Kubernetes Secrets). Never in Git, never in logs.</li>
+    <li><strong>Same jar everywhere.</strong> Never rebuild to change a setting; change the environment instead.</li>
+    <li><strong>Don't hard-code <code>spring.profiles.active: prod</code></strong> into the packaged jar — let the server choose.</li>
+    <li><strong>Document your custom keys</strong> (the configuration processor + Javadoc comments on the record give auto-complete help).</li>
+    <li>In microservices, configuration can be centralised in a Config Server (topic 62).</li>
+  </ul>
+
+  <!-- ============================================================ 8. SUMMARY -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Spring Boot reads <code>application.properties</code> / <code>application.yml</code> automatically — same keys, two formats.</li>
+    <li><code>@Value("${key:default}")</code> reads single values.</li>
+    <li><code>@ConfigurationProperties(prefix=...)</code> on a record = type-safe, validated groups of settings with relaxed binding.</li>
+    <li><code>@Validated</code> + Bean Validation stops the app at startup when config is wrong.</li>
+    <li>Profiles: <code>application-{profile}.yml</code> overrides the base file; activate with <code>spring.profiles.active</code>.</li>
+    <li>Priority: command line &gt; system properties &gt; environment variables &gt; files outside the jar &gt; files inside the jar.</li>
+    <li>Secrets come from environment variables via <code>${ENV_VAR}</code> placeholders. <code>.env</code> files stay out of Git.</li>
+  </ul></div>
+
+  <!-- ============================================================ 9. EXERCISES -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Convert the format.</strong> Convert this <code>.properties</code> snippet to YAML:
+      <code>server.port=9090</code>, <code>spring.application.name=library</code>, <code>library.max-books-per-member=5</code>, <code>library.branches=Hyderabad,Pune</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-yaml">server:
+  port: 9090
+spring:
+  application:
+    name: library
+library:
+  max-books-per-member: 5
+  branches:
+    - Hyderabad
+    - Pune</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. A new @Value.</strong> Add <code>shop.support-hours</code> (default <code>"9 AM - 6 PM"</code>) and return it from <code>/config/welcome</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Value("${shop.support-hours:9 AM - 6 PM}")
+private String supportHours;
+// in welcome():  result.put("supportHours", supportHours);</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. A test profile.</strong> Create <code>application-test.yml</code> that sets the shop name to <code>ShopEasy (TEST)</code> and port <code>0</code> (random). Start the app with it and check <code>/config/profile</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-yaml"># src/main/resources/application-test.yml
+server:
+  port: 0
+shop:
+  name: ShopEasy (TEST)</code></pre>
+    <p>Run: <code>mvn spring-boot:run -Dspring-boot.run.profiles=test</code>. The log line "Tomcat started on port 5xxxx" shows the random port.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Delivery settings.</strong> Create a validated <code>@ConfigurationProperties(prefix="delivery")</code> record with <code>freeDeliveryAbove</code> (BigDecimal, &gt;= 0),
+      <code>maxDistanceKm</code> (1–50) and <code>estimatedTime</code> (Duration, default 45m). Expose it at <code>GET /config/delivery</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Validated
+@ConfigurationProperties(prefix = "delivery")
+public record DeliveryProperties(
+        @NotNull @PositiveOrZero BigDecimal freeDeliveryAbove,
+        @Min(1) @Max(50) int maxDistanceKm,
+        @DefaultValue("45m") Duration estimatedTime) { }
+
+// application.yml
+// delivery:
+//   free-delivery-above: 499
+//   max-distance-km: 10
+
+// ConfigController: inject DeliveryProperties and return it from @GetMapping("/delivery")</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Who wins?</strong> Set <code>shop.name</code> in four places at once: <code>application.yml</code>, <code>application-dev.yml</code>, the environment variable <code>SHOP_NAME</code>
+      and <code>--shop.name</code>. Predict the result, then remove them one by one from the top and check each time.</p>
+    <details><summary>Hint / solution</summary><p>Order of winning: <code>--shop.name</code> (command line) → <code>SHOP_NAME</code> (env var) → <code>application-dev.yml</code> (profile file) → <code>application.yml</code>.
+      In PowerShell: <code>$env:SHOP_NAME="From Env"</code>; then <code>java -jar target\config-props-0.0.1-SNAPSHOT.jar --shop.name="From Args"</code>.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. A profile-specific bean.</strong> Create an interface <code>PaymentGateway</code> with two implementations: <code>FakePaymentGateway</code> active only in <code>dev</code> and
+      <code>RealPaymentGateway</code> active in <code>prod</code> (uses <code>payment.api-key</code>). Add an endpoint that shows which one is used.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public interface PaymentGateway { String name(); }
+
+@Service @Profile("dev")
+class FakePaymentGateway implements PaymentGateway {
+    public String name() { return "FAKE (no real money)"; }
+}
+
+@Service @Profile("prod")
+class RealPaymentGateway implements PaymentGateway {
+    private final String apiKey;
+    RealPaymentGateway(@Value("${payment.api-key}") String apiKey) { this.apiKey = apiKey; }
+    public String name() { return "REAL gateway"; }
+}
+
+// in a controller:  @GetMapping("/config/gateway") String gw() { return gateway.name(); }</code></pre></details>
+  </div>
+
+  <!-- ============================================================ 10. INTERVIEW -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between @Value and @ConfigurationProperties?</summary>
+    <p><code>@Value</code> injects single values by key and supports SpEL. <code>@ConfigurationProperties</code> binds a whole group of keys with a prefix to a typed object with relaxed binding,
+      JSR-303 validation and IDE metadata. Use <code>@ConfigurationProperties</code> for structured configuration.</p></details>
+  <details><summary>Q2. What is a Spring profile and how do you activate one?</summary>
+    <p>A named set of configuration and beans for an environment. Activate with <code>spring.profiles.active</code> in a config file, <code>--spring.profiles.active=prod</code>,
+      <code>-Dspring.profiles.active=prod</code>, the env var <code>SPRING_PROFILES_ACTIVE</code>, or <code>@ActiveProfiles</code> in tests.</p></details>
+  <details><summary>Q3. Explain the order of precedence of configuration sources in Spring Boot.</summary>
+    <p>Roughly: command-line args &gt; Java system properties &gt; OS environment variables &gt; profile-specific files outside the jar &gt; application files outside the jar &gt;
+      profile-specific files inside the jar &gt; application files inside the jar &gt; defaults. Later/more specific sources override earlier ones.</p></details>
+  <details><summary>Q4. What is relaxed binding?</summary>
+    <p>Spring Boot maps different spellings of a key to the same property: <code>my-prop</code>, <code>myProp</code>, <code>my_prop</code> and <code>MYPROP</code>/<code>MY_PROP</code> env vars all bind to a field <code>myProp</code> in a <code>@ConfigurationProperties</code> class.</p></details>
+  <details><summary>Q5. How do you validate configuration properties?</summary>
+    <p>Add <code>spring-boot-starter-validation</code>, annotate the properties class with <code>@Validated</code> and its fields with constraints like <code>@NotBlank</code>, <code>@Min</code>; use <code>@Valid</code> for nested objects. Invalid values make startup fail with a descriptive message.</p></details>
+  <details><summary>Q6. How do you manage secrets in a Spring Boot application?</summary>
+    <p>Never commit them. Reference them with placeholders (<code>${DB_PASSWORD}</code>) and supply via environment variables, Docker/Kubernetes secrets, or a secret manager (Vault, AWS Secrets Manager, Azure Key Vault), optionally through Spring Cloud Config/Vault integrations. Don't log them.</p></details>
+  <details><summary>Q7. application.properties vs application.yml — which is better?</summary>
+    <p>Functionally equivalent. YAML is hierarchical and less repetitive, good for nested/list config; properties are simpler and less error-prone regarding indentation. Choose one per project. If both exist, both are loaded and <code>.properties</code> takes precedence for the same key.</p></details>
+  <details><summary>Q8. How can you have a different bean in dev and prod?</summary>
+    <p>Annotate the bean classes or <code>@Bean</code> methods with <code>@Profile("dev")</code> / <code>@Profile("prod")</code> (or <code>@ConditionalOnProperty</code>). Only beans of active profiles are created.</p></details>
+  <details><summary>Q9. Where can application.yml live outside the jar?</summary>
+    <p>In the current directory, in a <code>config/</code> subdirectory of the current directory, or any location given by <code>spring.config.location</code> / <code>spring.config.additional-location</code>. You can also import files with <code>spring.config.import</code>. External files override the packaged ones.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../28-Spring-Boot-Introduction/lesson.html"><small>← Previous</small>28. Spring Boot Introduction</a>
+    <a class="next" href="../30-Logging-In-Spring-Boot/lesson.html"><small>Next →</small>30. Logging in Spring Boot</a>
+  </nav>
+</main>
+</body>
+</html>

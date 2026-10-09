@@ -1,0 +1,142 @@
+# =====================================================================
+# .github/workflows/ci.yml  -  Topic 68
+#
+# GitHub runs this file automatically. It ONLY works when this folder
+# (68-CI-CD-With-GitHub-Actions) is the ROOT of a GitHub repository,
+# because GitHub looks for workflows in <repo-root>/.github/workflows/.
+#
+# Pipeline:
+#   build   : checkout -> Java 17 -> mvn -B verify (compile + tests + coverage) -> keep the jar
+#   docker  : (only on push to main) build the Docker image and push it to Docker Hub
+#   deploy  : (only on push to main) placeholder deploy to "production" environment
+#
+# Secrets needed (repo Settings -> Secrets and variables -> Actions):
+#   DOCKERHUB_USERNAME  - your Docker Hub user name
+#   DOCKERHUB_TOKEN     - a Docker Hub access token (NOT your password)
+# =====================================================================
+
+name: CI
+
+# ---------- WHEN does it run? (triggers / "events") ----------
+on:
+  push:
+    branches: [ main ]          # every push to main
+  pull_request:
+    branches: [ main ]          # every pull request that targets main
+  workflow_dispatch:            # adds a "Run workflow" button in the Actions tab
+
+# Least privilege: the automatic GITHUB_TOKEN may only read the code
+permissions:
+  contents: read
+
+# If you push twice quickly, cancel the older run of the same branch
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ===================================================================
+  # Job 1: build and test (Continuous Integration)
+  # ===================================================================
+  build:
+    name: Build & test
+    runs-on: ubuntu-latest      # a fresh virtual machine from GitHub (the "runner")
+
+    steps:
+      # 1. Download the repository's code onto the runner
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      # 2. Install Temurin JDK 17 and cache ~/.m2 (dependencies) between runs
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # 3. The SAME command you run on your laptop.
+      #    -B = batch mode (no colours / progress bars, cleaner logs)
+      #    verify = compile + unit tests + package (jar) + JaCoCo coverage report
+      - name: Build and test with Maven
+        run: mvn -B verify
+
+      # 4. Keep test + coverage reports. "if: always()" = also when tests FAILED,
+      #    which is exactly when you want to read them.
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            target/surefire-reports/
+            target/site/jacoco/
+          retention-days: 7
+
+      # 5. Keep the jar so the docker job can use it (build once, use many times)
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: target/app.jar
+          retention-days: 7
+
+  # ===================================================================
+  # Job 2: build and push the Docker image (Continuous Delivery)
+  # ===================================================================
+  docker:
+    name: Build & push Docker image
+    needs: build                # runs only if "build" succeeded
+    # Only for real pushes to main - never for pull requests (PRs from forks have no secrets)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4          # we need the Dockerfile
+
+      - name: Download jar from the build job
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: target
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .                       # use the checked-out folder (with target/app.jar)
+          push: true
+          # Two tags: "latest" and the exact commit id (so every image is traceable)
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/shipping-app:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/shipping-app:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ===================================================================
+  # Job 3: deploy (placeholder). The "production" environment can be
+  # configured in Settings -> Environments with "Required reviewers":
+  # then a human must click "Approve" first = Continuous DELIVERY.
+  # Without reviewers it runs automatically = Continuous DEPLOYMENT.
+  # ===================================================================
+  deploy:
+    name: Deploy to production
+    needs: docker
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy (placeholder)
+        run: |
+          echo "Here you would deploy image shipping-app:${{ github.sha }}"
+          echo "e.g. kubectl set image deployment/shipping-app app=<user>/shipping-app:${{ github.sha }}  (topic 69)"

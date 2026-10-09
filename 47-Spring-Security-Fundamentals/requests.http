@@ -1,0 +1,47 @@
+### Topic 47 - Spring Security Fundamentals
+### Use with the VS Code "REST Client" extension: click "Send Request" above each block.
+### Start the app first:  mvn spring-boot:run
+
+@host = http://localhost:8080
+
+### 1. Public URL - no login needed -> 200
+GET {{host}}/api/public/notice
+
+### 2. Protected URL without credentials -> 401 Unauthorized
+GET {{host}}/api/me
+
+### 3. Protected URL with HTTP Basic (REST Client encodes user:password for you) -> 200
+GET {{host}}/api/me
+Authorization: Basic student student123
+
+### 4. Wrong password -> 401
+GET {{host}}/api/me
+Authorization: Basic student wrongpass
+
+### 5. Admin URL as a normal USER -> 403 Forbidden
+GET {{host}}/api/admin/stats
+Authorization: Basic student student123
+
+### 6. Admin URL as ADMIN -> 200
+GET {{host}}/api/admin/stats
+Authorization: Basic admin admin123
+
+### 7. POST works without a CSRF token because CSRF is ignored for /api/** -> 201
+POST {{host}}/api/feedback
+Authorization: Basic student student123
+Content-Type: application/json
+
+{
+  "message": "Loved the security lesson!"
+}
+
+### 8. CORS preflight from an allowed origin -> 200 with Access-Control-Allow-Origin
+OPTIONS {{host}}/api/me
+Origin: http://localhost:3000
+Access-Control-Request-Method: GET
+Access-Control-Request-Headers: Authorization
+
+### 9. CORS preflight from an unknown origin -> 403 "Invalid CORS request"
+OPTIONS {{host}}/api/me
+Origin: http://evil.example.com
+Access-Control-Request-Method: GET

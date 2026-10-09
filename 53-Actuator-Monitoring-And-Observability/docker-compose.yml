@@ -1,0 +1,33 @@
+# Topic 53 - OPTIONAL monitoring stack: Prometheus (collects metrics) + Grafana (draws dashboards).
+#
+# 1) Start the Spring Boot app on your machine:   mvn spring-boot:run      (port 8080)
+# 2) Start the stack:                              docker compose up -d
+# 3) Prometheus UI:  http://localhost:9090   -> Status > Targets: "order-service" must be UP
+#    Grafana UI:     http://localhost:3000   (login admin / admin)
+# 4) Stop:                                         docker compose down
+services:
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: course-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      # our scrape configuration (which URL to read metrics from, and how often)
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      # lets the container reach the app running on YOUR machine (needed on Linux; Docker Desktop has it built in)
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: course-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      # automatically adds Prometheus as a data source
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus

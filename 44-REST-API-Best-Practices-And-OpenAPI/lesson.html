@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>44 · REST API Best Practices &amp; OpenAPI</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 44</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>44. REST API Best Practices &amp; OpenAPI</h1>
+  <p class="subtitle">Design APIs that other developers love to use — clean URLs, correct status codes, one error format, paging and versioning — and document them automatically with Swagger UI.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="44-REST-API-Best-Practices-And-OpenAPI"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Resource naming rules: nouns, plurals, nesting, lower-case, no verbs.</li>
+      <li>An HTTP status code cheat sheet — which code for which situation.</li>
+      <li>Versioning strategies: URI (<code>/api/v1</code>), header, media type — and when to create a new version.</li>
+      <li>A consistent response shape for lists and one error format (ProblemDetail) for the whole API.</li>
+      <li>Safe and idempotent methods, and how an <code>Idempotency-Key</code> header makes POST retries safe.</li>
+      <li>Conventions for filtering, sorting and pagination.</li>
+      <li>HATEOAS in a nutshell.</li>
+      <li>OpenAPI and Swagger UI with springdoc: <code>/swagger-ui.html</code>, <code>/v3/api-docs</code>, <code>@Tag</code>, <code>@Operation</code>, <code>@ApiResponse</code>, <code>@Schema</code>, groups.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../32-Request-Handling-And-Responses/lesson.html">Topic 32 · Request handling</a>, <a href="../35-Global-Exception-Handling/lesson.html">Topic 35 · Exception handling</a>, <a href="../41-Pagination-And-Sorting/lesson.html">Topic 41 · Pagination</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1 -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>An API is a <strong>product for other developers</strong>: the mobile team, the frontend team, a partner company, or you in six months. If your URLs are random, your status codes are always 200, and every error looks different, those developers lose hours guessing. They write bugs. They send you angry messages.</p>
+  <p>A well-designed API is <strong>predictable</strong>. Once you have used one endpoint, you can guess how the others work. And a well-documented API answers questions <em>before</em> they are asked.</p>
+  <p>In companies you will hear: <em>"Is it in Swagger?"</em> That means: "Is the endpoint documented in the OpenAPI page?" Frontend developers open that page every day to see what to send and what comes back. After this lesson your APIs will have that page — generated automatically from your code.</p>
+  <div class="callout info"><strong>ℹ️ Nothing magical</strong> Most of this lesson is <em>rules and habits</em>, not new Spring features. You already know <code>@GetMapping</code>, <code>ResponseEntity</code>, <code>Pageable</code> and <code>@RestControllerAdvice</code>. Now we use them in a professional, consistent way.</div>
+
+  <!-- ===================================================== 2 -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🍽️ Think of a good restaurant menu</strong>
+    <ul>
+      <li>The <strong>menu sections</strong> are clear nouns: <em>Starters, Mains, Desserts</em> → like <code>/tasks</code>, <code>/users</code>, <code>/orders</code>.</li>
+      <li>You <strong>order, change or cancel</strong> with standard actions — you don't need a special word for each dish → like GET, POST, PUT, PATCH, DELETE.</li>
+      <li>The waiter answers with <strong>clear standard replies</strong>: "Coming right up" (201), "Sorry, we're out of that" (404), "We can't make it like that" (400).</li>
+      <li>When the restaurant changes its menu, regulars can still ask for the <strong>old menu</strong> for a while → API versioning.</li>
+      <li>The <strong>menu with photos, ingredients and prices</strong> is the documentation → OpenAPI / Swagger UI. Nobody has to walk into the kitchen to ask.</li>
+      <li>If you say "I'd like order #42" twice because the waiter didn't hear, you don't get two meals → idempotency.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== 3 -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Resource naming rules</h3>
+  <p>In REST, a URL names a <strong>resource</strong> (a thing), and the HTTP method says <strong>what to do</strong> with it. So URLs contain <strong>nouns</strong>, never verbs.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Rule</th><th>✅ Good</th><th>❌ Bad</th></tr>
+    <tr><td>Use nouns, not verbs</td><td><code>GET /tasks</code></td><td><code>GET /getAllTasks</code></td></tr>
+    <tr><td>Use plural nouns for collections</td><td><code>/tasks</code>, <code>/tasks/42</code></td><td><code>/task</code>, <code>/taskList</code></td></tr>
+    <tr><td>Use the HTTP method for the action</td><td><code>DELETE /tasks/42</code></td><td><code>POST /tasks/42/delete</code></td></tr>
+    <tr><td>Lower-case, words with hyphens</td><td><code>/order-items</code></td><td><code>/OrderItems</code>, <code>/order_items</code></td></tr>
+    <tr><td>Nest only for real ownership, max ~2 levels</td><td><code>/projects/7/tasks</code></td><td><code>/companies/1/projects/7/tasks/42/comments/3/likes</code></td></tr>
+    <tr><td>Filters go in the query string</td><td><code>/tasks?status=DONE</code></td><td><code>/tasks/done</code>, <code>/doneTasks</code></td></tr>
+    <tr><td>No file extensions</td><td><code>/tasks/42</code> + <code>Accept</code> header</td><td><code>/tasks/42.json</code></td></tr>
+    <tr><td>No trailing slash</td><td><code>/tasks</code></td><td><code>/tasks/</code></td></tr>
+    <tr><td>Prefix and version</td><td><code>/api/v1/tasks</code></td><td><code>/myapp/rest/services/tasks</code></td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 What about actions that are not CRUD?</strong> Sometimes an action really is a verb, like "send this invoice by email". Options: model it as a sub-resource (<code>POST /invoices/42/emails</code> — "create an email for invoice 42"), or a state change (<code>PATCH /invoices/42 {"status":"SENT"}</code>). A small number of action URLs like <code>POST /orders/42/cancel</code> is acceptable when it is clearer — just be consistent.</div>
+
+  <h3>3.2 Methods: safe and idempotent</h3>
+  <p>Two important words:</p>
+  <ul>
+    <li><strong>Safe</strong> = does not change anything on the server (just reading).</li>
+    <li><strong>Idempotent</strong> = doing it once or 10 times leaves the server in the <em>same state</em>. Like pressing a lift button many times — the lift still comes once.</li>
+  </ul>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>Meaning</th><th>Safe?</th><th>Idempotent?</th><th>Typical success code</th></tr>
+    <tr><td><code>GET</code></td><td>Read</td><td>✅</td><td>✅</td><td>200</td></tr>
+    <tr><td><code>POST</code></td><td>Create (or start a process)</td><td>❌</td><td>❌</td><td>201 + <code>Location</code></td></tr>
+    <tr><td><code>PUT</code></td><td>Replace the whole resource</td><td>❌</td><td>✅</td><td>200 (or 204)</td></tr>
+    <tr><td><code>PATCH</code></td><td>Change some fields</td><td>❌</td><td>Usually* </td><td>200</td></tr>
+    <tr><td><code>DELETE</code></td><td>Remove</td><td>❌</td><td>✅</td><td>204</td></tr>
+  </table></div>
+  <p>* <code>PATCH {"status":"DONE"}</code> is idempotent; <code>PATCH {"increaseBy": 1}</code> is not. Design patches as "set to value" whenever you can.</p>
+  <p><strong>Why do we care?</strong> Networks fail. A mobile app sends a request, the connection drops, and the app does not know whether the server received it. For idempotent methods the app can simply <strong>retry</strong>. For POST, a retry could create a <strong>duplicate</strong> order or payment! The solution is an <strong>Idempotency-Key</strong>:</p>
+  <div class="flow">
+    <span class="box">Client: POST + <code>Idempotency-Key: abc</code></span><span class="arrow">→</span>
+    <span class="box alt">Server: new key → create task 13, remember abc→13</span><span class="arrow">→</span>
+    <span class="box info">201 Created</span>
+  </div>
+  <div class="flow">
+    <span class="box">Client retries: same key <code>abc</code></span><span class="arrow">→</span>
+    <span class="box alt">Server: key known → return task 13 again</span><span class="arrow">→</span>
+    <span class="box info">200 OK (no duplicate!)</span>
+  </div>
+  <p>Payment companies like Stripe use exactly this pattern. Our <code>TaskService</code> shows a simple version.</p>
+  <div class="callout info"><strong>ℹ️ DELETE twice?</strong> The first DELETE returns 204, the second returns 404 in our API. That is still idempotent: idempotency is about the <em>server state</em> (task is gone either way), not about getting the same status code.</div>
+
+  <h3>3.3 HTTP status code cheat sheet</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Code</th><th>Name</th><th>Use it when...</th></tr>
+    <tr><td><strong>200</strong></td><td>OK</td><td>GET/PUT/PATCH succeeded and you return a body</td></tr>
+    <tr><td><strong>201</strong></td><td>Created</td><td>POST created something. Add a <code>Location</code> header with its URL</td></tr>
+    <tr><td><strong>202</strong></td><td>Accepted</td><td>Request accepted, work will be done later (async job)</td></tr>
+    <tr><td><strong>204</strong></td><td>No Content</td><td>Success with no body (typical for DELETE)</td></tr>
+    <tr><td><strong>304</strong></td><td>Not Modified</td><td>Client's cached copy (ETag) is still fresh</td></tr>
+    <tr><td><strong>400</strong></td><td>Bad Request</td><td>Invalid input: validation failed, bad JSON, wrong type</td></tr>
+    <tr><td><strong>401</strong></td><td>Unauthorized</td><td>Not logged in / missing or invalid token (topic 47)</td></tr>
+    <tr><td><strong>403</strong></td><td>Forbidden</td><td>Logged in, but not allowed (wrong role)</td></tr>
+    <tr><td><strong>404</strong></td><td>Not Found</td><td>The resource does not exist</td></tr>
+    <tr><td><strong>405</strong></td><td>Method Not Allowed</td><td>e.g. DELETE on <code>/tasks</code> (Spring does this for you)</td></tr>
+    <tr><td><strong>409</strong></td><td>Conflict</td><td>State conflict: duplicate email, optimistic lock version clash (topic 42)</td></tr>
+    <tr><td><strong>415</strong></td><td>Unsupported Media Type</td><td>Client forgot <code>Content-Type: application/json</code></td></tr>
+    <tr><td><strong>422</strong></td><td>Unprocessable Content</td><td>Some teams use it for business-rule violations (valid JSON, but "not allowed")</td></tr>
+    <tr><td><strong>429</strong></td><td>Too Many Requests</td><td>Rate limit hit</td></tr>
+    <tr><td><strong>500</strong></td><td>Internal Server Error</td><td>A bug or unexpected failure on <em>our</em> side</td></tr>
+    <tr><td><strong>503</strong></td><td>Service Unavailable</td><td>Temporarily down / a dependency is down</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Easy memory trick</strong> 2xx = "it worked", 4xx = "<strong>you</strong> (client) made a mistake", 5xx = "<strong>we</strong> (server) made a mistake". Never return 200 with <code>{"error": "..."}</code> inside.</div>
+
+  <h3>3.4 Consistent response format</h3>
+  <p><strong>Single resources</strong>: return the object itself (<code>{"id":1,"title":"..."}</code>). No need to wrap it in <code>{"data": ...}</code>.</p>
+  <p><strong>Lists</strong>: always return a page object with the same shape everywhere:</p>
+  <pre><code class="lang-java">{
+  "content": [ { "id": 1, ... }, { "id": 2, ... } ],
+  "page": 0,
+  "size": 10,
+  "totalElements": 12,
+  "totalPages": 2,
+  "first": true,
+  "last": false
+}</code></pre>
+  <p>Why not return Spring's <code>Page&lt;T&gt;</code> directly? Its JSON is big, full of internal fields, and Spring Data itself logs a warning that the format is not guaranteed to be stable. Our own <code>PageResponse&lt;T&gt;</code> record is small, clear and under our control. (Alternative: <code>@EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO)</code> gives a stable <code>PagedModel</code> format.)</p>
+  <p><strong>Other consistency rules:</strong></p>
+  <ul>
+    <li>JSON field names in <code>camelCase</code> everywhere (Jackson's default).</li>
+    <li>Dates in ISO-8601: <code>"2030-01-31"</code>, <code>"2030-01-31T10:15:30Z"</code>.</li>
+    <li>Enums as readable strings: <code>"IN_PROGRESS"</code>, not numbers.</li>
+    <li>Money as a decimal number or string plus a currency — never floating-point maths.</li>
+  </ul>
+
+  <h3>3.5 One error format: ProblemDetail</h3>
+  <p>In topic 35 you met <strong>ProblemDetail</strong>, Spring's implementation of the standard <strong>RFC 9457</strong> (it replaced RFC 7807). Using the standard means clients can use one piece of code to show <em>every</em> error.</p>
+  <pre><code class="lang-java">HTTP/1.1 404
+Content-Type: application/problem+json
+
+{
+  "type": "https://api.example.com/problems/task-not-found",   // a URI that identifies the error KIND
+  "title": "Task not found",                                     // short, same for every error of this kind
+  "status": 404,
+  "detail": "Task with id 999 was not found",                    // this specific case
+  "instance": "/api/v1/tasks/999",                               // which request
+  "taskId": 999,                                                 // extra properties are allowed
+  "timestamp": "2026-10-09T04:37:16Z"
+}</code></pre>
+  <p>Validation errors get an extra <code>errors</code> map so a form can show each message next to its field:</p>
+  <pre><code class="lang-java">{
+  "type": "https://api.example.com/problems/validation-error",
+  "title": "Validation failed",
+  "status": 400,
+  "detail": "One or more fields are invalid",
+  "errors": { "title": "must not be blank", "dueDate": "must be a date in the present or in the future" }
+}</code></pre>
+
+  <h3>3.6 Filtering, sorting and pagination conventions</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Need</th><th>Convention</th><th>Example</th></tr>
+    <tr><td>Filter by a field</td><td>query parameter with the field name</td><td><code>?status=TODO&amp;priority=HIGH</code></td></tr>
+    <tr><td>Free-text search</td><td><code>search</code> or <code>q</code></td><td><code>?search=demo</code></td></tr>
+    <tr><td>Range</td><td><code>min</code>/<code>max</code> or <code>from</code>/<code>to</code> prefixes</td><td><code>?dueFrom=2030-01-01&amp;dueTo=2030-01-31</code></td></tr>
+    <tr><td>Sort</td><td><code>sort=field,direction</code>, repeatable (Spring's default)</td><td><code>?sort=priority,desc&amp;sort=dueDate,asc</code></td></tr>
+    <tr><td>Page</td><td><code>page</code> (0-based in Spring) and <code>size</code></td><td><code>?page=1&amp;size=20</code></td></tr>
+    <tr><td>Limit page size</td><td>a server-side maximum</td><td><code>spring.data.web.pageable.max-page-size=100</code></td></tr>
+  </table></div>
+  <p>Two safety rules: <strong>always cap the page size</strong> (otherwise <code>?size=1000000</code> can take down your database), and <strong>whitelist sort fields</strong> (an unknown field would otherwise cause a 500 error, and sorting by un-indexed columns can be slow).</p>
+  <div class="callout info"><strong>ℹ️ Offset vs cursor pagination</strong> <code>page/size</code> (offset) is simple and fine for most apps. Very large or fast-changing lists (social feeds) use <em>cursor</em> pagination: <code>?after=eyJpZCI6MTIzfQ&amp;limit=20</code>. You'll see it in big public APIs.</div>
+
+  <h3>3.7 API versioning strategies</h3>
+  <p>Once clients use your API, you <strong>cannot break it</strong>. A breaking change is: renaming or removing a field, changing a type, making an optional field required, changing a URL or status code. Adding a <em>new optional</em> field is not breaking.</p>
+  <p>When you must break, you publish a <strong>new version</strong> and keep the old one alive for a while.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Strategy</th><th>Example</th><th>Pros</th><th>Cons</th></tr>
+    <tr><td><strong>URI path</strong></td><td><code>GET /api/v2/tasks</code></td><td>Very visible, easy to test in a browser, easy routing/caching. <strong>Most common.</strong></td><td>URL changes between versions</td></tr>
+    <tr><td><strong>Custom header</strong></td><td><code>X-API-Version: 2</code></td><td>Clean, stable URLs</td><td>Invisible in a browser; easy to forget</td></tr>
+    <tr><td><strong>Media type</strong> (content negotiation)</td><td><code>Accept: application/vnd.course.task.v2+json</code></td><td>"Purest" REST</td><td>Complex for clients and docs</td></tr>
+    <tr><td><strong>Query parameter</strong></td><td><code>/tasks?version=2</code></td><td>Simple</td><td>Mixes versioning with filtering</td></tr>
+  </table></div>
+  <p>Our project shows <strong>URI versioning</strong> (<code>TaskController</code> for v1, <code>TaskV2Controller</code> for v2) and <strong>header versioning</strong> (<code>HeaderVersionedTaskController</code>).</p>
+  <div class="callout info"><strong>ℹ️ In newer Spring</strong> Spring Framework 7 / Spring Boot 4 add first-class API versioning (<code>@GetMapping(version = "2")</code>). In Spring Boot 3.5 we do it with paths or <code>headers = "X-API-Version=2"</code>, as shown here.</div>
+
+  <h3>3.8 HATEOAS (brief)</h3>
+  <p><strong>HATEOAS</strong> = "Hypermedia As The Engine Of Application State". Big name, simple idea: a response contains <strong>links</strong> telling the client what it can do next, like links on a web page.</p>
+  <pre><code class="lang-java">{
+  "id": 3,
+  "title": "Fix login bug",
+  "status": "TODO",
+  "_links": {
+    "self":     { "href": "http://localhost:8080/api/v1/tasks/3" },
+    "complete": { "href": "http://localhost:8080/api/v1/tasks/3", "method": "PATCH" },
+    "all":      { "href": "http://localhost:8080/api/v1/tasks" }
+  }
+}</code></pre>
+  <p>Spring supports it with <code>spring-boot-starter-hateoas</code> (<code>EntityModel</code>, <code>WebMvcLinkBuilder.linkTo(...)</code>). In practice, most company APIs skip HATEOAS and rely on OpenAPI docs instead — but know the word for interviews.</p>
+
+  <h3>3.9 OpenAPI and Swagger — what are they?</h3>
+  <ul>
+    <li><strong>OpenAPI</strong> is a <em>standard format</em> (JSON or YAML) that describes an API: every URL, method, parameter, request body, response and error. Machines can read it.</li>
+    <li><strong>Swagger UI</strong> is a <em>web page</em> that reads an OpenAPI file and shows it nicely, with a <strong>"Try it out"</strong> button to call the API from the browser.</li>
+    <li><strong>springdoc-openapi</strong> is the library that <em>generates</em> the OpenAPI file from your Spring controllers at runtime — no hand-writing.</li>
+  </ul>
+  <div class="flow">
+    <span class="box">Your @RestControllers + DTOs</span><span class="arrow">→</span>
+    <span class="box alt">springdoc scans them</span><span class="arrow">→</span>
+    <span class="box info">/v3/api-docs (OpenAPI JSON)</span><span class="arrow">→</span>
+    <span class="box">/swagger-ui.html (web page)</span>
+  </div>
+  <p>One dependency is all you need:</p>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springdoc&lt;/groupId&gt;
+    &lt;artifactId&gt;springdoc-openapi-starter-webmvc-ui&lt;/artifactId&gt;
+    &lt;version&gt;2.8.9&lt;/version&gt;   &lt;!-- not managed by Spring Boot, so we write the version --&gt;
+&lt;/dependency&gt;</code></pre>
+  <p>Even with <strong>zero annotations</strong>, you already get a working Swagger page. The annotations below only make it <em>better</em>. The OpenAPI file can also generate client code (TypeScript, Kotlin, Java...) with tools like OpenAPI Generator — the frontend team will love you.</p>
+
+  <h3>3.10 The documentation annotations</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Annotation</th><th>Put it on</th><th>What it adds</th></tr>
+    <tr><td><code>@Tag(name, description)</code></td><td>Controller class</td><td>Groups operations under a heading in Swagger UI</td></tr>
+    <tr><td><code>@Operation(summary, description)</code></td><td>Controller method</td><td>A one-line summary + longer explanation of the endpoint</td></tr>
+    <tr><td><code>@ApiResponse(responseCode, description, content)</code></td><td>Method (inside <code>@ApiResponses</code>)</td><td>Documents each possible status code and its body</td></tr>
+    <tr><td><code>@Parameter(description, example)</code></td><td>Method parameter</td><td>Explains a path/query/header parameter</td></tr>
+    <tr><td><code>@Schema(description, example, ...)</code></td><td>DTO class / record component</td><td>Describes a model and its fields, with example values</td></tr>
+    <tr><td><code>@ParameterObject</code></td><td><code>Pageable</code> parameter</td><td>Shows <code>page</code>, <code>size</code>, <code>sort</code> as three separate parameters</td></tr>
+    <tr><td><code>@Hidden</code></td><td>Class or method</td><td>Hide it from the docs</td></tr>
+  </table></div>
+  <p>Bonus: springdoc reads <strong>Bean Validation</strong> annotations too. <code>@NotBlank @Size(max = 100)</code> appears in the docs as "required, maxLength 100" automatically.</p>
+
+  <h3>3.11 Global info and groups</h3>
+  <p>An <code>OpenAPI</code> bean sets the "cover page" (title, version, contact, license, servers). <code>GroupedOpenApi</code> beans split a big API into several documents — for example one per version, or "public" vs "admin". Swagger UI shows a drop-down to switch between them, and each group has its own JSON at <code>/v3/api-docs/&lt;group&gt;</code>.</p>
+  <pre><code class="lang-java">@Bean
+public GroupedOpenApi v1Api() {
+    return GroupedOpenApi.builder()
+            .group("v1")                 // name in the drop-down and in /v3/api-docs/v1
+            .pathsToMatch("/api/v1/**")  // which endpoints belong to this group
+            .build();
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>URL</th><th>What you get</th></tr>
+    <tr><td><code>/swagger-ui.html</code></td><td>Redirects to the Swagger UI page</td></tr>
+    <tr><td><code>/v3/api-docs</code></td><td>OpenAPI JSON (when there are groups: a list of groups / swagger config)</td></tr>
+    <tr><td><code>/v3/api-docs/v1</code></td><td>OpenAPI JSON of the group <code>v1</code></td></tr>
+    <tr><td><code>/v3/api-docs.yaml</code> or <code>/v3/api-docs/v1.yaml</code></td><td>The same in YAML</td></tr>
+  </table></div>
+
+  <!-- ===================================================== 4 -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>All Java files are under <code>src/main/java/com/course/taskapi</code>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>config/OpenApiConfig.java</code></td><td>API title/description/contact/license/servers + 3 groups</td></tr>
+    <tr><td><code>config/DataSeeder.java</code></td><td>12 sample tasks at startup (so paging has 2 pages)</td></tr>
+    <tr><td><code>task/Task.java</code>, <code>TaskStatus</code>, <code>TaskPriority</code></td><td>Entity with enums stored as strings, created/updated timestamps</td></tr>
+    <tr><td><code>task/TaskRepository.java</code></td><td>One JPQL query with optional filters + <code>Pageable</code></td></tr>
+    <tr><td><code>task/TaskService.java</code></td><td>Sort whitelist, PUT vs PATCH logic, Idempotency-Key</td></tr>
+    <tr><td><code>task/TaskController.java</code></td><td><code>/api/v1/tasks</code>, fully documented with <code>@Tag</code>, <code>@Operation</code>, <code>@ApiResponse</code>, <code>@Parameter</code></td></tr>
+    <tr><td><code>task/TaskV2Controller.java</code></td><td><code>/api/v2/tasks</code> — URI versioning</td></tr>
+    <tr><td><code>task/HeaderVersionedTaskController.java</code></td><td><code>/api/tasks/{id}</code> — header versioning</td></tr>
+    <tr><td><code>task/TaskCreateRequest</code>, <code>TaskUpdateRequest</code>, <code>TaskPatchRequest</code>, <code>TaskResponse</code>, <code>TaskSummaryV2</code></td><td>DTO records with <code>@Schema</code> + validation</td></tr>
+    <tr><td><code>task/TaskNotFoundException</code>, <code>InvalidSortPropertyException</code></td><td>Domain exceptions</td></tr>
+    <tr><td><code>common/PageResponse.java</code></td><td>The consistent list shape</td></tr>
+    <tr><td><code>common/GlobalExceptionHandler.java</code></td><td>ProblemDetail for every error</td></tr>
+    <tr><td><code>application.properties</code></td><td>H2, page-size limits, springdoc paths</td></tr>
+    <tr><td><code>requests.http</code></td><td>Every request, ready to click</td></tr>
+  </table></div>
+
+  <h3>4.1 The endpoints at a glance</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>URL</th><th>Success</th><th>Errors</th></tr>
+    <tr><td>GET</td><td><code>/api/v1/tasks?status=&amp;priority=&amp;search=&amp;page=&amp;size=&amp;sort=</code></td><td>200 + page</td><td>400</td></tr>
+    <tr><td>GET</td><td><code>/api/v1/tasks/{id}</code></td><td>200</td><td>404</td></tr>
+    <tr><td>POST</td><td><code>/api/v1/tasks</code> (+ optional <code>Idempotency-Key</code>)</td><td>201 + Location (200 on replay)</td><td>400</td></tr>
+    <tr><td>PUT</td><td><code>/api/v1/tasks/{id}</code></td><td>200</td><td>400, 404</td></tr>
+    <tr><td>PATCH</td><td><code>/api/v1/tasks/{id}</code></td><td>200</td><td>400, 404</td></tr>
+    <tr><td>DELETE</td><td><code>/api/v1/tasks/{id}</code></td><td>204</td><td>404</td></tr>
+    <tr><td>GET</td><td><code>/api/v2/tasks</code></td><td>200 + page (v2 shape)</td><td>400</td></tr>
+    <tr><td>GET</td><td><code>/api/tasks/{id}</code> + <code>X-API-Version</code></td><td>200</td><td>404</td></tr>
+  </table></div>
+
+  <h3>4.2 A documented controller method</h3>
+  <pre><span class="file">task/TaskController.java</span><code class="lang-java">@RestController
+@RequestMapping("/api/v1/tasks")
+@Tag(name = "Tasks", description = "Create, read, update and delete tasks")
+public class TaskController {
+
+    @Operation(summary = "Get one task by id")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The task"),
+            @ApiResponse(responseCode = "404", description = "No task with this id",
+                    content = @Content(mediaType = "application/problem+json",
+                            schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    @GetMapping("/{id}")
+    public TaskResponse getById(@Parameter(description = "Task id", example = "1") @PathVariable Long id) {
+        return service.findById(id);
+    }</code></pre>
+  <p>Read it top to bottom: <code>@Tag</code> puts the endpoint in the "Tasks" section; <code>@Operation</code> gives it a title; <code>@ApiResponses</code> tells readers "you may get 200 or 404, and the 404 body looks like a ProblemDetail"; <code>@Parameter</code> explains <code>id</code>. Delete all of them and the endpoint still works — documentation annotations never change behaviour.</p>
+
+  <h3>4.3 The list endpoint: filtering, sorting, paging</h3>
+  <pre><span class="file">task/TaskController.java</span><code class="lang-java">@GetMapping
+public PageResponse&lt;TaskResponse&gt; list(
+        @RequestParam(required = false) TaskStatus status,
+        @RequestParam(required = false) TaskPriority priority,
+        @RequestParam(required = false) String search,
+        @ParameterObject @PageableDefault(size = 10, sort = "id", direction = Sort.Direction.ASC) Pageable pageable) {
+    return service.search(status, priority, search, pageable);
+}</code></pre>
+  <p>Spring converts <code>?status=TODO</code> to the enum automatically; a wrong value like <code>?status=SLEEPING</code> becomes a 400 ProblemDetail. <code>Pageable</code> is built from <code>page</code>, <code>size</code> and <code>sort</code> (topic 41). The repository uses the "<em>null means ignore this filter</em>" trick:</p>
+  <pre><span class="file">task/TaskRepository.java</span><code class="lang-java">@Query("""
+        SELECT t FROM Task t
+        WHERE (:status IS NULL OR t.status = :status)
+          AND (:priority IS NULL OR t.priority = :priority)
+          AND (:search IS NULL OR LOWER(t.title) LIKE LOWER(CONCAT('%', :search, '%')))
+        """)
+Page&lt;Task&gt; search(@Param("status") TaskStatus status,
+                  @Param("priority") TaskPriority priority,
+                  @Param("search") String search,
+                  Pageable pageable);</code></pre>
+  <p>And the service guards the sort fields:</p>
+  <pre><span class="file">task/TaskService.java</span><code class="lang-java">private static final Set&lt;String&gt; SORTABLE_FIELDS =
+        new TreeSet&lt;&gt;(Set.of("id", "title", "status", "priority", "dueDate", "createdAt"));
+
+for (Sort.Order order : pageable.getSort()) {
+    if (!SORTABLE_FIELDS.contains(order.getProperty())) {
+        throw new InvalidSortPropertyException(order.getProperty(), SORTABLE_FIELDS);   // → 400
+    }
+}</code></pre>
+
+  <h3>4.4 POST with 201, Location and Idempotency-Key</h3>
+  <pre><span class="file">task/TaskController.java</span><code class="lang-java">@PostMapping
+public ResponseEntity&lt;TaskResponse&gt; create(
+        @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
+        @Valid @RequestBody TaskCreateRequest request) {
+
+    TaskService.CreateResult result = service.create(request, idempotencyKey);
+
+    URI location = ServletUriComponentsBuilder.fromCurrentRequest()   // http://localhost:8080/api/v1/tasks
+            .path("/{id}")                                             //   + /{id}
+            .buildAndExpand(result.task().id())                        //   → /api/v1/tasks/13
+            .toUri();
+
+    if (result.replayed()) {
+        return ResponseEntity.ok().location(location).body(result.task());   // 200: already created before
+    }
+    return ResponseEntity.created(location).body(result.task());             // 201: brand new
+}</code></pre>
+  <pre><span class="file">task/TaskService.java</span><code class="lang-java">if (idempotencyKey != null) {
+    Long existingId = createdByIdempotencyKey.get(idempotencyKey);
+    if (existingId != null) {
+        return new CreateResult(findById(existingId), true);   // same key → same task, no duplicate
+    }
+}
+Task saved = repository.save(new Task(...));
+if (idempotencyKey != null) {
+    createdByIdempotencyKey.put(idempotencyKey, saved.getId());
+}</code></pre>
+  <div class="callout warn"><strong>⚠️ Teaching version</strong> A <code>ConcurrentHashMap</code> is lost on restart and not shared between several app instances. Real systems store keys in the database (unique constraint) or Redis, with an expiry (e.g. 24 hours).</div>
+
+  <h3>4.5 PUT vs PATCH</h3>
+  <p><code>TaskUpdateRequest</code> (PUT) has <code>@NotNull</code> on status and priority — the client must send the complete task. <code>TaskPatchRequest</code> (PATCH) has no required fields; the service only copies values that are not <code>null</code>:</p>
+  <pre><span class="file">task/TaskService.java</span><code class="lang-java">if (request.title() != null) task.setTitle(request.title());
+if (request.status() != null) task.setStatus(request.status());
+// ...</code></pre>
+
+  <h3>4.6 DTOs with <code>@Schema</code></h3>
+  <pre><span class="file">task/TaskCreateRequest.java</span><code class="lang-java">@Schema(description = "Data needed to create a new task")
+public record TaskCreateRequest(
+
+        @Schema(description = "Short title of the task", example = "Prepare sprint demo", maxLength = 100)
+        @NotBlank @Size(max = 100)
+        String title,
+
+        @Schema(description = "Priority. Defaults to MEDIUM when missing", example = "HIGH")
+        TaskPriority priority,
+
+        @Schema(description = "Due date in ISO format yyyy-MM-dd (today or later)", example = "2030-01-31")
+        @FutureOrPresent
+        LocalDate dueDate) { ... }</code></pre>
+  <p>The <code>example</code> values pre-fill the "Try it out" box in Swagger UI, so testers can click "Execute" immediately.</p>
+
+  <h3>4.7 Versioning in code</h3>
+  <pre><span class="file">task/TaskV2Controller.java</span><code class="lang-java">@RestController
+@RequestMapping("/api/v2/tasks")
+public class TaskV2Controller {
+    @GetMapping
+    public PageResponse&lt;TaskSummaryV2&gt; list(@RequestParam(required = false) String search,
+                                            @ParameterObject @PageableDefault(size = 10, sort = "id") Pageable pageable) {
+        return service.search(null, null, search, pageable).map(TaskSummaryV2::from);   // same service, new shape
+    }
+}</code></pre>
+  <pre><span class="file">task/HeaderVersionedTaskController.java</span><code class="lang-java">@GetMapping("/api/tasks/{id}")                                   // no header → default (v1)
+public TaskResponse getDefault(@PathVariable Long id) { ... }
+
+@GetMapping(value = "/api/tasks/{id}", headers = "X-API-Version=2")   // only when the header is 2
+public TaskSummaryV2 getV2(@PathVariable Long id) { ... }</code></pre>
+  <p>When two mappings match, Spring chooses the <em>more specific</em> one (the one with the header condition).</p>
+
+  <h3>4.8 Errors: <code>GlobalExceptionHandler</code></h3>
+  <pre><span class="file">common/GlobalExceptionHandler.java</span><code class="lang-java">@RestControllerAdvice
+public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {   // ProblemDetail for Spring's own errors
+
+    @ExceptionHandler(TaskNotFoundException.class)
+    public ProblemDetail handleNotFound(TaskNotFoundException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
+        problem.setType(URI.create("https://api.example.com/problems/task-not-found"));
+        problem.setTitle("Task not found");
+        problem.setProperty("taskId", ex.getTaskId());
+        problem.setProperty("timestamp", Instant.now());
+        return problem;
+    }
+
+    @Override   // @Valid failed → 400 with an "errors" map
+    protected ResponseEntity&lt;Object&gt; handleMethodArgumentNotValid(...) { ... }
+
+    @ExceptionHandler(Exception.class)   // the safety net: log it, but never leak a stack trace
+    public ProblemDetail handleUnexpected(Exception ex) { ... }
+}</code></pre>
+
+  <h3>4.9 <code>OpenApiConfig</code></h3>
+  <pre><span class="file">config/OpenApiConfig.java</span><code class="lang-java">@Bean
+public OpenAPI taskApiOpenApi() {
+    return new OpenAPI()
+            .info(new Info()
+                    .title("Task API")
+                    .version("1.0.0")
+                    .description("A small task-management API used in topic 44 ...")
+                    .contact(new Contact().name("Course Team").email("team@example.com"))
+                    .license(new License().name("Apache 2.0").url("https://www.apache.org/licenses/LICENSE-2.0")))
+            .servers(List.of(new Server().url("http://localhost:8080").description("Local machine")));
+}
+// + three GroupedOpenApi beans: "v1", "v2", "versioning-demo"</code></pre>
+  <div class="callout info"><strong>ℹ️ Two kinds of classes with similar names</strong> <code>io.swagger.v3.oas.annotations.*</code> are <em>annotations</em> (on controllers/DTOs). <code>io.swagger.v3.oas.models.*</code> are normal Java <em>objects</em> (used in the <code>OpenAPI</code> bean). VS Code's auto-import sometimes picks the wrong one — check the imports.</div>
+
+  <!-- ===================================================== 5 -->
+  <h2 id="run">5. How to run</h2>
+  <p><strong>VS Code:</strong> open the topic folder, open <code>TaskApiApplication.java</code>, click <strong>Run</strong>. Or in a terminal:</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\44-REST-API-Best-Practices-And-OpenAPI"
+mvn spring-boot:run</code></pre>
+  <h3>5.1 Swagger UI</h3>
+  <ol>
+    <li>Open <code>http://localhost:8080/swagger-ui.html</code>.</li>
+    <li>Top right: <strong>Select a definition</strong> → <code>v1</code>, <code>v2</code> or <code>versioning-demo</code>.</li>
+    <li>Open <strong>POST /api/v1/tasks</strong> → <strong>Try it out</strong> → the example body is already filled in → <strong>Execute</strong>.</li>
+    <li>Scroll down: you see the real <code>curl</code> command, the 201 response, and the <code>location</code> header.</li>
+    <li>At the bottom, open <strong>Schemas</strong> to see <code>TaskCreateRequest</code> with "required" and "maxLength".</li>
+  </ol>
+  <p>Raw OpenAPI JSON: <code>http://localhost:8080/v3/api-docs/v1</code> (YAML: <code>/v3/api-docs/v1.yaml</code>).</p>
+
+  <h3>5.2 curl</h3>
+  <pre class="terminal"><code>curl "http://localhost:8080/api/v1/tasks?size=3"</code></pre>
+  <pre class="terminal"><code>{"content":[{"id":1,"title":"Prepare sprint demo","status":"IN_PROGRESS","priority":"HIGH",...}, ...],
+ "page":0,"size":3,"totalElements":12,"totalPages":4,"first":true,"last":false}</code></pre>
+  <pre class="terminal"><code>curl "http://localhost:8080/api/v1/tasks?status=TODO&amp;priority=HIGH&amp;sort=dueDate,asc"
+curl "http://localhost:8080/api/v1/tasks?search=demo"
+curl http://localhost:8080/api/v1/tasks/1
+
+curl -i -X POST http://localhost:8080/api/v1/tasks -H "Content-Type: application/json" -H "Idempotency-Key: abc" -d "{\"title\":\"Pay invoice\",\"priority\":\"HIGH\"}"
+# run the same command again: 200 instead of 201, same id
+
+curl -X PATCH http://localhost:8080/api/v1/tasks/3 -H "Content-Type: application/json" -d "{\"status\":\"DONE\"}"
+curl -i -X DELETE http://localhost:8080/api/v1/tasks/12
+
+curl "http://localhost:8080/api/v2/tasks?size=2"
+curl -H "X-API-Version: 2" http://localhost:8080/api/tasks/1</code></pre>
+  <p>First POST (abbreviated):</p>
+  <pre class="terminal"><code>HTTP/1.1 201
+Location: http://localhost:8080/api/v1/tasks/13
+{"id":13,"title":"Pay invoice","status":"TODO","priority":"HIGH",...}</code></pre>
+  <p>Error examples:</p>
+  <pre class="terminal"><code>curl http://localhost:8080/api/v1/tasks/999
+{"type":"https://api.example.com/problems/task-not-found","title":"Task not found","status":404,
+ "detail":"Task with id 999 was not found","instance":"/api/v1/tasks/999","taskId":999,"timestamp":"..."}
+
+curl "http://localhost:8080/api/v1/tasks?sort=colour,asc"
+{"type":"https://api.example.com/problems/invalid-sort","title":"Invalid sort property","status":400,
+ "detail":"Cannot sort by 'colour'. Allowed: createdAt, dueDate, id, priority, status, title", ...}
+
+curl "http://localhost:8080/api/v1/tasks?status=SLEEPING"
+{"type":"about:blank","title":"Bad Request","status":400,"detail":"Failed to convert 'status' with value: 'SLEEPING'", ...}</code></pre>
+  <p>Or open <code>requests.http</code> in VS Code and click <strong>Send Request</strong> above each block.</p>
+
+  <!-- ===================================================== 6 -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: verbs in URLs</strong> <code>/api/createTask</code>, <code>/api/tasks/delete/5</code>.<br><strong>Fix:</strong> nouns + HTTP methods: <code>POST /api/v1/tasks</code>, <code>DELETE /api/v1/tasks/5</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: always returning 200</strong> even for errors, with <code>{"success": false}</code> inside.<br><strong>Fix:</strong> use real status codes; clients, proxies and monitoring tools all rely on them.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: POST returns 200 and no Location</strong><br><strong>Fix:</strong> <code>ResponseEntity.created(location).body(dto)</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: returning unlimited lists</strong> <code>GET /tasks</code> returns 500,000 rows.<br><strong>Fix:</strong> paginate every collection endpoint and set <code>spring.data.web.pageable.max-page-size</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: breaking clients silently</strong> renaming <code>title</code> to <code>name</code> in v1.<br><strong>Fix:</strong> add fields freely, but for breaking changes publish v2 and keep v1 for a deprecation period.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: Swagger UI shows a 404 / "Failed to load API definition"</strong><br><strong>Fix:</strong> use the <code>springdoc-openapi-starter-webmvc-ui</code> artifact (not the old <code>springfox</code>, which doesn't work with Spring Boot 3); use springdoc 2.x for Boot 3; if Spring Security is on (topic 47), <code>permitAll()</code> for <code>/swagger-ui/**</code> and <code>/v3/api-docs/**</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: wrong import for <code>@ApiResponse</code></strong> Picking <code>io.swagger.v3.oas.models.responses.ApiResponse</code> (a class) instead of <code>io.swagger.v3.oas.annotations.responses.ApiResponse</code> (the annotation) gives "is not an annotation type".<br><strong>Fix:</strong> import from <code>...oas.annotations...</code>.</div>
+  <div class="callout danger"><strong>🛑 Mistake: leaking internals in errors</strong> Stack traces, SQL, class names in the response help attackers.<br><strong>Fix:</strong> a catch-all handler that logs details and returns a generic 500 ProblemDetail.</div>
+
+  <!-- ===================================================== 7 -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Design first, then code.</strong> Agree on URLs, bodies and errors with the API consumers (some teams even write the OpenAPI YAML first — "contract-first").</li>
+    <li><strong>Be consistent</strong> more than "perfect": same naming, same page shape, same error shape everywhere.</li>
+    <li><strong>DTOs, not entities</strong>, in requests and responses (topic 33) — your API stays stable when the database changes.</li>
+    <li><strong>Validate at the boundary</strong> and return field-level errors (topic 34).</li>
+    <li><strong>Paginate every list</strong>, cap the page size, whitelist sort fields.</li>
+    <li><strong>Version only on breaking changes</strong>; announce deprecations (e.g. a <code>Deprecation</code>/<code>Sunset</code> response header) and give clients time.</li>
+    <li><strong>Make retries safe</strong>: idempotent PUT/DELETE, <code>Idempotency-Key</code> for important POSTs (payments, orders).</li>
+    <li><strong>Document everything that a consumer needs</strong>: every status code, examples, which fields are required.</li>
+    <li><strong>Protect or disable Swagger UI in production</strong> if the API is private: <code>springdoc.swagger-ui.enabled=false</code>, or secure it.</li>
+    <li><strong>Use HTTPS</strong>, and never put secrets or personal data in URLs (they end up in logs).</li>
+    <li><strong>Consider caching headers</strong> (<code>ETag</code>, <code>Cache-Control</code>) for read-heavy resources, and <strong>rate limiting</strong> (429) for public APIs.</li>
+  </ul>
+
+  <!-- ===================================================== 8 -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>URLs are plural nouns (<code>/api/v1/tasks/42</code>); the HTTP method is the verb.</li>
+    <li>Use the right status: 200, 201 + Location, 204, 400, 401, 403, 404, 409, 500.</li>
+    <li>GET/PUT/DELETE are idempotent; make POST retries safe with an <code>Idempotency-Key</code>.</li>
+    <li>One list shape (<code>content</code> + paging numbers) and one error shape (ProblemDetail, RFC 9457).</li>
+    <li>Filter, sort and page with query parameters; cap sizes and whitelist sort fields.</li>
+    <li>Version on breaking changes — URI versioning (<code>/api/v2</code>) is the most common; headers also work.</li>
+    <li>HATEOAS = links to next actions in the response; known in interviews, rare in practice.</li>
+    <li>springdoc generates <code>/v3/api-docs</code> and <code>/swagger-ui.html</code> from your code.</li>
+    <li><code>@Tag</code>, <code>@Operation</code>, <code>@ApiResponse</code>, <code>@Parameter</code>, <code>@Schema</code> enrich the docs; <code>GroupedOpenApi</code> splits them.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9 -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Fix the URLs.</strong> Rewrite these as proper REST endpoints (method + URL): <code>GET /getUserById?id=5</code>, <code>POST /users/5/delete</code>, <code>GET /fetchAllOrdersOfUser/5</code>, <code>POST /updateOrderStatus</code>.</p>
+    <details><summary>Hint / solution</summary><p><code>GET /api/v1/users/5</code> · <code>DELETE /api/v1/users/5</code> · <code>GET /api/v1/users/5/orders</code> (or <code>GET /api/v1/orders?userId=5</code>) · <code>PATCH /api/v1/orders/{id}</code> with body <code>{"status":"SHIPPED"}</code>.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Pick the status code.</strong> (a) Registering with an email that already exists. (b) Deleting a task successfully. (c) Logged-in user tries an admin-only endpoint. (d) JSON body is missing a required field. (e) The database is down.</p>
+    <details><summary>Hint / solution</summary><p>(a) 409 Conflict · (b) 204 No Content · (c) 403 Forbidden · (d) 400 Bad Request · (e) 503 Service Unavailable (or 500).</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Due-date range filter.</strong> Add optional <code>dueFrom</code> and <code>dueTo</code> query parameters (ISO dates) to <code>GET /api/v1/tasks</code>, and document them with <code>@Parameter</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// Repository - add to the WHERE clause:
+//   AND (:dueFrom IS NULL OR t.dueDate &gt;= :dueFrom)
+//   AND (:dueTo   IS NULL OR t.dueDate &lt;= :dueTo)
+Page&lt;Task&gt; search(@Param("status") TaskStatus status, @Param("priority") TaskPriority priority,
+                  @Param("search") String search,
+                  @Param("dueFrom") LocalDate dueFrom, @Param("dueTo") LocalDate dueTo,
+                  Pageable pageable);
+
+// Controller
+@Parameter(description = "Due on or after this date", example = "2030-01-01")
+@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dueFrom,
+@Parameter(description = "Due on or before this date", example = "2030-12-31")
+@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dueTo,</code></pre><p>Pass both through the service to the repository.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>409 Conflict.</strong> Titles must be unique among tasks that are not DONE. Return a 409 ProblemDetail with type <code>.../problems/duplicate-task</code> when someone creates a duplicate. Document the 409 on the POST endpoint.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// Repository
+boolean existsByTitleIgnoreCaseAndStatusNot(String title, TaskStatus status);
+
+// Service (in create, before save)
+if (repository.existsByTitleIgnoreCaseAndStatusNot(request.title(), TaskStatus.DONE)) {
+    throw new DuplicateTaskException(request.title());
+}
+
+// Handler
+@ExceptionHandler(DuplicateTaskException.class)
+public ProblemDetail handleDuplicate(DuplicateTaskException ex) {
+    ProblemDetail p = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+    p.setType(URI.create("https://api.example.com/problems/duplicate-task"));
+    p.setTitle("Duplicate task");
+    return p;
+}
+
+// Controller: add to @ApiResponses
+@ApiResponse(responseCode = "409", description = "An open task with this title already exists",
+        content = @Content(mediaType = "application/problem+json",
+                schema = @Schema(implementation = ProblemDetail.class)))</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Media-type versioning.</strong> Add a third way to get the v2 shape: <code>GET /api/tasks/{id}</code> with header <code>Accept: application/vnd.course.task.v2+json</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@GetMapping(value = "/api/tasks/{id}", produces = "application/vnd.course.task.v2+json")
+public TaskSummaryV2 getV2ByMediaType(@PathVariable Long id) {
+    return TaskSummaryV2.from(service.findById(id));
+}</code></pre><p>Test: <code>curl -H "Accept: application/vnd.course.task.v2+json" http://localhost:8080/api/tasks/1</code>. Jackson can write this media type because it ends with <code>+json</code>. Note that the response <code>Content-Type</code> is now the vendor type.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>An "admin" docs group.</strong> Add <code>GET /api/v1/admin/stats</code> returning the number of tasks per status (<code>{"TODO":6,"IN_PROGRESS":3,"DONE":3}</code>), tag it "Admin", and show it in its own Swagger group "admin" — but <em>not</em> in group "v1".</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@RestController
+@RequestMapping("/api/v1/admin")
+@Tag(name = "Admin")
+public class AdminController {
+    private final TaskRepository repository;
+    public AdminController(TaskRepository repository) { this.repository = repository; }
+
+    @Operation(summary = "Number of tasks per status")
+    @GetMapping("/stats")
+    public Map&lt;TaskStatus, Long&gt; stats() {
+        return repository.findAll().stream()
+                .collect(Collectors.groupingBy(Task::getStatus, () -&gt; new EnumMap&lt;&gt;(TaskStatus.class),
+                        Collectors.counting()));
+    }
+}
+
+// OpenApiConfig
+@Bean
+public GroupedOpenApi adminApi() {
+    return GroupedOpenApi.builder().group("admin").pathsToMatch("/api/v1/admin/**").build();
+}
+// and change v1Api(): .pathsToMatch("/api/v1/**").pathsToExclude("/api/v1/admin/**")</code></pre><p>(For real data volumes use a <code>GROUP BY</code> query instead of <code>findAll()</code>.)</p></details>
+  </div>
+
+  <!-- ===================================================== 10 -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What makes an API "RESTful"?</summary><p>Resources identified by URIs, manipulated through a uniform interface (standard HTTP methods), representations (usually JSON), stateless requests (each request carries all needed info), meaningful status codes, cacheability where applicable, and — in strict REST — hypermedia links (HATEOAS).</p></details>
+  <details><summary>Q2. What is the difference between PUT and PATCH?</summary><p>PUT replaces the entire resource with the representation sent — missing fields become empty/default. PATCH applies a partial change — only the sent fields are modified. PUT is idempotent by definition; PATCH is idempotent only if designed as "set" operations.</p></details>
+  <details><summary>Q3. What does idempotent mean and which HTTP methods are idempotent?</summary><p>Repeating the same request has the same effect on server state as sending it once. GET, HEAD, OPTIONS, PUT and DELETE are idempotent; POST is not (and PATCH not necessarily). Idempotency allows safe retries after network failures.</p></details>
+  <details><summary>Q4. How do you make POST requests safe to retry?</summary><p>Use an <code>Idempotency-Key</code> header: the client generates a unique key per logical operation; the server stores key → result and, if the same key arrives again, returns the stored result instead of executing again. Keys are stored durably (DB unique constraint / Redis) with an expiry.</p></details>
+  <details><summary>Q5. 401 vs 403?</summary><p>401 Unauthorized means "not authenticated" — no or invalid credentials; the client should log in. 403 Forbidden means "authenticated but not allowed" — logging in again won't help.</p></details>
+  <details><summary>Q6. Which API versioning strategies do you know? Which do you prefer?</summary><p>URI path (<code>/v1/</code>), custom request header, media type / Accept header, and query parameter. URI versioning is most common because it's explicit, easy to test, route and cache. Header/media-type versioning keep URLs stable but are less visible. Version only for breaking changes and deprecate old versions with a timeline.</p></details>
+  <details><summary>Q7. What is OpenAPI, and how is it different from Swagger?</summary><p>OpenAPI is the specification format (JSON/YAML) describing an HTTP API. Swagger was the original name of the spec (up to 2.0) and is now the name of a tool family (Swagger UI, Swagger Editor, Codegen). In Spring Boot 3, springdoc-openapi generates the OpenAPI 3 document from controllers and serves Swagger UI.</p></details>
+  <details><summary>Q8. Name the main springdoc/OpenAPI annotations and what they do.</summary><p><code>@Tag</code> groups endpoints; <code>@Operation</code> documents an endpoint (summary/description); <code>@ApiResponse(s)</code> documents status codes and bodies; <code>@Parameter</code> documents parameters; <code>@Schema</code> documents models/fields with examples and constraints; <code>@Hidden</code> excludes; <code>@ParameterObject</code> flattens objects like <code>Pageable</code>. Global info comes from an <code>OpenAPI</code> bean and groups from <code>GroupedOpenApi</code> beans.</p></details>
+  <details><summary>Q9. What is ProblemDetail?</summary><p>Spring 6's implementation of RFC 9457 (formerly RFC 7807) "Problem Details for HTTP APIs": a standard JSON error body (<code>type</code>, <code>title</code>, <code>status</code>, <code>detail</code>, <code>instance</code> + custom properties) with media type <code>application/problem+json</code>. It gives every API a consistent, machine-readable error format.</p></details>
+  <details><summary>Q10. How do you design pagination for a REST API?</summary><p>Query parameters <code>page</code>/<code>size</code> (or <code>offset</code>/<code>limit</code>) and <code>sort</code>; a default and a maximum page size; a stable sort order; and a response containing the items plus metadata (total elements/pages, current page, first/last) or next/prev links. For huge or real-time data, cursor-based pagination avoids deep-offset performance problems and duplicates.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../43-MySQL-And-Database-Migrations-Flyway/lesson.html"><small>← Previous</small>43. MySQL &amp; Database Migrations with Flyway</a>
+    <a class="next" href="../45-Consuming-External-APIs-RestClient-WebClient/lesson.html"><small>Next →</small>45. Consuming External APIs: RestClient &amp; WebClient</a>
+  </nav>
+</main>
+</body>
+</html>

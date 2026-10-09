@@ -1,0 +1,24 @@
+# =====================================================================
+# k8s/service.yaml - ONE stable address for all menu-service pods.
+#
+# Pods come and go (new IPs every time). The Service has a fixed name and IP
+# and load-balances requests across all READY pods with label app=menu-service.
+# Inside the cluster other apps call:  http://menu-service  (DNS name = service name)
+#
+# From your PC:  kubectl port-forward service/menu-service 8080:80
+#                then open http://localhost:8080/api/info
+# =====================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: menu-service
+  labels:
+    app: menu-service
+spec:
+  type: ClusterIP                # internal only (default). Others: NodePort, LoadBalancer
+  selector:
+    app: menu-service            # send traffic to pods with this label
+  ports:
+    - name: http
+      port: 80                   # the port of the Service
+      targetPort: http           # the container port named "http" (8080)

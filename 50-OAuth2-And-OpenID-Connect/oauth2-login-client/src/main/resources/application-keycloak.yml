@@ -1,0 +1,26 @@
+# ------------------------------------------------------------
+# Profile "keycloak": log in against the LOCAL Keycloak started by ../docker-compose.yml
+#   docker compose up -d                                  (in the topic folder)
+#   mvn spring-boot:run "-Dspring-boot.run.profiles=keycloak"
+#   open http://localhost:8080  -> "Login with local Keycloak" -> alice / alice123
+#
+# Keycloak is NOT a well-known provider, so we also describe the provider.
+# issuer-uri is enough: at startup Spring downloads
+#   http://localhost:8180/realms/course/.well-known/openid-configuration
+# and finds every other URL there (OIDC Discovery).
+# => Keycloak MUST be running before you start the app with this profile.
+# ------------------------------------------------------------
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          keycloak:
+            client-id: course-client
+            client-secret: course-secret          # matches keycloak/realm-course.json (demo only!)
+            scope: openid, profile, email
+            authorization-grant-type: authorization_code
+        provider:
+          keycloak:
+            issuer-uri: http://localhost:8180/realms/course
+            user-name-attribute: preferred_username

@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>60 · Service Discovery with Eureka</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part F · Microservices &amp; Spring Cloud › Topic 60</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag adv">Part F · Microservices &amp; Spring Cloud</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>60. Service Discovery with Eureka</h1>
+  <p class="subtitle">Stop hard-coding <code>localhost:8081</code>: let services register in a registry and find each other by name – with automatic load balancing across several copies.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="60-Service-Discovery-With-Eureka"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Why fixed hosts/ports break as soon as services move or scale.</li>
+      <li>What <strong>service discovery</strong> and a <strong>service registry</strong> are (client-side vs server-side discovery).</li>
+      <li>What <strong>Spring Cloud</strong> is and how the <strong>Spring Cloud BOM</strong> (2025.0.0) manages versions.</li>
+      <li>Building a <strong>Eureka server</strong> with <code>@EnableEurekaServer</code> and using its dashboard at <code>:8761</code>.</li>
+      <li>Making services <strong>register</strong> automatically (Eureka client), heartbeats, leases and self-preservation.</li>
+      <li><strong>Client-side load balancing</strong> with a <code>@LoadBalanced RestClient.Builder</code> and URLs like <code>http://product-service/...</code>.</li>
+      <li>Running <strong>two instances</strong> of the same service and watching requests alternate between them.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../59-Microservices-Architecture-Introduction/lesson.html">Topic 59 · Microservices Introduction</a> and
+    <a href="../45-Consuming-External-APIs-RestClient-WebClient/lesson.html">Topic 45 · RestClient</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1. WHY -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>In Topic 59, order-service had this line in its configuration:</p>
+  <pre><code class="lang-properties">product-service.base-url=http://localhost:8081</code></pre>
+  <p>On your laptop that is fine. In a real company it breaks very quickly:</p>
+  <ul>
+    <li><strong>Addresses change.</strong> In the cloud (Docker, Kubernetes, AWS) a service gets a new IP address every time it restarts or moves to another machine.</li>
+    <li><strong>Many copies.</strong> On Black Friday you run 10 copies of product-service. Which one should order-service call? All of them, taking turns!</li>
+    <li><strong>Copies come and go.</strong> Auto-scaling adds copies when traffic is high and removes them at night. One copy crashes. Nobody can update config files that fast.</li>
+  </ul>
+  <p><strong>Service discovery</strong> solves this: every service <em>registers</em> itself in a central <strong>registry</strong> ("I am product-service, I'm at 10.0.3.17:8081"), and callers <em>ask</em> the registry by <strong>name</strong>. Netflix built <strong>Eureka</strong> for exactly this, and Spring Cloud makes it a few lines of configuration. Even if your company uses Kubernetes (which has discovery built in, Topic 69), the idea is the same – and "How do services find each other?" is a classic interview question.</p>
+
+  <!-- ===================================================== 2. ANALOGY -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏬 The shopping mall information desk</strong>
+    <p>A big mall has hundreds of shops. Shops open, close and move to other floors all the time. Printing a fixed map in every visitor's pocket would not work.</p>
+    <p>Instead, the mall has an <strong>information desk</strong> (= <strong>Eureka server</strong>). When a shop opens, the shop manager <strong>registers</strong> at the desk: "Pizza Corner, floor 2, shop 14". Every few minutes the manager calls the desk: "still open!" (= <strong>heartbeat</strong>). If the desk hears nothing for a while, it removes the shop from the list (= <strong>eviction</strong>).</p>
+    <p>A visitor (= <strong>order-service</strong>) only knows the <em>name</em> "Pizza Corner". They ask the desk, get the current location, and walk there. If Pizza Corner has <strong>two counters</strong> (= two instances), the visitor goes to one this time and the other next time (= <strong>load balancing</strong>). Smart visitors even keep a <strong>photo of the directory</strong> (= the client's <strong>local cache of the registry</strong>), so they don't queue at the desk for every visit – and can still find shops if the desk is briefly closed.</p>
+  </div>
+
+  <!-- ===================================================== 3. CONCEPTS -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The problem in one picture</h3>
+  <div class="flow">
+    <span class="box">order-service</span><span class="arrow">→ http://localhost:8081 →</span><span class="box">product-service #1 (8081)</span>
+  </div>
+  <div class="flow">
+    <span class="box alt">product-service #2 (8091)</span><span class="arrow">← never used 😢</span>
+  </div>
+  <p>The second copy is useless because order-service only knows one fixed address. And if #1 dies, every order fails even though #2 is healthy.</p>
+
+  <h3>3.2 Service registry and service discovery</h3>
+  <ul>
+    <li><strong>Service registry</strong> – a small database of "service name → list of live instances (host, port, status)". Eureka server is one.</li>
+    <li><strong>Registration</strong> – at startup a service tells the registry about itself; then it sends <strong>heartbeats</strong> regularly.</li>
+    <li><strong>Discovery</strong> – a caller looks up a name in the registry and gets the list of instances.</li>
+    <li><strong>Load balancing</strong> – the caller picks one instance from the list (round-robin by default).</li>
+  </ul>
+  <figure class="diagram">
+    <svg viewBox="0 0 640 300" width="640" role="img" aria-label="Eureka flow: product-service instances register and send heartbeats to Eureka; order-service fetches the registry and calls one instance">
+      <rect x="230" y="15" width="180" height="60" rx="10" style="fill:var(--surface);stroke:var(--info);stroke-width:2.5"/>
+      <text x="320" y="42" text-anchor="middle" style="fill:currentColor;font-size:15px;font-weight:700">Eureka server</text>
+      <text x="320" y="62" text-anchor="middle" style="fill:var(--muted);font-size:12px">localhost:8761 (registry)</text>
+      <rect x="20" y="205" width="160" height="56" rx="10" style="fill:var(--surface);stroke:var(--java);stroke-width:2.5"/>
+      <text x="100" y="230" text-anchor="middle" style="fill:currentColor;font-size:14px;font-weight:600">order-service</text>
+      <text x="100" y="249" text-anchor="middle" style="fill:var(--muted);font-size:12px">:8082 + LoadBalancer</text>
+      <rect x="440" y="150" width="180" height="50" rx="10" style="fill:var(--surface);stroke:var(--accent);stroke-width:2.5"/>
+      <text x="530" y="180" text-anchor="middle" style="fill:currentColor;font-size:14px;font-weight:600">product-service :8081</text>
+      <rect x="440" y="230" width="180" height="50" rx="10" style="fill:var(--surface);stroke:var(--accent);stroke-width:2.5"/>
+      <text x="530" y="260" text-anchor="middle" style="fill:currentColor;font-size:14px;font-weight:600">product-service :8091</text>
+      <line x1="470" y1="150" x2="385" y2="75" style="stroke:var(--accent);stroke-width:2"/>
+      <line x1="530" y1="230" x2="405" y2="75" style="stroke:var(--accent);stroke-width:2"/>
+      <text x="470" y="105" style="fill:var(--accent);font-size:12px">① register + heartbeat</text>
+      <line x1="120" y1="205" x2="250" y2="75" style="stroke:var(--info);stroke-width:2;stroke-dasharray:6 4"/>
+      <text x="70" y="130" style="fill:var(--info);font-size:12px">② fetch registry</text>
+      <text x="70" y="146" style="fill:var(--info);font-size:12px">(every few seconds)</text>
+      <line x1="180" y1="225" x2="440" y2="178" style="stroke:var(--java);stroke-width:2.2"/>
+      <line x1="180" y1="240" x2="440" y2="255" style="stroke:var(--java);stroke-width:2.2;stroke-dasharray:4 3"/>
+      <text x="250" y="200" style="fill:var(--java);font-size:12px">③ call one instance (round-robin)</text>
+    </svg>
+    <figcaption>① instances register and send heartbeats, ② the caller downloads the registry, ③ the caller picks an instance and calls it directly.</figcaption>
+  </figure>
+  <p>Notice: the request itself does <strong>not</strong> go through Eureka. Eureka only answers "where is it?" – then order-service calls product-service <strong>directly</strong>.</p>
+
+  <h3>3.3 Client-side vs server-side discovery</h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Client-side discovery (Eureka + Spring Cloud LoadBalancer)</th><th>Server-side discovery (Kubernetes Service, AWS ELB)</th></tr>
+    <tr><td>Who picks the instance?</td><td>The <strong>caller</strong> (order-service) itself</td><td>A <strong>load balancer / proxy</strong> in the middle</td></tr>
+    <tr><td>Caller needs</td><td>A discovery client library</td><td>Just one stable address (DNS name)</td></tr>
+    <tr><td>Extra network hop</td><td>No</td><td>Yes (through the load balancer)</td></tr>
+    <tr><td>Language-neutral?</td><td>No – each language needs a client library</td><td>Yes</td></tr>
+  </table></div>
+  <p>In this topic we use client-side discovery. On Kubernetes, teams often drop Eureka and use the built-in Service DNS instead – the concepts you learn here still apply.</p>
+
+  <h3>3.4 What is Spring Cloud? And the BOM</h3>
+  <p><strong>Spring Cloud</strong> is a family of projects (on top of Spring Boot) for distributed systems: Netflix Eureka, Gateway, Config, OpenFeign, Circuit Breaker, LoadBalancer, Stream and more. Each has its own version number, so Spring Cloud publishes a <strong>release train</strong> – a set of versions that are tested together. The train is named by year: <strong>2025.0.0</strong> (code name "Northfields") matches <strong>Spring Boot 3.5.x</strong>.</p>
+  <p>You import the train as a <strong>BOM</strong> (Bill Of Materials, Topic 20) in <code>&lt;dependencyManagement&gt;</code>. It adds no libraries – it only fixes their versions, so you write dependencies <em>without</em> <code>&lt;version&gt;</code>:</p>
+  <pre><span class="file">pom.xml (every Spring Cloud project in Part F)</span><code class="lang-xml">&lt;properties&gt;
+    &lt;java.version&gt;17&lt;/java.version&gt;
+    &lt;spring-cloud.version&gt;2025.0.0&lt;/spring-cloud.version&gt;
+&lt;/properties&gt;
+
+&lt;dependencyManagement&gt;
+    &lt;dependencies&gt;
+        &lt;dependency&gt;
+            &lt;groupId&gt;org.springframework.cloud&lt;/groupId&gt;
+            &lt;artifactId&gt;spring-cloud-dependencies&lt;/artifactId&gt;
+            &lt;version&gt;${spring-cloud.version}&lt;/version&gt;
+            &lt;type&gt;pom&lt;/type&gt;
+            &lt;scope&gt;import&lt;/scope&gt;
+        &lt;/dependency&gt;
+    &lt;/dependencies&gt;
+&lt;/dependencyManagement&gt;</code></pre>
+  <div class="callout warn"><strong>⚠️ Versions must match</strong>Spring Cloud 2025.0.x ↔ Boot 3.5.x; 2024.0.x ↔ Boot 3.4.x; 2023.0.x ↔ Boot 3.2/3.3. A mismatched pair often fails at startup with a "compatibility verifier" error. Check the table on spring.io/projects/spring-cloud when you upgrade.</div>
+
+  <h3>3.5 The Eureka server</h3>
+  <p>A Eureka server is just a Spring Boot app with one dependency and one annotation:</p>
+  <ul>
+    <li>Dependency: <code>spring-cloud-starter-netflix-eureka-server</code></li>
+    <li>Annotation: <code>@EnableEurekaServer</code> on the main class</li>
+    <li>Port: <strong>8761</strong> by tradition. The web dashboard is at <code>http://localhost:8761</code>; the REST API at <code>/eureka/apps</code>.</li>
+  </ul>
+  <p>Since the server itself also contains a Eureka <em>client</em>, a standalone server must be told not to register with itself: <code>eureka.client.register-with-eureka=false</code> and <code>fetch-registry=false</code>.</p>
+
+  <h3>3.6 Eureka clients: registration, heartbeats, leases</h3>
+  <p>Any service with <code>spring-cloud-starter-netflix-eureka-client</code> on the classpath automatically:</p>
+  <ol>
+    <li><strong>Registers</strong> at startup under its <code>spring.application.name</code> (shown in UPPER CASE in the dashboard, e.g. <code>PRODUCT-SERVICE</code>).</li>
+    <li>Sends a <strong>heartbeat</strong> (lease renewal) every 30 s (default).</li>
+    <li>If Eureka gets no heartbeat for 90 s (lease expiration), the instance is <strong>evicted</strong> (removed).</li>
+    <li><strong>Fetches the registry</strong> every 30 s and caches it locally – so lookups are fast and survive a short Eureka outage.</li>
+    <li>On graceful shutdown (Ctrl+C) it <strong>de-registers</strong> immediately.</li>
+  </ol>
+  <div class="callout info"><strong>ℹ️ No annotation needed on clients</strong>Old tutorials put <code>@EnableEurekaClient</code> or <code>@EnableDiscoveryClient</code> on the client. <code>@EnableEurekaClient</code> no longer exists, and <code>@EnableDiscoveryClient</code> is optional – the starter dependency is enough.</div>
+  <div class="table-wrap"><table>
+    <tr><th>Property</th><th>Default</th><th>Our dev value</th><th>Meaning</th></tr>
+    <tr><td><code>eureka.client.service-url.defaultZone</code></td><td>http://localhost:8761/eureka/</td><td>same</td><td>Where the registry is</td></tr>
+    <tr><td><code>eureka.instance.lease-renewal-interval-in-seconds</code></td><td>30</td><td>5</td><td>Heartbeat interval</td></tr>
+    <tr><td><code>eureka.instance.lease-expiration-duration-in-seconds</code></td><td>90</td><td>15</td><td>Evict after this long without heartbeat</td></tr>
+    <tr><td><code>eureka.client.registry-fetch-interval-seconds</code></td><td>30</td><td>5</td><td>How often the client refreshes its copy</td></tr>
+    <tr><td><code>eureka.instance.instance-id</code></td><td>host:name:port</td><td><code>${spring.application.name}:${server.port}</code></td><td>Unique id per instance</td></tr>
+    <tr><td><code>eureka.instance.hostname</code> / <code>prefer-ip-address</code></td><td>machine name</td><td>localhost</td><td>Address other services will use</td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Why things feel slow by default</strong>With default settings, a newly started instance may take up to ~1–2 minutes to be used by callers (heartbeat + server cache + client fetch + load-balancer cache). That's why our demo uses short "DEV ONLY" intervals. Keep the defaults in production – shorter intervals mean more network traffic.</div>
+
+  <h3>3.7 Self-preservation mode</h3>
+  <p>If many instances suddenly stop sending heartbeats, Eureka assumes it is a <strong>network problem</strong> (not that all services died) and stops evicting anyone. The dashboard shows a red warning: <em>"EMERGENCY! EUREKA MAY BE INCORRECTLY CLAIMING INSTANCES ARE UP WHEN THEY'RE NOT."</em></p>
+  <p>In production that is a safety feature (better to keep a stale entry than to delete healthy services). On a laptop, where you stop services all the time, it is confusing – so our <strong>dev</strong> server sets <code>eureka.server.enable-self-preservation=false</code>.</p>
+
+  <h3>3.8 Client-side load balancing with <code>@LoadBalanced</code></h3>
+  <p>Spring Cloud ships <strong>Spring Cloud LoadBalancer</strong> (included with the Eureka client starter). To use it with RestClient:</p>
+  <pre><code class="lang-java">@Bean
+@LoadBalanced                                   // add the load-balancing interceptor
+public RestClient.Builder loadBalancedRestClientBuilder() {
+    return RestClient.builder();
+}
+
+// later:  builder.baseUrl("http://product-service").build()</code></pre>
+  <p>What happens on <code>GET http://product-service/api/products/1</code>?</p>
+  <div class="flow">
+    <span class="box">RestClient</span><span class="arrow">→</span>
+    <span class="box alt">LoadBalancer interceptor</span><span class="arrow">→ "product-service"? →</span>
+    <span class="box info">local registry copy</span><span class="arrow">→ [8081, 8091] →</span>
+    <span class="box">round-robin picks 8091</span><span class="arrow">→</span>
+    <span class="box">GET http://localhost:8091/api/products/1</span>
+  </div>
+  <p><code>product-service</code> is <strong>not a real host name</strong>. Without <code>@LoadBalanced</code> you get <code>UnknownHostException: product-service</code>. The same annotation works on <code>RestTemplate</code> and <code>WebClient.Builder</code> beans, and OpenFeign (Topic 63) uses the load balancer automatically.</p>
+  <div class="callout tip"><strong>💡 DiscoveryClient – the low-level API</strong>You can also inject <code>DiscoveryClient</code> and call <code>getInstances("product-service")</code> to see the raw list. Our <code>/api/orders/discovery</code> endpoint does that for learning. In normal code prefer <code>@LoadBalanced</code> clients.</div>
+
+  <h3>3.9 Running two instances</h3>
+  <p>Instances of one service share the same <code>spring.application.name</code> but need different ports and a unique <code>instance-id</code>. With Maven you override the port from the command line:</p>
+  <pre class="terminal"><code>mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=8091"</code></pre>
+  <p>The quotes are needed in PowerShell. <code>--server.port=8091</code> is a Spring Boot command-line property – it beats <code>application.yml</code> (Topic 29's precedence table).</p>
+
+  <h3>3.10 High availability (production)</h3>
+  <p>If Eureka is down, clients keep working with their cached registry, but new instances can't register. In production you run <strong>2–3 Eureka servers</strong> that replicate to each other ("peers"): each server lists the others in <code>eureka.client.service-url.defaultZone</code> (comma-separated), and clients list all of them.</p>
+
+  <!-- ===================================================== 4. CODE -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>eureka-server/pom.xml</code></td><td>Spring Cloud BOM 2025.0.0 + <code>spring-cloud-starter-netflix-eureka-server</code></td></tr>
+    <tr><td><code>eureka-server/.../EurekaServerApplication.java</code></td><td><code>@EnableEurekaServer</code></td></tr>
+    <tr><td><code>eureka-server/.../application.yml</code></td><td>Port 8761, don't self-register, fast dev settings</td></tr>
+    <tr><td><code>product-service/pom.xml</code></td><td>web + actuator + <code>spring-cloud-starter-netflix-eureka-client</code></td></tr>
+    <tr><td><code>product-service/.../ProductController.java</code></td><td>Products with a <code>servedBy</code> field (which port answered)</td></tr>
+    <tr><td><code>product-service/.../application.yml</code></td><td>Name, port 8081, Eureka client settings, unique instance id</td></tr>
+    <tr><td><code>order-service/.../RestClientConfig.java</code></td><td><code>@LoadBalanced RestClient.Builder</code> and a <code>RestClient</code> for <code>http://product-service</code></td></tr>
+    <tr><td><code>order-service/.../ProductClient.java</code></td><td>Calls product-service by name; maps errors to 404/503</td></tr>
+    <tr><td><code>order-service/.../OrderController.java</code></td><td>Orders + <code>/discovery</code> and <code>/lb-demo</code> learning endpoints</td></tr>
+    <tr><td><code>order-service/.../application.yml</code></td><td>Port 8082 – and <strong>no product-service URL</strong> anymore</td></tr>
+    <tr><td><code>requests.http</code></td><td>Sample requests</td></tr>
+  </table></div>
+
+  <h3>4.1 eureka-server</h3>
+  <pre><span class="file">eureka-server/src/main/java/com/course/discovery/eurekaserver/EurekaServerApplication.java</span><code class="lang-java">@SpringBootApplication
+@EnableEurekaServer   // turns this ordinary Boot app into a registry + dashboard
+public class EurekaServerApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(EurekaServerApplication.class, args);
+    }
+}</code></pre>
+  <pre><span class="file">eureka-server/src/main/resources/application.yml</span><code class="lang-yaml">spring:
+  application:
+    name: eureka-server
+server:
+  port: 8761
+eureka:
+  instance:
+    hostname: localhost
+  client:
+    register-with-eureka: false   # I AM the registry
+    fetch-registry: false
+  server:
+    enable-self-preservation: false        # DEV ONLY
+    eviction-interval-timer-in-ms: 5000    # DEV ONLY: clean up dead instances every 5 s
+    response-cache-update-interval-ms: 3000
+    wait-time-in-ms-when-sync-empty: 0</code></pre>
+
+  <h3>4.2 product-service – a Eureka client</h3>
+  <pre><span class="file">product-service/pom.xml (dependencies)</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-web&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-actuator&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;!-- just adding this = automatic registration --&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.cloud&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-cloud-starter-netflix-eureka-client&lt;/artifactId&gt;
+&lt;/dependency&gt;</code></pre>
+  <pre><span class="file">product-service/src/main/resources/application.yml</span><code class="lang-yaml">spring:
+  application:
+    name: product-service      # THE identity used for lookups
+server:
+  port: 8081                   # 2nd instance: --server.port=8091
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    registry-fetch-interval-seconds: 5
+  instance:
+    hostname: localhost
+    instance-id: ${spring.application.name}:${server.port}   # product-service:8081
+    lease-renewal-interval-in-seconds: 5
+    lease-expiration-duration-in-seconds: 15</code></pre>
+  <p>The controller adds <code>servedBy</code> so you can see which instance answered:</p>
+  <pre><span class="file">product-service/src/main/java/com/course/discovery/product/ProductController.java</span><code class="lang-java">public ProductController(@Value("${spring.application.name}") String appName,
+                         @Value("${server.port}") String port) {
+    this.instanceName = appName + ":" + port;          // "product-service:8091"
+}
+
+@GetMapping("/{id}")
+public ResponseEntity&lt;Product&gt; findById(@PathVariable Long id) {
+    return catalog().stream()
+            .filter(p -&gt; p.id().equals(id))
+            .findFirst()
+            .map(ResponseEntity::ok)
+            .orElse(ResponseEntity.notFound().build());
+}</code></pre>
+
+  <h3>4.3 order-service – discovering by name</h3>
+  <pre><span class="file">order-service/src/main/java/com/course/discovery/order/RestClientConfig.java</span><code class="lang-java">@Configuration
+public class RestClientConfig {
+
+    @Bean
+    @LoadBalanced
+    public RestClient.Builder loadBalancedRestClientBuilder() {
+        return RestClient.builder();
+    }
+
+    @Bean
+    public RestClient productRestClient(@LoadBalanced RestClient.Builder builder) {
+        return builder.baseUrl("http://product-service").build();   // a NAME, not a host
+    }
+}</code></pre>
+  <p>Why two beans? The first bean is the <em>builder</em> that Spring Cloud decorates with the load-balancer interceptor (the <code>@LoadBalanced</code> on the parameter makes sure we get exactly that builder). The second is a ready-to-use client with the base URL set, injected into <code>ProductClient</code>.</p>
+  <pre><span class="file">order-service/src/main/java/com/course/discovery/order/ProductClient.java</span><code class="lang-java">public ProductDto getProduct(Long productId) {
+    try {
+        return productRestClient.get()
+                .uri("/api/products/{id}", productId)   // http://product-service/api/products/1
+                .retrieve()
+                .body(ProductDto.class);
+    } catch (HttpClientErrorException.NotFound e) {
+        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Product " + productId + " not found");
+    } catch (HttpStatusCodeException e) {
+        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                "product-service answered " + e.getStatusCode() + " - is at least one instance running?");
+    } catch (ResourceAccessException | IllegalStateException e) {
+        // could not connect, or "No instances available for product-service"
+        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                "No reachable product-service instance: " + e.getMessage());
+    }
+}</code></pre>
+  <p>The two learning endpoints:</p>
+  <pre><span class="file">order-service/src/main/java/com/course/discovery/order/OrderController.java</span><code class="lang-java">@GetMapping("/discovery")
+public List&lt;String&gt; productServiceInstances() {
+    List&lt;String&gt; result = new ArrayList&lt;&gt;();
+    for (ServiceInstance instance : discoveryClient.getInstances("product-service")) {
+        result.add(instance.getInstanceId() + " -&gt; " + instance.getUri());
+    }
+    return result;
+}
+
+@GetMapping("/lb-demo")
+public List&lt;String&gt; loadBalancingDemo() {
+    List&lt;String&gt; answers = new ArrayList&lt;&gt;();
+    for (int i = 1; i &lt;= 6; i++) {
+        ProductDto p = productClient.getProduct(1L);
+        answers.add("call " + i + " answered by " + p.servedBy());
+    }
+    return answers;
+}</code></pre>
+  <pre><span class="file">order-service/src/main/resources/application.yml (key part)</span><code class="lang-yaml">spring:
+  application:
+    name: order-service
+  cloud:
+    loadbalancer:
+      cache:
+        ttl: 5s        # DEV ONLY: refresh the instance list quickly (default 35s)
+server:
+  port: 8082
+# NOTE: no product-service URL anywhere!</code></pre>
+
+  <!-- ===================================================== 5. RUN -->
+  <h2 id="run">5. How to run</h2>
+  <p>You need <strong>4 terminals</strong> (VS Code: Terminal → New Terminal, then the split button). Start them <strong>in this order</strong>:</p>
+  <pre class="terminal"><code># 1) the registry FIRST
+cd "D:\Java-SpringBoot\60-Service-Discovery-With-Eureka\eureka-server"
+mvn spring-boot:run
+
+# 2) product-service, instance 1 (port 8081)
+cd "D:\Java-SpringBoot\60-Service-Discovery-With-Eureka\product-service"
+mvn spring-boot:run
+
+# 3) product-service, instance 2 (port 8091) - same folder, another terminal
+cd "D:\Java-SpringBoot\60-Service-Discovery-With-Eureka\product-service"
+mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=8091"
+
+# 4) order-service (port 8082)
+cd "D:\Java-SpringBoot\60-Service-Discovery-With-Eureka\order-service"
+mvn spring-boot:run</code></pre>
+  <p>In the product-service log you should see something like:</p>
+  <pre class="terminal"><code>DiscoveryClient_PRODUCT-SERVICE/product-service:8081 - registration status: 204</code></pre>
+  <p>Or use the <strong>Spring Boot Dashboard</strong> in VS Code (start eureka-server first). For the 2nd instance, the terminal is simplest.</p>
+
+  <h3>5.1 Check the dashboard</h3>
+  <p>Open <code>http://localhost:8761</code> in your browser. Under <strong>"Instances currently registered with Eureka"</strong> you should see:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Application</th><th>Status</th></tr>
+    <tr><td>ORDER-SERVICE</td><td>UP (1) - order-service:8082</td></tr>
+    <tr><td>PRODUCT-SERVICE</td><td>UP (2) - product-service:8081 , product-service:8091</td></tr>
+  </table></div>
+
+  <h3>5.2 Try the endpoints (wait ~10–15 s after the last start)</h3>
+  <pre class="terminal"><code>curl.exe http://localhost:8082/api/orders/discovery
+["product-service:8081 -&gt; http://localhost:8081","product-service:8091 -&gt; http://localhost:8091"]
+
+curl.exe http://localhost:8082/api/orders/lb-demo
+["call 1 answered by product-service:8091","call 2 answered by product-service:8081",
+ "call 3 answered by product-service:8091","call 4 answered by product-service:8081",
+ "call 5 answered by product-service:8091","call 6 answered by product-service:8081"]
+
+curl.exe -X POST http://localhost:8082/api/orders -H "Content-Type: application/json" -d "{\"productId\":1,\"quantity\":2}"
+{"orderId":1,"productId":1,"productName":"Laptop","quantity":2,"totalPrice":110000.0,"productServedBy":"product-service:8091"}</code></pre>
+  <p>🎉 Round-robin load balancing between two instances, and order-service has <strong>no idea</strong> about ports 8081/8091.</p>
+
+  <h3>5.3 Experiments</h3>
+  <ol>
+    <li><strong>Kill one instance</strong> (Ctrl+C on 8091). Within a few seconds the dashboard shows only 8081, and <code>/lb-demo</code> answers only from 8081. No config change, no restart of order-service.</li>
+    <li><strong>Kill all product instances</strong> and place an order. Right after stopping you may see <code>Connection refused</code> (cached list); after ~15 s:
+      <pre class="terminal"><code>{"status":503,"error":"Service Unavailable","message":"No reachable product-service instance: No instances available for product-service","path":"/api/orders"}</code></pre></li>
+    <li><strong>Start a third instance</strong> on 8092 – it joins automatically.</li>
+    <li><strong>Registry as JSON:</strong> <code>curl.exe -H "Accept: application/json" http://localhost:8761/eureka/apps</code></li>
+  </ol>
+  <p>Stop every app with <strong>Ctrl+C</strong> when you are done (stop eureka-server last).</p>
+
+  <!-- ===================================================== 6. MISTAKES -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>UnknownHostException: product-service</code></strong>The RestClient was not load-balanced: you used a plain <code>RestClient.create()</code> or injected Boot's normal builder.<br><strong>Fix:</strong> create the client from a builder bean annotated with <code>@LoadBalanced</code>, and inject it with <code>@LoadBalanced RestClient.Builder</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "No instances available for product-service" right after startup</strong>Registration and cache refresh take time (with defaults: up to ~1–2 minutes).<br><strong>Fix:</strong> wait a little, check the dashboard; in dev use the shorter intervals from our YAML.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: the 2nd instance replaces the 1st in the dashboard</strong>Both instances got the same <code>instance-id</code>.<br><strong>Fix:</strong> <code>eureka.instance.instance-id: ${spring.application.name}:${server.port}</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: wrong service name in the URL</strong><code>http://productservice/...</code> or a typo in <code>spring.application.name</code>. Names are matched case-insensitively, but must otherwise be identical.<br><strong>Fix:</strong> copy the name exactly from the dashboard.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: Spring Cloud and Boot versions don't match</strong>e.g. Spring Cloud 2023.0.x with Boot 3.5 → startup error "Spring Boot [3.5.6] is not compatible with this Spring Cloud release train".<br><strong>Fix:</strong> Boot 3.5.x ↔ Spring Cloud 2025.0.x.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: instance registered with a strange IP (VPN, Docker, Wi-Fi adapter)</strong>Calls time out because the registered address is not reachable.<br><strong>Fix:</strong> on a laptop set <code>eureka.instance.hostname: localhost</code>; in containers set <code>prefer-ip-address: true</code> or the correct hostname.</div>
+  <div class="callout danger"><strong>🛑 Mistake: "EMERGENCY! EUREKA MAY BE INCORRECTLY CLAIMING INSTANCES ARE UP"</strong>Self-preservation kicked in; dead instances stay listed and calls to them fail.<br><strong>Fix:</strong> in dev, disable self-preservation (as we did). In production keep it on and investigate the network.</div>
+
+  <!-- ===================================================== 7. BEST -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li>Run <strong>2–3 Eureka servers</strong> in production (peer replication) – the registry must not be a single point of failure.</li>
+    <li>Keep the <strong>default intervals</strong> (30 s / 90 s) in production; short intervals only in dev.</li>
+    <li>Keep <strong>self-preservation ON</strong> in production.</li>
+    <li>Give every instance a <strong>unique instance-id</strong> and make the registered address reachable from other services.</li>
+    <li>Use <strong>health checks</strong>: <code>eureka.client.healthcheck.enabled=true</code> (with actuator) makes Eureka use the real <code>/actuator/health</code> status.</li>
+    <li>Combine discovery with <strong>timeouts, retries and circuit breakers</strong> (Topic 64): the instance list can briefly contain a dead instance.</li>
+    <li>For many languages or on Kubernetes, consider <strong>server-side discovery</strong> (K8s Services) or Consul instead of Eureka.</li>
+    <li>Use the <strong>Caffeine</strong> cache for Spring Cloud LoadBalancer in production (the startup warning tells you so).</li>
+    <li>Secure the Eureka dashboard/API (e.g. Spring Security with basic auth) – it reveals your whole system map.</li>
+  </ul>
+
+  <!-- ===================================================== 8. SUMMARY -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li><strong>Service discovery</strong> replaces hard-coded host:port with lookups by <strong>service name</strong>.</li>
+    <li><strong>Eureka server</strong> = registry: one starter + <code>@EnableEurekaServer</code>, dashboard on <strong>8761</strong>.</li>
+    <li><strong>Eureka clients</strong> register automatically (starter on the classpath), send <strong>heartbeats</strong>, and cache the registry locally.</li>
+    <li>The <strong>Spring Cloud BOM 2025.0.0</strong> pairs with Spring Boot 3.5.x and manages all Spring Cloud versions.</li>
+    <li><code>@LoadBalanced RestClient.Builder</code> + <code>http://product-service</code> = client-side load balancing (round-robin) via Spring Cloud LoadBalancer.</li>
+    <li>Run several instances with different ports and a unique <code>instance-id</code>; they share one application name.</li>
+    <li>Eureka only answers "where?"; the actual call goes directly from service to service.</li>
+    <li>Defaults are slow on purpose (30 s / 90 s); <strong>self-preservation</strong> protects against network partitions.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9. EXERCISES -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Three instances.</strong> Start a third product-service on port <strong>8092</strong>. Check the dashboard and call <code>/api/orders/lb-demo</code>. What pattern do you see?</p>
+    <details><summary>Hint / solution</summary>
+      <pre class="terminal"><code>mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=8092"</code></pre>
+      <p>The dashboard shows <code>UP (3)</code>. <code>/lb-demo</code> cycles through all three ports (the start position may differ) – round-robin.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Read the registry.</strong> Using <code>DiscoveryClient</code>, add <code>GET /api/orders/services</code> that returns the names of <em>all</em> registered services.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@GetMapping("/services")
+public List&lt;String&gt; services() {
+    return discoveryClient.getServices();   // ["order-service", "product-service"]
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Instance metadata.</strong> Give each product-service instance a "zone" in its Eureka metadata (<code>eureka.instance.metadata-map.zone</code>) and show it in <code>/api/orders/discovery</code>. Start 8091 with <code>zone=b</code>.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-yaml">eureka:
+  instance:
+    metadata-map:
+      zone: a</code></pre>
+      <pre class="terminal"><code>mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=8091 --eureka.instance.metadata-map.zone=b"</code></pre>
+      <pre><code class="lang-java">result.add(instance.getInstanceId() + " zone=" + instance.getMetadata().get("zone"));</code></pre>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Use the real health status.</strong> Make Eureka mark product-service DOWN when its <code>/actuator/health</code> is DOWN. Then write a custom <code>HealthIndicator</code> (Topic 53) that returns DOWN when a property <code>demo.broken=true</code> and observe the dashboard.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-yaml">eureka:
+  client:
+    healthcheck:
+      enabled: true
+demo:
+  broken: false</code></pre>
+      <pre><code class="lang-java">@Component
+public class DemoHealthIndicator implements HealthIndicator {
+    @Value("${demo.broken:false}") boolean broken;
+    @Override
+    public Health health() {
+        return broken ? Health.down().withDetail("reason", "demo").build() : Health.up().build();
+    }
+}</code></pre>
+      <p>Start an instance with <code>--demo.broken=true</code>: it registers as DOWN and the load balancer skips it.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Two Eureka servers (peer replication).</strong> Run eureka-server twice (8761 and 8762) so they replicate to each other, and point clients to both.</p>
+    <details><summary>Hint / solution</summary>
+      <p>For the peers set <code>register-with-eureka: true</code> and <code>fetch-registry: true</code>, and give each the other's URL. Easiest with command-line arguments:</p>
+      <pre class="terminal"><code>mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=8761 --eureka.client.register-with-eureka=true --eureka.client.fetch-registry=true --eureka.client.service-url.defaultZone=http://localhost:8762/eureka/"
+mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=8762 --eureka.client.register-with-eureka=true --eureka.client.fetch-registry=true --eureka.client.service-url.defaultZone=http://localhost:8761/eureka/"</code></pre>
+      <p>Clients: <code>defaultZone: http://localhost:8761/eureka/,http://localhost:8762/eureka/</code>. Register product-service, stop 8761 – 8762 still knows it. (On one machine both peers use hostname "localhost", so the dashboard may list replicas as "unavailable"; in real deployments each peer has its own hostname.)</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Random instead of round-robin.</strong> Configure Spring Cloud LoadBalancer to use the <code>RandomLoadBalancer</code> for product-service only.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// NOTE: do NOT annotate this class with @Configuration (it must not be picked up by component scan)
+public class RandomLbConfig {
+    @Bean
+    ReactorLoadBalancer&lt;ServiceInstance&gt; randomLoadBalancer(Environment env,
+            LoadBalancerClientFactory factory) {
+        String name = env.getProperty(LoadBalancerClientFactory.PROPERTY_NAME);
+        return new RandomLoadBalancer(
+                factory.getLazyProvider(name, ServiceInstanceListSupplier.class), name);
+    }
+}
+
+// on any @Configuration class in order-service:
+@LoadBalancerClient(name = "product-service", configuration = RandomLbConfig.class)</code></pre>
+    <p><code>/lb-demo</code> now shows a random order of ports.</p></details>
+  </div>
+
+  <!-- ===================================================== 10. INTERVIEW -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is service discovery and why is it needed?</summary>
+    <p>A mechanism for services to find the network location of other services dynamically. In cloud environments instances have changing IPs, are scaled up/down and fail; a registry keeps the current list of live instances so callers can look them up by logical name instead of hard-coded addresses.</p></details>
+  <details><summary>Q2. Client-side vs server-side discovery?</summary>
+    <p>Client-side: the caller queries the registry and chooses an instance itself (Eureka + Spring Cloud LoadBalancer, Netflix Ribbon in the past). Server-side: the caller sends requests to a router/load balancer that queries the registry (Kubernetes Service, AWS ELB). Client-side saves a hop but needs a library per language; server-side is language-neutral.</p></details>
+  <details><summary>Q3. How does a Eureka client stay registered? What is a lease?</summary>
+    <p>It registers at startup, then renews its lease with a heartbeat every 30 s by default. If the server receives no renewal for the lease expiration duration (90 s default), it evicts the instance. On graceful shutdown the client cancels its lease immediately.</p></details>
+  <details><summary>Q4. What is Eureka's self-preservation mode?</summary>
+    <p>When the number of renewals drops below an expected threshold (e.g. due to a network partition), Eureka stops evicting instances, assuming the problem is the network rather than the services. It favours availability (AP in CAP terms) over accuracy; callers may get stale instances and must handle failures.</p></details>
+  <details><summary>Q5. What does @LoadBalanced do?</summary>
+    <p>It marks a <code>RestClient.Builder</code>/<code>RestTemplate</code>/<code>WebClient.Builder</code> bean so Spring Cloud adds a load-balancer interceptor. URLs whose host is a service id (<code>http://product-service</code>) are resolved through the discovery client to a concrete instance chosen by Spring Cloud LoadBalancer (round-robin by default).</p></details>
+  <details><summary>Q6. What happens if the Eureka server goes down?</summary>
+    <p>Existing clients keep working using their locally cached registry, so calls continue. But new instances can't register, and changes (instances dying/starting) are not propagated. That's why production runs multiple peer-replicated Eureka servers.</p></details>
+  <details><summary>Q7. Do you still need @EnableEurekaClient / @EnableDiscoveryClient?</summary>
+    <p>No. <code>@EnableEurekaClient</code> was removed; <code>@EnableDiscoveryClient</code> is optional. Having <code>spring-cloud-starter-netflix-eureka-client</code> on the classpath auto-configures registration and discovery. It can be turned off with <code>eureka.client.enabled=false</code>.</p></details>
+  <details><summary>Q8. Why can it take a long time before a new instance receives traffic?</summary>
+    <p>Several caches stack up: the instance's first heartbeat/registration, the server's response cache (30 s), the client's registry fetch interval (30 s), and the load balancer's cache (35 s). Tuning these lowers the delay at the cost of more traffic.</p></details>
+  <details><summary>Q9. What is the Spring Cloud release train / BOM?</summary>
+    <p>Spring Cloud is many sub-projects with independent versions. A release train (e.g. 2025.0.0) is a tested set of compatible versions, imported as the BOM <code>spring-cloud-dependencies</code> in dependencyManagement. Each train supports a specific Spring Boot line (2025.0 ↔ Boot 3.5).</p></details>
+  <details><summary>Q10. Eureka vs Kubernetes service discovery?</summary>
+    <p>Kubernetes provides discovery via Services and DNS (server-side, language-neutral, built in). On Kubernetes many teams skip Eureka and call <code>http://product-service</code> resolved by K8s DNS, optionally using Spring Cloud Kubernetes. Eureka fits VM-based or mixed environments and gives client-side load balancing control.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../59-Microservices-Architecture-Introduction/lesson.html"><small>← Previous</small>59. Microservices Architecture – Introduction</a>
+    <a class="next" href="../61-API-Gateway-With-Spring-Cloud-Gateway/lesson.html"><small>Next →</small>61. API Gateway with Spring Cloud Gateway</a>
+  </nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# Topic 54 - Mailpit: a FAKE mail server for development.
+# It accepts every email on SMTP port 1025 and shows it in a web inbox. Nothing is really delivered.
+#   Start:  docker compose up -d
+#   Inbox:  http://localhost:8025
+#   Stop:   docker compose down
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: course-mailpit
+    ports:
+      - "1025:1025"   # SMTP  - the Spring Boot app sends here (spring.mail.port=1025)
+      - "8025:8025"   # Web UI - open in your browser

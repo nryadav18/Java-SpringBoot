@@ -1,0 +1,16 @@
+# =====================================================================
+# DEV profile - loaded only when the "dev" profile is active.
+# Keys here OVERRIDE the same keys in application.yml.
+# Typical dev settings: chatty logs, test-friendly values, features switched on.
+# =====================================================================
+
+shop:
+  name: ShopEasy (DEV)
+  discount-percent: 20          # big discounts while we test the checkout
+
+features:
+  new-checkout: true            # try new features in dev first
+
+logging:
+  level:
+    com.course: DEBUG           # more detail from OUR code while developing

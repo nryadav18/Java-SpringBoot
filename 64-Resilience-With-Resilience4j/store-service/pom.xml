@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  store-service (Topic 64) - the CALLER that protects itself with Resilience4j.
+  It calls inventory-service and wraps those calls in a circuit breaker, retry,
+  time limiter, rate limiter and bulkhead (all configured in application.yml).
+  Run:  mvn spring-boot:run      (port 8084)
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.6</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.course</groupId>
+    <artifactId>resilience-store-service</artifactId>
+    <version>1.0.0</version>
+    <name>store-service</name>
+
+    <properties>
+        <java.version>17</java.version>
+        <resilience4j.version>2.2.0</resilience4j.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Resilience4j's Spring Boot 3 integration: gives us the annotations
+             @CircuitBreaker, @Retry, @RateLimiter, @Bulkhead, @TimeLimiter,
+             YAML configuration and actuator endpoints. -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-spring-boot3</artifactId>
+            <version>${resilience4j.version}</version>
+        </dependency>
+
+        <!-- The annotations work through Spring AOP proxies (topic 27), so AOP MUST be on the
+             classpath. Forgetting this is the #1 reason "my @CircuitBreaker does nothing"! -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
+        <!-- Actuator: watch circuit breaker state at /actuator/circuitbreakers etc. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!--
+          ALTERNATIVE (not used here): the Spring Cloud abstraction
+            org.springframework.cloud:spring-cloud-starter-circuitbreaker-resilience4j
+          with the Spring Cloud 2025.0.0 BOM. It adds a vendor-neutral CircuitBreakerFactory API
+          and Feign integration (spring.cloud.openfeign.circuitbreaker.enabled=true).
+          See the lesson, section "Spring Cloud CircuitBreaker".
+        -->
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

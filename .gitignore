@@ -1,0 +1,19 @@
+# Build output (Maven / javac / VS Code Java extension)
+target/
+out/
+bin/
+*.class
+
+# Files the examples create when you run them
+output/
+uploads/
+logs/
+*.log
+
+# Local secrets
+.env
+
+# IDE
+.vscode/
+.idea/
+*.iml

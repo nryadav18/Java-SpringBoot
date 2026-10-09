@@ -1,0 +1,81 @@
+# =====================================================================
+# k8s/deployment.yaml - "Keep 2 copies (pods) of menu-service running, always."
+#
+# The Deployment creates a ReplicaSet, which creates the Pods.
+# If a pod crashes or a node dies, Kubernetes starts a new one (self-healing).
+# Changing the image tag triggers a ROLLING UPDATE (no downtime).
+# =====================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: menu-service
+  labels:
+    app: menu-service
+spec:
+  replicas: 2                          # how many pods we want
+  selector:
+    matchLabels:
+      app: menu-service                # "the pods I manage are the ones with this label"
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0                # never go below 2 ready pods during an update
+      maxSurge: 1                      # start 1 extra new pod at a time
+  template:                            # the blueprint for each pod
+    metadata:
+      labels:
+        app: menu-service              # must match the selector above (and the Service)
+    spec:
+      terminationGracePeriodSeconds: 45   # time between SIGTERM and SIGKILL
+      securityContext:
+        runAsNonRoot: true             # refuse to start if the image runs as root
+      containers:
+        - name: app
+          # Local clusters: build with "docker build -t menu-service:1.0.0 ." first.
+          # Real clusters: push to a registry and use e.g. docker.io/<user>/menu-service:1.0.0
+          image: menu-service:1.0.0
+          imagePullPolicy: IfNotPresent   # use the local image if it exists (no registry needed)
+          ports:
+            - name: http
+              containerPort: 8080
+
+          # ---- configuration ----
+          envFrom:
+            - configMapRef:
+                name: menu-service-config  # all keys -> env vars
+            - secretRef:
+                name: menu-service-secret  # all keys -> env vars
+
+          # ---- resources ----
+          resources:
+            requests:                  # what the scheduler RESERVES for this pod
+              cpu: "250m"              # 0.25 of a CPU core
+              memory: "384Mi"
+            limits:                    # the hard maximum
+              memory: "512Mi"          # above this the container is killed (OOMKilled)
+
+          # ---- health probes (Spring Boot Actuator) ----
+          startupProbe:                # "has the app finished starting?" (protects slow JVM start)
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30       # up to 30 x 5 s = 150 s to start
+          livenessProbe:               # "is it alive?" - if it fails, Kubernetes RESTARTS the container
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:              # "can it take traffic?" - if it fails, the pod is removed
+            httpGet:                   # from the Service (no restart)
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+
+          # ---- graceful shutdown ----
+          lifecycle:
+            preStop:                   # wait a few seconds so the Service stops sending traffic
+              exec:                    # BEFORE Spring starts shutting down
+                command: ["sh", "-c", "sleep 10"]

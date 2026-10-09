@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>59 · Microservices Architecture – Introduction</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part F · Microservices &amp; Spring Cloud › Topic 59</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag adv">Part F · Microservices &amp; Spring Cloud</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>59. Microservices Architecture – Introduction</h1>
+  <p class="subtitle">Understand what microservices are, when they help (and when they hurt), and build your first two services that talk to each other over HTTP.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="59-Microservices-Architecture-Introduction"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What a <strong>monolith</strong> is and what <strong>microservices</strong> are – with a clear pros/cons table.</li>
+      <li>When you should <strong>NOT</strong> use microservices (very important, and a favourite interview question).</li>
+      <li><strong>Bounded contexts</strong> (a simple idea from Domain-Driven Design) – how to cut a big system into services.</li>
+      <li>Communication styles: <strong>synchronous REST</strong> vs <strong>asynchronous messaging</strong>.</li>
+      <li><strong>Database per service</strong> and why services must never share tables.</li>
+      <li>The <strong>12-factor app</strong> rules in plain English.</li>
+      <li>The <strong>map of microservice patterns</strong> (discovery, gateway, config, circuit breaker, tracing, saga) that the next topics build.</li>
+      <li>Hands-on: <code>product-service</code> + <code>order-service</code>, where order-service calls product-service with <code>RestClient</code> – and you will SEE the problems.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../33-Layered-Architecture-And-DTOs/lesson.html">Topic 33 · Layered Architecture &amp; DTOs</a>,
+    <a href="../45-Consuming-External-APIs-RestClient-WebClient/lesson.html">Topic 45 · RestClient</a> and ideally
+    <a href="../57-Messaging-With-RabbitMQ/lesson.html">Topic 57 · RabbitMQ</a> / <a href="../58-Event-Streaming-With-Apache-Kafka/lesson.html">Topic 58 · Kafka</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1. WHY -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Until now, every project in this course was <strong>one application</strong>: one <code>pom.xml</code>, one <code>main</code> method, one jar, one database. That is called a <strong>monolith</strong>, and it is a perfectly good way to build software.</p>
+  <p>But when you join a company like Amazon, Netflix, Uber, Swiggy, Flipkart or a big bank, you will hear words like <em>"the payment service"</em>, <em>"the order service is down"</em>, <em>"call the inventory API"</em>. These companies split their systems into many <strong>small, independent applications</strong> that talk to each other over the network. Those small apps are called <strong>microservices</strong>.</p>
+  <p>Why does this matter to you?</p>
+  <ul>
+    <li><strong>Jobs:</strong> almost every "Java Spring Boot developer" job description says <em>"experience with microservices, Spring Cloud"</em>.</li>
+    <li><strong>Interviews:</strong> "Monolith vs microservices?", "How do services find each other?", "What is a circuit breaker?" are asked all the time.</li>
+    <li><strong>Design sense:</strong> knowing <em>when NOT</em> to use microservices makes you look senior. Many teams regret splitting too early.</li>
+  </ul>
+  <p>This topic is the <strong>map</strong> of Part F. We first learn the ideas, then build two tiny services. They will work – but you will notice real problems (hard-coded addresses, failures, many URLs). The next topics fix each problem one by one with <strong>Spring Cloud</strong>.</p>
+
+  <!-- ===================================================== 2. ANALOGY -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🍽️ One big kitchen vs a food court</strong>
+    <p><strong>The monolith = one restaurant with one big kitchen.</strong> One team cooks everything: pizza, biryani, ice cream. Easy to start: one building, one manager, one fridge. But as the restaurant grows: the pizza oven breaks and the whole kitchen stops; you want to hire 10 more pizza cooks but they must fit into the same small kitchen; changing the biryani recipe needs a meeting with everyone.</p>
+    <p><strong>Microservices = a food court.</strong> Each stall (pizza, biryani, ice cream) has its <em>own</em> small kitchen, its <em>own</em> staff and its <em>own</em> fridge (= <strong>its own database</strong>). If the ice cream machine breaks, people can still buy pizza. The pizza stall can add more counters on a busy evening (= <strong>scaling one service</strong>).</p>
+    <p>But a food court has new problems too: customers must know <em>where</em> each stall is (→ <strong>service discovery</strong>), you want one main entrance with a security guard (→ <strong>API gateway</strong>), all stalls must follow the same rules for prices and hygiene (→ <strong>central configuration</strong>), and if one stall is very slow you should not wait forever (→ <strong>circuit breaker</strong>). That is exactly Part F of this course.</p>
+  </div>
+
+  <!-- ===================================================== 3. CONCEPTS -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 What is a monolith?</h3>
+  <p>A <strong>monolith</strong> ("mono" = one, "lith" = stone) is a single application that contains <em>all</em> features of the system. All code is built into one jar and deployed together. All features usually share one database.</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 560 230" width="560" role="img" aria-label="Monolith diagram: one application with users, products, orders, payments modules and one shared database">
+      <rect x="20" y="20" width="360" height="190" rx="12" style="fill:none;stroke:var(--java);stroke-width:2.5"/>
+      <text x="200" y="45" text-anchor="middle" style="fill:currentColor;font-weight:700;font-size:15px">shop-app.jar (ONE application)</text>
+      <rect x="40" y="60" width="150" height="40" rx="8" style="fill:var(--surface-2);stroke:var(--border)"/>
+      <text x="115" y="85" text-anchor="middle" style="fill:currentColor;font-size:14px">Users module</text>
+      <rect x="210" y="60" width="150" height="40" rx="8" style="fill:var(--surface-2);stroke:var(--border)"/>
+      <text x="285" y="85" text-anchor="middle" style="fill:currentColor;font-size:14px">Products module</text>
+      <rect x="40" y="115" width="150" height="40" rx="8" style="fill:var(--surface-2);stroke:var(--border)"/>
+      <text x="115" y="140" text-anchor="middle" style="fill:currentColor;font-size:14px">Orders module</text>
+      <rect x="210" y="115" width="150" height="40" rx="8" style="fill:var(--surface-2);stroke:var(--border)"/>
+      <text x="285" y="140" text-anchor="middle" style="fill:currentColor;font-size:14px">Payments module</text>
+      <text x="200" y="190" text-anchor="middle" style="fill:var(--muted);font-size:13px">modules call each other with normal Java method calls</text>
+      <line x1="380" y1="115" x2="440" y2="115" style="stroke:var(--muted);stroke-width:2"/>
+      <ellipse cx="490" cy="90" rx="45" ry="12" style="fill:var(--surface);stroke:var(--info);stroke-width:2"/>
+      <path d="M445 90 v50 a45 12 0 0 0 90 0 v-50" style="fill:var(--surface);stroke:var(--info);stroke-width:2"/>
+      <text x="490" y="125" text-anchor="middle" style="fill:currentColor;font-size:13px">ONE DB</text>
+    </svg>
+    <figcaption>A monolith: all features in one deployable unit, sharing one database.</figcaption>
+  </figure>
+  <p>A monolith is <strong>not bad</strong>. Most successful products (including early Amazon, Shopify, Stack Overflow, GitHub) started as monoliths, and some still are. It is simple to develop, test, debug and deploy.</p>
+
+  <h3>3.2 What are microservices?</h3>
+  <p><strong>Microservices</strong> is an architecture style where the system is built as a set of <strong>small, independent services</strong>. Each service:</p>
+  <ul>
+    <li>does <strong>one business job</strong> (products, orders, payments…),</li>
+    <li>is a <strong>separate application</strong> (its own Spring Boot project, its own jar, its own process, its own port),</li>
+    <li>owns <strong>its own data</strong> (its own database or schema),</li>
+    <li>talks to other services only through a <strong>network API</strong> (REST/HTTP or messages),</li>
+    <li>can be <strong>deployed, scaled and changed independently</strong>, often by its own small team.</li>
+  </ul>
+  <figure class="diagram">
+    <svg viewBox="0 0 640 250" width="640" role="img" aria-label="Microservices diagram: client calls user, product, order and payment services, each with its own database">
+      <rect x="250" y="10" width="140" height="36" rx="8" style="fill:var(--surface);stroke:var(--muted);stroke-width:2"/>
+      <text x="320" y="33" text-anchor="middle" style="fill:currentColor;font-size:14px;font-weight:600">Client (web / app)</text>
+      <g style="stroke:var(--muted);stroke-width:1.6">
+        <line x1="320" y1="46" x2="85" y2="90"/><line x1="320" y1="46" x2="245" y2="90"/>
+        <line x1="320" y1="46" x2="400" y2="90"/><line x1="320" y1="46" x2="560" y2="90"/>
+      </g>
+      <rect x="20" y="90" width="130" height="44" rx="8" style="fill:var(--surface);stroke:var(--accent);stroke-width:2.5"/>
+      <text x="85" y="117" text-anchor="middle" style="fill:currentColor;font-size:14px;font-weight:600">user-service</text>
+      <rect x="180" y="90" width="130" height="44" rx="8" style="fill:var(--surface);stroke:var(--accent);stroke-width:2.5"/>
+      <text x="245" y="117" text-anchor="middle" style="fill:currentColor;font-size:14px;font-weight:600">product-service</text>
+      <rect x="335" y="90" width="130" height="44" rx="8" style="fill:var(--surface);stroke:var(--accent);stroke-width:2.5"/>
+      <text x="400" y="117" text-anchor="middle" style="fill:currentColor;font-size:14px;font-weight:600">order-service</text>
+      <rect x="495" y="90" width="130" height="44" rx="8" style="fill:var(--surface);stroke:var(--accent);stroke-width:2.5"/>
+      <text x="560" y="117" text-anchor="middle" style="fill:currentColor;font-size:14px;font-weight:600">payment-service</text>
+      <line x1="335" y1="112" x2="312" y2="112" style="stroke:var(--java);stroke-width:2;stroke-dasharray:5 3"/>
+      <text x="322" y="150" text-anchor="middle" style="fill:var(--java);font-size:12px">REST call</text>
+      <g style="stroke:var(--muted);stroke-width:1.4">
+        <line x1="85" y1="134" x2="85" y2="180"/><line x1="245" y1="134" x2="245" y2="180"/>
+        <line x1="400" y1="134" x2="400" y2="180"/><line x1="560" y1="134" x2="560" y2="180"/>
+      </g>
+      <g style="fill:var(--surface);stroke:var(--info);stroke-width:2">
+        <rect x="45" y="180" width="80" height="40" rx="10"/><rect x="205" y="180" width="80" height="40" rx="10"/>
+        <rect x="360" y="180" width="80" height="40" rx="10"/><rect x="520" y="180" width="80" height="40" rx="10"/>
+      </g>
+      <g style="fill:currentColor;font-size:12px" text-anchor="middle">
+        <text x="85" y="205">users DB</text><text x="245" y="205">products DB</text>
+        <text x="400" y="205">orders DB</text><text x="560" y="205">payments DB</text>
+      </g>
+      <text x="320" y="243" text-anchor="middle" style="fill:var(--muted);font-size:13px">each service = own app, own port, own database; they talk over the network</text>
+    </svg>
+    <figcaption>Microservices: small independent apps, each with its own database.</figcaption>
+  </figure>
+  <div class="callout info"><strong>ℹ️ "Micro" does not mean "tiny"</strong>A microservice is not measured in lines of code. "Micro" means <em>focused on one business capability</em>. A payment service can easily have 20,000 lines. The important part is that it is <strong>independent</strong>.</div>
+
+  <h3>3.3 Monolith vs microservices – the honest comparison</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Aspect</th><th>Monolith</th><th>Microservices</th></tr>
+    <tr><td>Start a new project</td><td>✅ Very fast and simple</td><td>❌ Slow: many projects, infrastructure needed</td></tr>
+    <tr><td>Calls between features</td><td>✅ Normal method call: fast, never "offline"</td><td>❌ Network call: slower, can fail, can time out</td></tr>
+    <tr><td>Deployment</td><td>❌ Redeploy everything for a one-line change</td><td>✅ Deploy only the service you changed</td></tr>
+    <tr><td>Scaling</td><td>❌ Scale the whole app, even if only search is busy</td><td>✅ Scale only the busy service (e.g. 10 × product-service)</td></tr>
+    <tr><td>Failure</td><td>❌ One memory leak can crash everything</td><td>✅ One service down ≠ whole system down (if designed well)</td></tr>
+    <tr><td>Teams</td><td>❌ 100 developers in one codebase step on each other</td><td>✅ Small teams own their services ("you build it, you run it")</td></tr>
+    <tr><td>Technology</td><td>One stack for everything</td><td>✅ Each service may choose (Java, Go, Python…) – use with care</td></tr>
+    <tr><td>Transactions</td><td>✅ One <code>@Transactional</code> covers everything (Topic 42)</td><td>❌ No simple transaction across services → <strong>Saga</strong> pattern</td></tr>
+    <tr><td>Testing &amp; debugging</td><td>✅ One app to run, one log file</td><td>❌ Many apps, logs scattered → need <strong>tracing</strong></td></tr>
+    <tr><td>Data consistency</td><td>✅ Immediately consistent (one DB)</td><td>❌ Often <em>eventually</em> consistent</td></tr>
+    <tr><td>Operations cost</td><td>✅ Low</td><td>❌ High: Docker, Kubernetes, monitoring, CI/CD per service</td></tr>
+  </table></div>
+
+  <h3>3.4 When NOT to use microservices</h3>
+  <div class="callout warn"><strong>⚠️ Microservices are a cost you pay to solve SCALE problems – organisational and technical.</strong>
+    Do <strong>not</strong> start with microservices when:
+    <ul>
+      <li>You are a small team (say, fewer than 10–15 developers). One team can manage a monolith perfectly well.</li>
+      <li>The product is new and the business domain is still changing. You don't yet know where the right "cut lines" are – a wrong split is very expensive to fix.</li>
+      <li>You don't have automation: CI/CD pipelines, Docker, monitoring, centralized logging. Without them, 10 services = 10× the pain.</li>
+      <li>Your app has no real scaling problem. "Netflix does it" is not a reason.</li>
+      <li>Your features need strong transactions across everything (e.g. a small accounting system).</li>
+    </ul>
+    A popular rule: <strong>"Monolith first."</strong> Build a <strong>modular monolith</strong> (clean packages per feature – Topic 33's package-by-feature) and split out a service only when a module has a real reason (different scaling, different team, different release speed).
+  </div>
+  <div class="callout tip"><strong>💡 The "distributed monolith" trap</strong>If your services must always be deployed together, share one database, or call each other in long chains for every request, you have built a <strong>distributed monolith</strong>: all the costs of microservices with none of the benefits. Avoid it.</div>
+
+  <h3>3.5 Bounded contexts – how to decide service boundaries (DDD-lite)</h3>
+  <p><strong>Domain-Driven Design (DDD)</strong> is a way of designing software around the business. You only need one idea from it now: the <strong>bounded context</strong>.</p>
+  <p>A <strong>bounded context</strong> is an area of the business where a word has <strong>one clear meaning</strong>. Look at the word <em>"Product"</em> in an online shop:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Context (department)</th><th>What "Product" means there</th><th>Data it cares about</th></tr>
+    <tr><td>Catalog</td><td>Something to show and sell</td><td>name, description, images, price</td></tr>
+    <tr><td>Inventory / Warehouse</td><td>A physical box on a shelf</td><td>stock quantity, warehouse location, weight</td></tr>
+    <tr><td>Orders</td><td>A line in a customer's order</td><td>product id, name and price <em>at the time of order</em>, quantity</td></tr>
+    <tr><td>Shipping</td><td>A parcel</td><td>size, weight, address</td></tr>
+  </table></div>
+  <p>Each context is a good candidate for a microservice. Instead of one giant <code>Product</code> class with 60 fields that everybody fights over, each service has its <strong>own small model</strong>. That is why, in our code, <code>order-service</code> has its own <code>ProductDto</code> and does <strong>not</strong> reuse product-service's <code>Product</code> class.</p>
+  <p>Good boundaries follow <strong>business capabilities</strong> (catalog, ordering, payment, shipping), not technical layers. A "database-service" or "validation-service" is a bad split.</p>
+  <div class="callout info"><strong>ℹ️ Two DDD words you may hear</strong><strong>Aggregate</strong> = a group of objects that change together and are saved together (an <code>Order</code> with its <code>OrderLines</code>). <strong>Ubiquitous language</strong> = developers and business people use the same words in code and in meetings.</div>
+
+  <h3>3.6 How do services talk? Synchronous vs asynchronous</h3>
+  <p>There are two main styles of communication:</p>
+  <div class="grid">
+    <div class="card"><strong>📞 Synchronous (request/response)</strong>
+      <p>Like a <strong>phone call</strong>: you ask and you <em>wait</em> for the answer.</p>
+      <p>Usually <strong>REST over HTTP</strong> (also gRPC). In Spring: <code>RestClient</code>, <code>WebClient</code>, OpenFeign (Topic 63).</p>
+      <p>✅ simple, immediate answer<br>❌ caller is blocked; if the other service is down or slow, the caller suffers too (temporal coupling)</p>
+    </div>
+    <div class="card"><strong>✉️ Asynchronous (messaging / events)</strong>
+      <p>Like <strong>sending a letter / WhatsApp message</strong>: you send it and continue your work. The receiver handles it when it can.</p>
+      <p>Through a <strong>broker</strong>: RabbitMQ (Topic 57), Kafka (Topic 58).</p>
+      <p>✅ loose coupling, receiver can be down for a while, great for "something happened" events<br>❌ more moving parts, eventual consistency, harder to debug</p>
+    </div>
+  </div>
+  <div class="flow">
+    <span class="box">order-service</span><span class="arrow">— GET /api/products/1 →</span>
+    <span class="box">product-service</span><span class="arrow">— waits for JSON ←</span>
+  </div>
+  <div class="flow">
+    <span class="box">order-service</span><span class="arrow">— "OrderPlaced" event →</span>
+    <span class="box alt">Kafka / RabbitMQ</span><span class="arrow">→</span>
+    <span class="box info">notification-service</span><span class="arrow">+</span><span class="box info">shipping-service</span>
+  </div>
+  <p><strong>Rule of thumb:</strong> use <strong>sync</strong> when you need the answer <em>right now</em> to continue (order-service needs the price to create the order). Use <strong>async</strong> to tell others that <em>something happened</em> (order placed → send email, start shipping) – they don't need to answer.</p>
+
+  <h3>3.7 Database per service</h3>
+  <p>This is the most important – and most broken – rule: <strong>each service owns its data, and nobody else touches it directly.</strong></p>
+  <div class="flow">
+    <span class="box">order-service</span><span class="arrow">✅ REST API →</span><span class="box">product-service</span><span class="arrow">→</span><span class="box info">products DB</span>
+  </div>
+  <div class="flow">
+    <span class="box">order-service</span><span class="arrow">❌ SQL directly →</span><span class="box info">products DB</span>
+  </div>
+  <p>Why so strict? If order-service reads the <code>products</code> table directly, the product team can never rename a column without breaking orders. The services become secretly glued together through the database. With an API in between, the product team can change their tables freely as long as the API stays the same.</p>
+  <p>"Own database" can mean a separate database server, a separate schema in one server, or simply separate tables only that service may access. The point is <strong>ownership</strong>.</p>
+  <div class="callout info"><strong>ℹ️ But how do I join data from two services?</strong>You can't do a SQL <code>JOIN</code> across services. Options: (1) call the other service's API, (2) <strong>copy</strong> the few fields you need (our <code>Order</code> stores <code>productName</code> and <code>unitPrice</code>), (3) keep a local read-only copy updated by events (CQRS – advanced).</div>
+
+  <h3>3.8 The 12-factor app (in plain English)</h3>
+  <p>The <strong>12-factor app</strong> is a famous checklist (from Heroku engineers) for building apps that run well in the cloud. Spring Boot already helps with most of them.</p>
+  <div class="table-wrap"><table>
+    <tr><th>#</th><th>Factor</th><th>Plain English</th><th>Spring Boot / course link</th></tr>
+    <tr><td>1</td><td>Codebase</td><td>One Git repo per app, deployed many times (dev, test, prod)</td><td>One project per service</td></tr>
+    <tr><td>2</td><td>Dependencies</td><td>Declare all libraries explicitly</td><td><code>pom.xml</code> (Topic 20)</td></tr>
+    <tr><td>3</td><td>Config</td><td>Config lives in the environment, not in code</td><td>Profiles, env vars (Topic 29), Config Server (Topic 62)</td></tr>
+    <tr><td>4</td><td>Backing services</td><td>DB, broker, cache are "attached resources" you can swap by changing a URL</td><td><code>spring.datasource.url</code></td></tr>
+    <tr><td>5</td><td>Build, release, run</td><td>Build a jar once, combine with config, run it</td><td><code>mvn package</code>, Docker (Topic 66), CI (Topic 68)</td></tr>
+    <tr><td>6</td><td>Processes</td><td>Apps are <strong>stateless</strong>; keep state in a DB/cache</td><td>JWT instead of sessions (Topic 49)</td></tr>
+    <tr><td>7</td><td>Port binding</td><td>The app exposes itself on a port</td><td>Embedded Tomcat, <code>server.port</code></td></tr>
+    <tr><td>8</td><td>Concurrency</td><td>Scale out by running more copies</td><td>2 instances of product-service (Topic 60)</td></tr>
+    <tr><td>9</td><td>Disposability</td><td>Start fast, stop gracefully</td><td><code>server.shutdown=graceful</code> (Topic 69)</td></tr>
+    <tr><td>10</td><td>Dev/prod parity</td><td>Keep dev and prod as similar as possible</td><td>Docker Compose with real MySQL (Topic 67)</td></tr>
+    <tr><td>11</td><td>Logs</td><td>Write logs to stdout as a stream; a platform collects them</td><td>Logback console (Topic 30), ELK/Loki (Topic 65)</td></tr>
+    <tr><td>12</td><td>Admin processes</td><td>One-off tasks (migrations) run as separate commands</td><td>Flyway (Topic 43)</td></tr>
+  </table></div>
+
+  <h3>3.9 The key patterns map – your roadmap for Part F</h3>
+  <p>As soon as you have more than one service, the same problems appear in every company. Each problem has a well-known <strong>pattern</strong> (a standard solution) and Spring Cloud gives you a ready-made tool for it:</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 680 330" width="680" role="img" aria-label="Microservices patterns map: client to API gateway, gateway to services, services register in discovery server, read config from config server, circuit breakers, tracing and messaging">
+      <rect x="10" y="140" width="90" height="44" rx="8" style="fill:var(--surface);stroke:var(--muted);stroke-width:2"/>
+      <text x="55" y="167" text-anchor="middle" style="fill:currentColor;font-size:13px;font-weight:600">Client</text>
+      <line x1="100" y1="162" x2="140" y2="162" style="stroke:var(--muted);stroke-width:2"/>
+      <rect x="140" y="130" width="120" height="64" rx="8" style="fill:var(--surface);stroke:var(--info);stroke-width:2.5"/>
+      <text x="200" y="157" text-anchor="middle" style="fill:currentColor;font-size:13px;font-weight:700">API Gateway</text>
+      <text x="200" y="176" text-anchor="middle" style="fill:var(--muted);font-size:11px">Topic 61</text>
+      <line x1="260" y1="150" x2="330" y2="110" style="stroke:var(--muted);stroke-width:2"/>
+      <line x1="260" y1="175" x2="330" y2="215" style="stroke:var(--muted);stroke-width:2"/>
+      <rect x="330" y="85" width="140" height="50" rx="8" style="fill:var(--surface);stroke:var(--accent);stroke-width:2.5"/>
+      <text x="400" y="115" text-anchor="middle" style="fill:currentColor;font-size:13px;font-weight:600">order-service</text>
+      <rect x="330" y="190" width="140" height="50" rx="8" style="fill:var(--surface);stroke:var(--accent);stroke-width:2.5"/>
+      <text x="400" y="220" text-anchor="middle" style="fill:currentColor;font-size:13px;font-weight:600">product-service</text>
+      <line x1="400" y1="135" x2="400" y2="190" style="stroke:var(--java);stroke-width:2;stroke-dasharray:5 3"/>
+      <text x="408" y="160" style="fill:var(--java);font-size:11px">Feign + Circuit breaker</text>
+      <text x="408" y="174" style="fill:var(--java);font-size:11px">Topics 63, 64</text>
+      <rect x="520" y="20" width="150" height="50" rx="8" style="fill:var(--surface);stroke:var(--info);stroke-width:2"/>
+      <text x="595" y="42" text-anchor="middle" style="fill:currentColor;font-size:13px;font-weight:600">Discovery (Eureka)</text>
+      <text x="595" y="60" text-anchor="middle" style="fill:var(--muted);font-size:11px">Topic 60</text>
+      <rect x="520" y="90" width="150" height="50" rx="8" style="fill:var(--surface);stroke:var(--info);stroke-width:2"/>
+      <text x="595" y="112" text-anchor="middle" style="fill:currentColor;font-size:13px;font-weight:600">Config Server</text>
+      <text x="595" y="130" text-anchor="middle" style="fill:var(--muted);font-size:11px">Topic 62</text>
+      <rect x="520" y="160" width="150" height="50" rx="8" style="fill:var(--surface);stroke:var(--info);stroke-width:2"/>
+      <text x="595" y="182" text-anchor="middle" style="fill:currentColor;font-size:13px;font-weight:600">Tracing (Zipkin)</text>
+      <text x="595" y="200" text-anchor="middle" style="fill:var(--muted);font-size:11px">Topic 65</text>
+      <rect x="520" y="230" width="150" height="50" rx="8" style="fill:var(--surface);stroke:var(--java);stroke-width:2"/>
+      <text x="595" y="252" text-anchor="middle" style="fill:currentColor;font-size:13px;font-weight:600">Message broker</text>
+      <text x="595" y="270" text-anchor="middle" style="fill:var(--muted);font-size:11px">Topics 57, 58 (Saga)</text>
+      <g style="stroke:var(--muted);stroke-width:1.2;stroke-dasharray:3 3">
+        <line x1="470" y1="105" x2="520" y2="45"/><line x1="470" y1="110" x2="520" y2="115"/>
+        <line x1="470" y1="215" x2="520" y2="185"/><line x1="470" y1="225" x2="520" y2="255"/>
+      </g>
+      <text x="340" y="315" text-anchor="middle" style="fill:var(--muted);font-size:12px">Docker (66), Compose (67), CI/CD (68), Kubernetes (69) run all of this</text>
+    </svg>
+    <figcaption>The microservices "patterns map" – each box is a later topic.</figcaption>
+  </figure>
+  <div class="table-wrap"><table>
+    <tr><th>Problem</th><th>Pattern</th><th>Spring Cloud tool</th><th>Topic</th></tr>
+    <tr><td>"Where is product-service? Its IP/port changes, there are 3 copies."</td><td><strong>Service discovery</strong> + client-side load balancing</td><td>Eureka, Spring Cloud LoadBalancer</td><td>60</td></tr>
+    <tr><td>"Clients must know 20 URLs; every service re-implements auth, CORS, logging."</td><td><strong>API gateway</strong></td><td>Spring Cloud Gateway</td><td>61</td></tr>
+    <tr><td>"Config is copied in 20 projects; changing it needs 20 redeploys."</td><td><strong>Externalized / centralized config</strong></td><td>Spring Cloud Config</td><td>62</td></tr>
+    <tr><td>"Writing HTTP client code by hand is boring."</td><td><strong>Declarative REST client</strong></td><td>OpenFeign</td><td>63</td></tr>
+    <tr><td>"product-service is slow → order-service threads pile up → everything dies."</td><td><strong>Circuit breaker</strong>, retry, timeout, bulkhead</td><td>Resilience4j</td><td>64</td></tr>
+    <tr><td>"One user request went through 5 services. Where did it fail?"</td><td><strong>Distributed tracing</strong>, centralized logging</td><td>Micrometer Tracing + Zipkin</td><td>65</td></tr>
+    <tr><td>"Place order = reserve stock + take payment + create shipment, across 3 DBs."</td><td><strong>Saga</strong> (a chain of local transactions with compensating actions)</td><td>Events via Kafka/RabbitMQ</td><td>57, 58 (idea)</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Saga in one paragraph</strong>There is no <code>@Transactional</code> across services. A <strong>saga</strong> splits the business transaction into steps, each a local transaction in one service. If a later step fails, earlier steps are <strong>undone with compensating actions</strong>: payment failed → order-service cancels the order and inventory-service releases the stock. Choreography = services react to each other's events; orchestration = one "coordinator" tells each service what to do.</div>
+
+  <h3>3.10 What we build in this topic</h3>
+  <div class="flow">
+    <span class="box">You (curl / REST Client)</span><span class="arrow">→ POST :8082/api/orders →</span>
+    <span class="box">order-service :8082</span><span class="arrow">→ GET :8081/api/products/1 →</span>
+    <span class="box">product-service :8081</span>
+  </div>
+  <p>Two separate Spring Boot projects, two JVM processes, two ports. order-service knows product-service's address from a property: <code>product-service.base-url=http://localhost:8081</code>. That fixed address is the "pain point" we will remove in Topic 60.</p>
+
+  <!-- ===================================================== 4. CODE -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>product-service/pom.xml</code></td><td>A normal Spring Boot 3.5.6 project: <code>spring-boot-starter-web</code> + <code>actuator</code>. No Spring Cloud yet!</td></tr>
+    <tr><td><code>product-service/.../Product.java</code></td><td>Record: the product data this service owns.</td></tr>
+    <tr><td><code>product-service/.../ProductController.java</code></td><td><code>GET /api/products</code>, <code>GET /api/products/{id}</code> (404 if unknown).</td></tr>
+    <tr><td><code>product-service/.../application.properties</code></td><td>Name <code>product-service</code>, port <strong>8081</strong>.</td></tr>
+    <tr><td><code>order-service/pom.xml</code></td><td>Same starters. RestClient is part of <code>spring-web</code>, so no extra dependency.</td></tr>
+    <tr><td><code>order-service/.../ProductDto.java</code></td><td>order-service's own copy of the product shape (no shared classes).</td></tr>
+    <tr><td><code>order-service/.../OrderRequest.java</code>, <code>Order.java</code></td><td>Request body and the order record.</td></tr>
+    <tr><td><code>order-service/.../ProductClient.java</code></td><td>Calls product-service with RestClient and translates network errors.</td></tr>
+    <tr><td><code>order-service/.../OrderController.java</code></td><td><code>POST /api/orders</code>, <code>GET /api/orders</code>.</td></tr>
+    <tr><td><code>order-service/.../application.properties</code></td><td>Port <strong>8082</strong> and the hard-coded <code>product-service.base-url</code>.</td></tr>
+    <tr><td><code>requests.http</code></td><td>Ready-made requests for the REST Client extension.</td></tr>
+  </table></div>
+
+  <h3>4.1 product-service – the data owner</h3>
+  <pre><span class="file">product-service/src/main/java/com/course/msintro/product/ProductController.java</span><code class="lang-java">@RestController
+@RequestMapping("/api/products")
+public class ProductController {
+
+    // product-service's OWN data. Nobody else may read it directly.
+    private final Map&lt;Long, Product&gt; products = new TreeMap&lt;&gt;(Map.of(
+            1L, new Product(1L, "Laptop", 55000.0, 10),
+            2L, new Product(2L, "Wireless Mouse", 799.0, 150),
+            3L, new Product(3L, "Mechanical Keyboard", 3499.0, 40)
+    ));
+
+    @GetMapping
+    public Collection&lt;Product&gt; findAll() {
+        return products.values();
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity&lt;Product&gt; findById(@PathVariable Long id) {
+        Product product = products.get(id);
+        if (product == null) {
+            return ResponseEntity.notFound().build();   // 404 for the caller
+        }
+        return ResponseEntity.ok(product);
+    }
+}</code></pre>
+  <p>Nothing new here – it's Topic 31/32 material. The <em>architectural</em> point is: <strong>this API is the only door</strong> to product data. To keep the lesson focused we use a map instead of a database, but imagine it is product-service's own MySQL schema.</p>
+  <pre><span class="file">product-service/src/main/resources/application.properties</span><code class="lang-properties">spring.application.name=product-service
+server.port=8081
+management.endpoints.web.exposure.include=health</code></pre>
+  <p><code>spring.application.name</code> did not matter much before. In microservices it becomes the service's <strong>identity</strong> – Eureka, the gateway, Config Server and tracing all use it.</p>
+
+  <h3>4.2 order-service – its own small view of a product</h3>
+  <pre><span class="file">order-service/src/main/java/com/course/msintro/order/ProductDto.java</span><code class="lang-java">public record ProductDto(Long id, String name, double price, int stock) {
+}</code></pre>
+  <p>Why not put <code>Product</code> into a shared jar and use it in both services? Because a shared model jar <strong>couples</strong> the services: every change in it forces both teams to rebuild and redeploy together. Each service keeps its own DTO and Jackson simply ignores extra JSON fields it does not know.</p>
+  <pre><span class="file">order-service/src/main/java/com/course/msintro/order/Order.java</span><code class="lang-java">public record Order(Long orderId,
+                    Long productId,
+                    String productName,   // copied from product-service
+                    int quantity,
+                    double unitPrice,     // copied: the price the customer PAID
+                    double totalPrice,
+                    String status) {
+}</code></pre>
+  <p>We <strong>copy</strong> <code>productName</code> and <code>unitPrice</code> into the order. If the laptop costs more tomorrow, old orders must still show the old price. Copying the few fields you need is normal and healthy in microservices.</p>
+
+  <h3>4.3 ProductClient – the network call</h3>
+  <pre><span class="file">order-service/src/main/java/com/course/msintro/order/ProductClient.java</span><code class="lang-java">@Component
+public class ProductClient {
+
+    private final RestClient restClient;
+
+    public ProductClient(RestClient.Builder builder,
+                         @Value("${product-service.base-url}") String productServiceUrl) {
+        // Spring Boot gives us a pre-configured RestClient.Builder (with Jackson etc.)
+        this.restClient = builder.baseUrl(productServiceUrl).build();
+    }
+
+    public ProductDto getProduct(Long productId) {
+        try {
+            return restClient.get()
+                    .uri("/api/products/{id}", productId)
+                    .retrieve()                 // 4xx/5xx -&gt; exception
+                    .body(ProductDto.class);    // JSON -&gt; record
+        } catch (HttpClientErrorException.NotFound e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Product " + productId + " not found");
+        } catch (ResourceAccessException e) {
+            // could not CONNECT: product-service is down or the port is wrong
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "product-service is not available right now. Please try again later.");
+        }
+    }
+}</code></pre>
+  <p>Line by line:</p>
+  <ul>
+    <li><code>RestClient.Builder builder</code> – Spring Boot auto-configures a builder for you (Topic 45). We set the base URL once.</li>
+    <li><code>@Value("${product-service.base-url}")</code> – reads <code>http://localhost:8081</code> from <code>application.properties</code>. Still a <strong>fixed address</strong>.</li>
+    <li><code>.retrieve().body(ProductDto.class)</code> – sends GET, checks the status and converts the JSON body into our record.</li>
+    <li><code>HttpClientErrorException.NotFound</code> – product-service answered 404. We pass a clean 404 to our own caller.</li>
+    <li><code>ResourceAccessException</code> – an I/O problem: connection refused, timeout. <strong>This exception type never existed in your monolith</strong>. Welcome to distributed systems!</li>
+  </ul>
+
+  <h3>4.4 OrderController – business logic using remote data</h3>
+  <pre><span class="file">order-service/src/main/java/com/course/msintro/order/OrderController.java</span><code class="lang-java">@PostMapping
+@ResponseStatus(HttpStatus.CREATED)
+public Order placeOrder(@RequestBody OrderRequest request) {
+    if (request.productId() == null || request.quantity() &lt;= 0) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "productId is required and quantity must be at least 1");
+    }
+    // 1) remote call: can be slow or fail!
+    ProductDto product = productClient.getProduct(request.productId());
+
+    // 2) business rule
+    if (product.stock() &lt; request.quantity()) {
+        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                "Only " + product.stock() + " units of " + product.name() + " left");
+    }
+    // 3) save in OUR storage
+    Order order = new Order(nextId.getAndIncrement(), product.id(), product.name(),
+            request.quantity(), product.price(), product.price() * request.quantity(), "CREATED");
+    orders.add(order);
+    return order;
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ Notice what is missing</strong>We check the stock but we do <strong>not reduce it</strong> in product-service. Doing that safely across two services (what if the order save fails after the stock was reduced?) is exactly the <strong>distributed transaction / saga</strong> problem from 3.9. Real systems publish an <code>OrderPlaced</code> event and let the inventory service react.</div>
+
+  <pre><span class="file">order-service/src/main/resources/application.properties</span><code class="lang-properties">spring.application.name=order-service
+server.port=8082
+# WHERE is product-service?  A FIXED address -&gt; fixed in Topic 60
+product-service.base-url=http://localhost:8081
+server.error.include-message=always</code></pre>
+  <p><code>server.error.include-message=always</code> makes Spring include our <code>ResponseStatusException</code> reason text in the default error JSON (handy for learning; in real APIs use the global handler from Topic 35).</p>
+
+  <!-- ===================================================== 5. RUN -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 From the terminal (recommended – one terminal per service)</h3>
+  <p>In VS Code open a terminal (<strong>Terminal → New Terminal</strong>), then click the <strong>split</strong> icon to get a second one.</p>
+  <pre class="terminal"><code># Terminal 1 - start product-service FIRST
+cd "D:\Java-SpringBoot\59-Microservices-Architecture-Introduction\product-service"
+mvn spring-boot:run</code></pre>
+  <p>Wait for <code>Tomcat started on port 8081</code> and <code>Started ProductServiceApplication</code>.</p>
+  <pre class="terminal"><code># Terminal 2 - then order-service
+cd "D:\Java-SpringBoot\59-Microservices-Architecture-Introduction\order-service"
+mvn spring-boot:run</code></pre>
+  <p>Wait for <code>Tomcat started on port 8082</code>. You also see our log line: <code>ProductClient will call product-service at http://localhost:8081</code>.</p>
+
+  <h3>5.2 From VS Code (Spring Boot Dashboard)</h3>
+  <p>Open the topic folder in VS Code (<strong>File → Open Folder…</strong> → <code>59-Microservices-Architecture-Introduction</code>). The <strong>Spring Boot Dashboard</strong> (from the Spring Boot Extension Pack) lists both apps. Click ▶ next to <code>product-service</code>, then next to <code>order-service</code>. You can stop each with ■.</p>
+
+  <h3>5.3 Try it</h3>
+  <p>Open <code>requests.http</code> and click <strong>Send Request</strong>, or use curl (in PowerShell use <code>curl.exe</code> so you get real curl, not the PowerShell alias):</p>
+  <pre class="terminal"><code>curl.exe http://localhost:8081/api/products/1
+
+curl.exe -X POST http://localhost:8082/api/orders -H "Content-Type: application/json" -d "{\"productId\":1,\"quantity\":2}"
+
+curl.exe http://localhost:8082/api/orders</code></pre>
+  <p>Expected output:</p>
+  <pre class="terminal"><code>{"id":1,"name":"Laptop","price":55000.0,"stock":10}
+
+{"orderId":1,"productId":1,"productName":"Laptop","quantity":2,"unitPrice":55000.0,"totalPrice":110000.0,"status":"CREATED"}
+
+[{"orderId":1,"productId":1,"productName":"Laptop","quantity":2,"unitPrice":55000.0,"totalPrice":110000.0,"status":"CREATED"}]</code></pre>
+  <p>Unknown product (product-service says 404, order-service passes it on):</p>
+  <pre class="terminal"><code>curl.exe -X POST http://localhost:8082/api/orders -H "Content-Type: application/json" -d "{\"productId\":99,\"quantity\":1}"
+{"timestamp":"...","status":404,"error":"Not Found","message":"Product 99 not found","path":"/api/orders"}</code></pre>
+
+  <h3>5.4 The experiment – feel the problems</h3>
+  <ol>
+    <li><strong>Network failure:</strong> stop product-service (Ctrl+C in terminal 1) and place an order again:
+      <pre class="terminal"><code>{"status":503,"error":"Service Unavailable","message":"product-service is not available right now. Please try again later.","path":"/api/orders"}</code></pre>
+      In a monolith a method call cannot "be down". Here it can. (→ Topic 64, Resilience4j)</li>
+    <li><strong>Moving a service:</strong> start product-service on another port: <code>mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=9090"</code>. order-service is still calling 8081 → 503. You must edit and restart order-service. (→ Topic 60, Eureka)</li>
+    <li><strong>Scaling:</strong> you can run product-service on 8081 <em>and</em> 9090, but order-service can only use one fixed URL. (→ Topic 60, load balancing)</li>
+    <li><strong>Many URLs:</strong> a mobile app now needs to know <code>:8081</code> <em>and</em> <code>:8082</code>. With 20 services, 20 addresses. (→ Topic 61, API Gateway)</li>
+  </ol>
+  <p>Stop both apps with <strong>Ctrl+C</strong> when you are done.</p>
+
+  <!-- ===================================================== 6. MISTAKES -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: "Port 8081 was already in use"</strong>You started the same service twice, or another app uses the port. <br><strong>Fix:</strong> stop the old process (Ctrl+C in its terminal, or ■ in the dashboard). To find who uses a port on Windows: <code>netstat -ano | findstr :8081</code>, then <code>taskkill /PID &lt;pid&gt; /F</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: starting order-service first and expecting it to fail at startup</strong>order-service starts fine without product-service – it only calls it when an order is placed. Services must be able to start in any order; the call fails at request time (503).<br><strong>Fix:</strong> nothing to fix – but understand it. Start product-service first for a smooth demo.</div>
+  <div class="callout danger"><strong>🛑 Mistake: sharing one database between services</strong>"It's easier: order-service can just SELECT from the products table." This creates hidden coupling; one schema change breaks other teams.<br><strong>Fix:</strong> each service owns its tables. Others use its API or events.</div>
+  <div class="callout danger"><strong>🛑 Mistake: splitting too early / too small</strong>Ten services for a 3-person startup, or "nano-services" like <code>email-validation-service</code>. You get network latency, deployment pain and distributed bugs with no benefit.<br><strong>Fix:</strong> start with a modular monolith; split by business capability when there is a real reason.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: sharing entity classes through a "common" jar</strong>A shared <code>common-model.jar</code> with JPA entities used by all services = distributed monolith.<br><strong>Fix:</strong> each service has its own DTOs. Share only truly generic utilities, if anything.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting that remote calls fail</strong>Code like <code>restClient.get()...body(...)</code> with no error handling and no timeout. One slow service then blocks all your threads.<br><strong>Fix:</strong> handle errors (like <code>ProductClient</code>), set timeouts (Topic 45) and use a circuit breaker (Topic 64).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: long chains of synchronous calls</strong>A → B → C → D for every request. If each is 99% available, the chain is only ~96% available, and latencies add up.<br><strong>Fix:</strong> keep sync chains short; use events (async) for things that don't need an immediate answer.</div>
+
+  <!-- ===================================================== 7. BEST -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Monolith first</strong> (modular, package-by-feature). Extract services when a module needs independent scaling, deployment or ownership.</li>
+    <li><strong>Split by business capability / bounded context</strong>, not by technical layer.</li>
+    <li><strong>Database per service</strong> – no shared tables, ever.</li>
+    <li><strong>Design APIs as contracts:</strong> version them (<code>/api/v1</code>), never break existing clients, document with OpenAPI (Topic 44).</li>
+    <li><strong>Prefer async events</strong> for "something happened" notifications; keep sync calls for "I need the answer now".</li>
+    <li><strong>Design for failure:</strong> timeouts, retries with care, circuit breakers, fallbacks.</li>
+    <li><strong>Make services stateless</strong> so you can run many copies (12-factor #6, #8).</li>
+    <li><strong>Automate everything:</strong> one CI/CD pipeline per service, Docker images, health checks (<code>/actuator/health</code>).</li>
+    <li><strong>Observability from day one:</strong> structured logs, correlation/trace ids, metrics (Topics 53, 65).</li>
+    <li><strong>One team owns a service end-to-end</strong> ("you build it, you run it"). Conway's law: your architecture will mirror your team structure.</li>
+  </ul>
+
+  <!-- ===================================================== 8. SUMMARY -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>A <strong>monolith</strong> is one deployable app; <strong>microservices</strong> are many small, independently deployable apps, each owning one business capability and its own data.</li>
+    <li>Microservices trade <strong>simplicity</strong> for <strong>independent scaling, deployment and team autonomy</strong>. They are not free.</li>
+    <li><strong>Don't</strong> use them for small teams, new/unclear domains or without automation. "Monolith first."</li>
+    <li>Find boundaries with <strong>bounded contexts</strong>: the same word ("Product") can mean different things in different parts of the business.</li>
+    <li>Services talk <strong>synchronously</strong> (REST – wait for an answer) or <strong>asynchronously</strong> (messages/events via a broker).</li>
+    <li><strong>Database per service</strong>: never read another service's tables; use its API or events.</li>
+    <li>The <strong>12-factor app</strong> rules (config in environment, stateless processes, logs as streams…) make services cloud-ready.</li>
+    <li>Every multi-service system needs <strong>discovery, gateway, config, resilience, tracing</strong> and a way to do business transactions (<strong>saga</strong>) – Part F covers them one by one.</li>
+    <li>Our demo works but uses a <strong>hard-coded URL</strong> and fails with 503 when product-service is down – the starting point for Topic 60.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9. EXERCISES -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Monolith or microservices?</strong> For each case decide and give one reason: (a) a 2-developer startup building a recipe-sharing app; (b) a bank with 400 developers whose "loans" module needs releases every day but "core accounts" only once a month; (c) a college project for a library system.</p>
+    <details><summary>Hint / solution</summary>
+      <p>(a) <strong>Monolith</strong> – tiny team, domain still changing, no ops capacity. (b) <strong>Microservices</strong> (at least for loans) – many teams, very different release speeds; independent deployment is a real benefit. (c) <strong>Monolith</strong> – small scope, one team, no scaling need.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Add an endpoint.</strong> In product-service add <code>GET /api/products/search?name=mouse</code> that returns products whose name contains the text (ignore case). Test it directly on port 8081.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@GetMapping("/search")
+public List&lt;Product&gt; search(@RequestParam String name) {
+    String needle = name.toLowerCase();
+    return products.values().stream()
+            .filter(p -&gt; p.name().toLowerCase().contains(needle))
+            .toList();
+}</code></pre>
+      <p>Declare it before or after <code>/{id}</code> – Spring prefers the literal path <code>/search</code> over the pattern <code>/{id}</code>.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Bounded contexts.</strong> For a <em>food delivery</em> app (like Swiggy/Zomato) list 5 possible services and, for the word <em>"Restaurant"</em>, write what it means in two different contexts.</p>
+    <details><summary>Hint / solution</summary>
+      <p>Services: <code>restaurant-catalog-service</code> (menus, photos), <code>order-service</code>, <code>payment-service</code>, <code>delivery-service</code> (riders, tracking), <code>user-service</code>, <code>notification-service</code>, <code>review-service</code>.</p>
+      <p>"Restaurant" in <strong>Catalog</strong>: name, cuisine, menu items, prices, opening hours, photos. In <strong>Delivery</strong>: just a pickup point – GPS location, address, average preparation time. Two different small models, each owned by its service.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Timeouts.</strong> Make <code>ProductClient</code> give up after 2 seconds instead of waiting forever. Then add <code>Thread.sleep(5000)</code> in product-service's <code>findById</code> to test it. (Tip: configure a request factory on the builder – see Topic 45.)</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import java.time.Duration;
+
+public ProductClient(RestClient.Builder builder,
+                     @Value("${product-service.base-url}") String url) {
+    SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+    factory.setConnectTimeout(Duration.ofSeconds(2));
+    factory.setReadTimeout(Duration.ofSeconds(2));
+    this.restClient = builder.baseUrl(url).requestFactory(factory).build();
+}</code></pre>
+      <p>A read timeout throws <code>ResourceAccessException</code> (cause: <code>SocketTimeoutException</code>), so our existing catch block already returns 503. Remove the sleep afterwards!</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>A third service.</strong> Create <code>customer-service</code> on port <strong>8083</strong> with <code>GET /api/customers/{id}</code>. Change order-service so <code>OrderRequest</code> also has <code>customerId</code>, and order-service calls customer-service to check the customer exists (404 if not). Count how many hard-coded URLs order-service now has – and think about what happens with 15 services.</p>
+    <details><summary>Hint / solution</summary>
+      <p>Copy product-service as a template (change <code>artifactId</code>, package, <code>spring.application.name=customer-service</code>, <code>server.port=8083</code>). In order-service add <code>customer-service.base-url=http://localhost:8083</code> and a <code>CustomerClient</code> exactly like <code>ProductClient</code>. Call it first in <code>placeOrder</code>.</p>
+      <p>You now have 2 fixed URLs in order-service. With 15 services and several instances each, keeping these addresses correct by hand becomes impossible – which is why <strong>service discovery</strong> exists (next topic).</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Design a saga on paper.</strong> "Place order" needs: create order (order-service), reserve stock (inventory-service), charge card (payment-service). Payment fails. Write the steps and the compensating actions for choreography with events.</p>
+    <details><summary>Hint / solution</summary>
+      <ol>
+        <li>order-service creates order with status <code>PENDING</code> → publishes <code>OrderCreated</code>.</li>
+        <li>inventory-service reserves stock → publishes <code>StockReserved</code>.</li>
+        <li>payment-service tries to charge → fails → publishes <code>PaymentFailed</code>.</li>
+        <li>Compensation: inventory-service listens to <code>PaymentFailed</code> → <strong>releases the stock</strong>; order-service listens → sets order to <code>CANCELLED</code>.</li>
+      </ol>
+      <p>Each step is a local transaction in one service; failures are "undone" by new actions, not by a database rollback.</p>
+    </details>
+  </div>
+
+  <!-- ===================================================== 10. INTERVIEW -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between a monolith and microservices?</summary>
+    <p>A monolith is a single deployable application containing all features, usually with one shared database; components call each other in-process. Microservices split the system into small, independently deployable services, each owning a business capability and its own data, communicating over the network (REST, gRPC, messaging). Microservices give independent deployment/scaling and team autonomy at the cost of distributed-system complexity.</p></details>
+  <details><summary>Q2. When would you NOT choose microservices?</summary>
+    <p>Small teams, early-stage products with an unclear domain, no DevOps automation (CI/CD, containers, monitoring), no real scaling or team-autonomy problem, or a need for strong ACID transactions across the whole domain. In those cases a well-structured modular monolith is cheaper and faster. "Monolith first" is a common recommendation.</p></details>
+  <details><summary>Q3. What is a bounded context?</summary>
+    <p>A DDD concept: a boundary inside which a domain model and its terms have one consistent meaning. The same word (e.g. "Product", "Customer") can have different models in different contexts (catalog vs shipping). Bounded contexts are natural candidates for microservice boundaries.</p></details>
+  <details><summary>Q4. Why "database per service"? How do you query data across services then?</summary>
+    <p>It keeps services loosely coupled: a team can change its schema without breaking others, and services can scale/choose storage independently. To combine data: call the owning service's API, store copies of the fields you need, or maintain read models updated by events (CQRS / API composition at the gateway or a BFF).</p></details>
+  <details><summary>Q5. Synchronous vs asynchronous communication – when do you use which?</summary>
+    <p>Synchronous (REST/gRPC) when the caller needs the answer immediately to continue (e.g. price lookup); it creates temporal coupling – if the callee is down, the caller is affected. Asynchronous messaging (Kafka/RabbitMQ) for events and commands that don't need an immediate reply (order placed → email, shipping); it decouples availability and smooths load but brings eventual consistency and more complex debugging.</p></details>
+  <details><summary>Q6. How do you handle a transaction that spans several services?</summary>
+    <p>Distributed 2-phase commit is avoided in microservices (slow, fragile). Instead use the <strong>Saga</strong> pattern: a sequence of local transactions, each publishing an event or triggered by an orchestrator; on failure, previously completed steps are undone by <strong>compensating transactions</strong>. Choreography (event-driven) or orchestration (central coordinator). Often combined with the Outbox pattern for reliable event publishing.</p></details>
+  <details><summary>Q7. Name the common microservice patterns and the Spring Cloud tools for them.</summary>
+    <p>Service discovery – Eureka (or Consul/Kubernetes DNS); client-side load balancing – Spring Cloud LoadBalancer; API gateway – Spring Cloud Gateway; centralized config – Spring Cloud Config; declarative clients – OpenFeign; resilience (circuit breaker, retry, rate limiter, bulkhead) – Resilience4j; distributed tracing – Micrometer Tracing + Zipkin; messaging – Spring Kafka/AMQP, Spring Cloud Stream; sagas – events or an orchestrator.</p></details>
+  <details><summary>Q8. What is the 12-factor app? Name a few factors.</summary>
+    <p>A methodology for cloud-native apps: one codebase, explicit dependencies, config in the environment, backing services as attached resources, separate build/release/run, stateless processes, port binding, scale by processes, disposability (fast start, graceful shutdown), dev/prod parity, logs as event streams, admin tasks as one-off processes.</p></details>
+  <details><summary>Q9. What is a "distributed monolith"?</summary>
+    <p>A system split into services that are still tightly coupled: shared database, shared model libraries, lock-step deployments, chatty synchronous call chains. It has the operational cost of microservices without their benefits – an anti-pattern.</p></details>
+  <details><summary>Q10. In your order-service, product-service is down. What happens and how would you improve it?</summary>
+    <p>The RestClient call throws <code>ResourceAccessException</code>; we translate it into 503. Improvements: timeouts so threads aren't blocked; a circuit breaker with a fallback (Resilience4j) so we fail fast; retries for transient errors; multiple instances behind service discovery/load balancing; caching product data; or making the flow asynchronous where possible.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../58-Event-Streaming-With-Apache-Kafka/lesson.html"><small>← Previous</small>58. Event Streaming with Apache Kafka</a>
+    <a class="next" href="../60-Service-Discovery-With-Eureka/lesson.html"><small>Next →</small>60. Service Discovery with Eureka</a>
+  </nav>
+</main>
+</body>
+</html>

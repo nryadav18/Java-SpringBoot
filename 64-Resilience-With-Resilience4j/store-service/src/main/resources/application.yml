@@ -1,0 +1,87 @@
+# store-service configuration (Topic 64)
+server:
+  port: 8084
+
+spring:
+  application:
+    name: store-service
+
+# Where inventory-service lives
+inventory:
+  base-url: http://localhost:8083
+
+# ---------------------------------------------------------------------------
+# Resilience4j - every block below is an INSTANCE referenced by name in an annotation
+# ---------------------------------------------------------------------------
+resilience4j:
+
+  circuitbreaker:
+    instances:
+      inventory:
+        sliding-window-type: COUNT_BASED       # look at the last N calls (or TIME_BASED: last N seconds)
+        sliding-window-size: 6                 # N = 6 calls
+        minimum-number-of-calls: 4             # do not judge before at least 4 calls were made
+        failure-rate-threshold: 50             # >= 50 % failed  -> OPEN
+        slow-call-duration-threshold: 2s       # a call slower than 2 s counts as "slow"...
+        slow-call-rate-threshold: 50           # ...and >= 50 % slow calls also -> OPEN
+        wait-duration-in-open-state: 10s       # stay OPEN 10 s, then let a few test calls through
+        automatic-transition-from-open-to-half-open-enabled: true
+        permitted-number-of-calls-in-half-open-state: 2   # HALF_OPEN: 2 trial calls decide
+        record-exceptions:                     # these count as FAILURES
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.ResourceAccessException
+        ignore-exceptions:                     # 4xx = caller's fault, not a sick downstream
+          - org.springframework.web.client.HttpClientErrorException
+        register-health-indicator: true        # show state in /actuator/health
+        allow-health-indicator-to-fail: false  # an OPEN breaker must NOT mark OUR app as DOWN
+
+  retry:
+    instances:
+      inventory:
+        max-attempts: 3                        # 1 normal call + 2 retries
+        wait-duration: 500ms                   # pause before retry #1
+        enable-exponential-backoff: true       # 500 ms, then 1 s, then 2 s ... (gives downstream time)
+        exponential-backoff-multiplier: 2
+        retry-exceptions:                      # ONLY retry errors that might go away by themselves
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.ResourceAccessException
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+
+  timelimiter:
+    instances:
+      inventorySlow:
+        timeout-duration: 2s                   # give up waiting after 2 seconds
+        cancel-running-future: true
+
+  ratelimiter:
+    instances:
+      deals:
+        limit-for-period: 3                    # 3 calls ...
+        limit-refresh-period: 10s              # ... per 10 seconds
+        timeout-duration: 0                    # do not wait for a free permit - reject at once
+
+  bulkhead:
+    instances:
+      report:
+        max-concurrent-calls: 2                # at most 2 at the same time
+        max-wait-duration: 0                   # 3rd caller rejected immediately
+
+# ---------------------------------------------------------------------------
+# Actuator - endpoints to WATCH Resilience4j at runtime
+# ---------------------------------------------------------------------------
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,circuitbreakers,circuitbreakerevents,retries,retryevents,ratelimiters,bulkheads,timelimiters
+  endpoint:
+    health:
+      show-details: always
+  health:
+    circuitbreakers:
+      enabled: true
+
+logging:
+  level:
+    io.github.resilience4j: INFO

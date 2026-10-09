@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Topic 69 - Deployment and Kubernetes basics
+
+  "menu-service": a small, PRODUCTION-READY Spring Boot app for a food-delivery company:
+  health probes, graceful shutdown, config from environment (ConfigMap / Secret), JSON logs in prod.
+  Kubernetes YAML files are in k8s/, a Linux systemd unit is in deploy/.
+
+  Build the jar:     mvn -B verify
+  Build the image:   docker build -t menu-service:1.0.0 .
+  Deploy:            kubectl apply -f k8s/
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.6</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.course</groupId>
+    <artifactId>menu-service</artifactId>
+    <version>1.0.0</version>
+    <name>menu-service</name>
+    <description>Spring Boot app ready for deployment to a VM, PaaS or Kubernetes</description>
+
+    <properties>
+        <java.version>17</java.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- Actuator gives /actuator/health/liveness and /actuator/health/readiness for Kubernetes probes -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>app</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <!-- Writes META-INF/build-info.properties so /actuator/info shows version and build time -->
+                        <goals>
+                            <goal>build-info</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

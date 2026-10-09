@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>22 · Why Spring? IoC &amp; DI Concepts</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part B · Spring Framework Core › Topic 22</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part B · Spring Framework Core</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>22. Why Spring? IoC &amp; DI Concepts</h1>
+  <p class="subtitle">Understand the problem Spring solves, fix it yourself in plain Java, and then build your very first Spring application with an <code>ApplicationContext</code>.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="22-Why-Spring-IoC-And-DI-Concepts"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What a <em>dependency</em> is, and why <code>new</code> everywhere causes <em>tight coupling</em>.</li>
+      <li>How to fix tight coupling in <strong>plain Java</strong>: interfaces + constructor injection + an "assembler".</li>
+      <li>The two big ideas behind Spring: <strong>Inversion of Control (IoC)</strong> and <strong>Dependency Injection (DI)</strong>.</li>
+      <li>What the Spring <strong>container</strong> is and what a <strong>bean</strong> is.</li>
+      <li>How to write your first Spring app with <code>@Configuration</code>, <code>@Bean</code> and <code>AnnotationConfigApplicationContext</code>.</li>
+      <li>A short history of Spring, the Spring "family" (Boot, Data, Security, Cloud…), and Spring vs Spring Boot.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know:
+    <a href="../8-OOP-Polymorphism-Abstraction-Interfaces/lesson.html">Topic 8 · Interfaces &amp; loose coupling</a>,
+    <a href="../18-Annotations-And-Reflection/lesson.html">Topic 18 · Annotations (and the mini DI container)</a>,
+    <a href="../20-Maven-Build-Tool/lesson.html">Topic 20 · Maven</a> and
+    <a href="../21-Unit-Testing-With-JUnit5/lesson.html">Topic 21 · JUnit 5</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1. WHY ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Congratulations — you have finished Core Java! You can write classes, use interfaces, handle exceptions, work with collections, talk to a database with JDBC, build with Maven and test with JUnit. That is a lot.</p>
+  <p>Now imagine a <strong>real company application</strong>: an online shop. It has hundreds of classes — <code>OrderService</code>, <code>PaymentService</code>, <code>ProductRepository</code>, <code>EmailSender</code>, <code>InvoiceGenerator</code>, <code>DiscountCalculator</code>… Each class <em>needs</em> other classes to do its job. Somebody has to create all these objects, in the right order, and connect them together.</p>
+  <p>If every class creates its own helpers with <code>new</code>, the code becomes a big ball of glue:</p>
+  <ul>
+    <li>Changing one class (say, Email → SMS) means editing many other classes.</li>
+    <li>Testing one class means you accidentally run all its helpers too (real emails, real database…).</li>
+    <li>Nobody can see which class needs what, because the <code>new</code> calls are hidden inside.</li>
+  </ul>
+  <p><strong>Spring</strong> is a framework that solves exactly this. It creates your objects, connects them, and manages them for you. That is why Spring (and Spring Boot, which is built on top of it) is the <strong>most used Java framework in companies</strong>: banks, e-commerce, telecom, insurance, government — almost every Java backend job description says "Spring Boot".</p>
+  <div class="callout info"><strong>ℹ️ How this topic is different</strong>
+    In this topic we will <em>not</em> rush into Spring. First we feel the pain, then we fix it ourselves in plain Java. Only then do we let Spring do it. When you understand <em>why</em> Spring exists, everything else in this course will make sense.</div>
+
+  <!-- ===================================================== 2. ANALOGY ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>👨‍🍳 The chef and the kitchen manager</strong>
+    <p>A <strong>chef</strong> in a big restaurant needs tomatoes, a knife and a stove to make a dish. Imagine if the chef had to <em>grow</em> the tomatoes, <em>forge</em> the knife and <em>build</em> the stove before cooking. Crazy! And if the restaurant switched from gas to an electric stove, the chef would have to learn to build a new stove.</p>
+    <p>In a real restaurant, the chef simply says: <em>"To cook, I need tomatoes, a knife and a stove."</em> A <strong>kitchen manager</strong> buys them, sets them up and hands them to the chef. The chef just cooks.</p>
+    <ul>
+      <li>The chef = your class (e.g. <code>OrderService</code>).</li>
+      <li>Tomatoes, knife, stove = its <strong>dependencies</strong> (e.g. <code>NotificationService</code>).</li>
+      <li>"I need a stove" (any stove that works) = depending on an <strong>interface</strong>, not a brand.</li>
+      <li>Handing things to the chef = <strong>Dependency Injection</strong>.</li>
+      <li>The chef no longer controls shopping — the manager does = <strong>Inversion of Control</strong>.</li>
+      <li>The kitchen manager = the <strong>Spring container</strong> (<code>ApplicationContext</code>).</li>
+    </ul>
+  </div>
+  <p>There is also a famous saying for IoC called the <strong>Hollywood Principle</strong>: <em>"Don't call us, we'll call you."</em> Actors don't phone the studio every day asking for work — the studio calls them when needed. Your classes don't go out and create things — the framework gives them what they need and calls them.</p>
+
+  <!-- ===================================================== 3. CONCEPTS ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 What is a "dependency"?</h3>
+  <p>If class <strong>A</strong> uses class <strong>B</strong> to do its work, then <strong>B is a dependency of A</strong>. "A depends on B."</p>
+  <p>Example: an <code>OrderService</code> must tell the customer "your order is confirmed". It uses an <code>EmailSender</code> for that. So <code>EmailSender</code> is a dependency of <code>OrderService</code>.</p>
+  <div class="flow">
+    <span class="box">OrderService</span><span class="arrow">— uses →</span>
+    <span class="box alt">EmailSender</span>
+  </div>
+  <p>Dependencies are normal and good — classes should work together. The question is only: <strong>who creates the dependency, and how tightly are they glued?</strong></p>
+
+  <h3>3.2 The problem: tight coupling</h3>
+  <p>Here is the "beginner way" — the class creates its own helper with <code>new</code>:</p>
+  <pre><span class="file">step1/TightOrderService.java</span><code class="lang-java">public class TightOrderService {
+
+    // The class decides AND creates its own dependency. This "new" is the glue.
+    private final EmailSender emailSender = new EmailSender();
+
+    public void placeOrder(String customer, String item) {
+        System.out.println("Order placed: " + item + " for " + customer);
+        emailSender.sendEmail(customer, "Your order for " + item + " is confirmed!");
+    }
+}</code></pre>
+  <p>It works. So what is wrong? Let's look at three real situations from work:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Situation</th><th>What happens with tight coupling</th></tr>
+    <tr><td>🔁 The manager says: "Customers want SMS, not email."</td><td>You must <strong>open and edit</strong> <code>TightOrderService</code>. If 20 classes do <code>new EmailSender()</code>, you edit 20 classes.</td></tr>
+    <tr><td>🧪 You want to unit-test <code>placeOrder()</code>.</td><td>Every test run sends a <strong>real email</strong>. You can't replace <code>EmailSender</code> with a fake one, because the class creates it itself.</td></tr>
+    <tr><td>🔍 A new team member reads the code.</td><td>Looking at the constructor (there isn't even one!) you can't tell that this class needs an email sender. The dependency is <strong>hidden</strong>.</td></tr>
+  </table></div>
+  <p><strong>Tight coupling</strong> means: one class is glued to one specific <em>concrete</em> class. You can't change one without changing the other. The opposite, <strong>loose coupling</strong>, means classes know each other only through a small contract (an interface), so parts can be swapped freely — like plugging any charger into a standard wall socket.</p>
+
+  <h3>3.3 Fix part 1 — depend on an interface</h3>
+  <p>You learned this in <a href="../8-OOP-Polymorphism-Abstraction-Interfaces/lesson.html">Topic 8</a>: "program to an interface". We describe <em>what</em> we need, not <em>which class</em>:</p>
+  <pre><span class="file">notification/NotificationService.java</span><code class="lang-java">public interface NotificationService {
+    void send(String recipient, String message);
+    String channel();
+}</code></pre>
+  <p>Now we can have many implementations:</p>
+  <pre><code class="lang-java">public class EmailNotificationService implements NotificationService { ... }
+public class SmsNotificationService   implements NotificationService { ... }
+// tomorrow: PushNotificationService, WhatsAppNotificationService ...</code></pre>
+
+  <h3>3.4 Fix part 2 — constructor injection</h3>
+  <p>The class stops creating its helper. Instead, it <strong>asks for it in the constructor</strong>:</p>
+  <pre><span class="file">order/OrderService.java</span><code class="lang-java">public class OrderService {
+
+    private final NotificationService notificationService;   // an INTERFACE type
+
+    // "Give me any NotificationService. I don't care which one."
+    public OrderService(NotificationService notificationService) {
+        this.notificationService = notificationService;
+    }
+
+    public String placeOrder(String customer, String item) {
+        String message = "Your order for " + item + " is confirmed!";
+        notificationService.send(customer, message);
+        return message;
+    }
+}</code></pre>
+  <p>This is <strong>Dependency Injection (DI)</strong>: the dependency is <em>injected</em> (handed in) from outside instead of being created inside. The word "inject" sounds medical, but it just means "pass in".</p>
+  <p>Look at what we gained:</p>
+  <ul>
+    <li><code>OrderService</code> no longer mentions <code>Email</code> or <code>Sms</code> anywhere. It only knows the interface.</li>
+    <li>Switching channels means passing a different object. <code>OrderService.java</code> never changes.</li>
+    <li>The constructor clearly shows what the class needs. Nothing is hidden.</li>
+    <li>In a test we can pass a <strong>fake</strong> that just records messages (we do exactly that in <code>OrderServiceTest</code>).</li>
+  </ul>
+
+  <h3>3.5 Fix part 3 — the "assembler" (and the birth of IoC)</h3>
+  <p>But wait — <em>somebody</em> still has to call <code>new SmsNotificationService()</code> and <code>new OrderService(...)</code>. Where does that happen now? We move it into <strong>one special place</strong>: an assembler.</p>
+  <pre><span class="file">step2/ManualAssembler.java</span><code class="lang-java">public class ManualAssembler {
+
+    public static OrderService buildOrderService(String channel) {
+        NotificationService notifier;
+        if ("sms".equalsIgnoreCase(channel)) {
+            notifier = new SmsNotificationService();     // 1. decide + create the dependency
+        } else {
+            notifier = new EmailNotificationService();
+        }
+        return new OrderService(notifier);               // 2. create the class and WIRE it
+    }
+}</code></pre>
+  <p>The assembler does three jobs:</p>
+  <ol>
+    <li><strong>Decides</strong> which implementation to use (configuration).</li>
+    <li><strong>Creates</strong> the objects.</li>
+    <li><strong>Wires</strong> them together (injects dependencies).</li>
+  </ol>
+  <p>Before, <code>OrderService</code> was in control of creating its helper. Now the <em>assembler</em> is in control. Control has been turned upside down — <strong>inverted</strong>. That is the meaning of <strong>Inversion of Control (IoC)</strong>.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 230" width="720" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, sans-serif" font-size="14">
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="20" y="40" width="300" height="160" rx="10"/>
+        <rect x="400" y="40" width="300" height="160" rx="10"/>
+        <rect x="50" y="90" width="120" height="40" rx="6"/>
+        <rect x="190" y="140" width="110" height="40" rx="6" stroke-dasharray="5 4"/>
+        <rect x="440" y="80" width="220" height="36" rx="6"/>
+        <rect x="430" y="150" width="110" height="36" rx="6"/>
+        <rect x="560" y="150" width="120" height="36" rx="6"/>
+        <path d="M170 110 L240 140"/>
+        <path d="M550 116 L485 150"/>
+        <path d="M550 116 L620 150"/>
+        <path d="M540 168 L560 168"/>
+      </g>
+      <g fill="currentColor">
+        <text x="170" y="28" text-anchor="middle" font-weight="bold">Without IoC</text>
+        <text x="550" y="28" text-anchor="middle" font-weight="bold">With IoC (assembler / Spring)</text>
+        <text x="110" y="115" text-anchor="middle">OrderService</text>
+        <text x="245" y="165" text-anchor="middle">new Email…</text>
+        <text x="60" y="70">the class creates its own helper</text>
+        <text x="550" y="103" text-anchor="middle">Assembler / Container</text>
+        <text x="485" y="173" text-anchor="middle">Sms…</text>
+        <text x="620" y="173" text-anchor="middle">OrderService</text>
+        <text x="550" y="65" text-anchor="middle">creates both, then injects</text>
+        <text x="550" y="215" text-anchor="middle">OrderService just receives it</text>
+      </g>
+    </svg>
+    <figcaption>Left: the class creates its dependency (it is in control). Right: an outside party creates and injects it (control is inverted).</figcaption>
+  </figure>
+
+  <h3>3.6 IoC and DI — the two big words</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Term</th><th>Simple meaning</th><th>In our code</th></tr>
+    <tr><td><strong>Inversion of Control (IoC)</strong></td><td>A <em>principle</em>: your classes do not control the creation and wiring of their dependencies. Something outside (a framework) does. "Don't call us, we'll call you."</td><td><code>ManualAssembler</code> (by hand) or Spring's <code>ApplicationContext</code> (automatic) is in control.</td></tr>
+    <tr><td><strong>Dependency Injection (DI)</strong></td><td>A <em>technique</em> to achieve IoC: dependencies are handed to an object (via constructor, setter or field) instead of the object creating them.</td><td><code>new OrderService(notifier)</code> — the notifier is injected through the constructor.</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Remember it like this</strong>
+    IoC is the <em>idea</em> ("someone else is in charge of creating objects"). DI is the most common <em>way</em> to do it ("hand the objects in"). In interviews people often say "IoC/DI" together — that is fine.</div>
+
+  <h3>3.7 Why not just keep the hand-written assembler?</h3>
+  <p>For three classes, a manual assembler is perfect. But in a real application with 300 classes:</p>
+  <ul>
+    <li>The assembler becomes thousands of lines of <code>new</code> calls, and the order matters (create B before A if A needs B).</li>
+    <li>You want most objects created <strong>once</strong> and shared (one <code>OrderService</code> for the whole app) — you would have to code caching yourself.</li>
+    <li>You want extra features: run code after an object is created, clean up on shutdown, read settings from a file, use different objects in test vs production, add logging or transactions around methods…</li>
+  </ul>
+  <p>Writing all that yourself means writing a framework. <strong>Spring already is that framework</strong> — tested by millions of developers for 20+ years. In <a href="../18-Annotations-And-Reflection/lesson.html">Topic 18</a> you even built a tiny one with reflection; Spring is the industrial-strength version of the same idea.</p>
+
+  <h3>3.8 The Spring container and beans</h3>
+  <p>Two words you will hear every day from now on:</p>
+  <ul>
+    <li><strong>Spring container</strong> (also called the <strong>IoC container</strong> or <strong>application context</strong>): the object that creates, wires, stores and manages your objects. In code it is an <code>ApplicationContext</code>. It is our "kitchen manager".</li>
+    <li><strong>Bean</strong>: any object that is created and managed by the Spring container. A bean is just a normal Java object — the only special thing is that <em>Spring</em> made it and keeps it. If you create an object yourself with <code>new</code>, it is <em>not</em> a bean.</li>
+  </ul>
+  <div class="flow">
+    <span class="box info">Your configuration<br><small>(@Configuration, @Bean)</small></span><span class="arrow">→</span>
+    <span class="box">Spring container<br><small>(ApplicationContext)</small></span><span class="arrow">→</span>
+    <span class="box alt">Ready-to-use beans<br><small>(wired objects)</small></span>
+  </div>
+  <p>You give Spring <strong>instructions</strong> (configuration metadata) — "these are the objects I want, this is how they connect". Spring reads them at startup and builds everything.</p>
+
+  <h3>3.9 Your first Spring configuration: <code>@Configuration</code> + <code>@Bean</code></h3>
+  <p>Let's replace the manual assembler with Spring. We write a <strong>configuration class</strong>:</p>
+  <pre><span class="file">step3/AppConfig.java</span><code class="lang-java">import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration                      // "This class contains bean recipes."
+public class AppConfig {
+
+    @Bean                           // "Call me once and keep what I return as a bean."
+    public NotificationService notificationService() {
+        return new SmsNotificationService();
+    }
+
+    @Bean                           // Spring passes the NotificationService bean in for us!
+    public OrderService orderService(NotificationService notificationService) {
+        return new OrderService(notificationService);
+    }
+}</code></pre>
+  <p>Read it slowly:</p>
+  <ul>
+    <li><code>@Configuration</code> — an annotation (you learned annotations in Topic 18) that marks this class as a "recipe book" for beans.</li>
+    <li><code>@Bean</code> on a method — "Spring, call this method and register the returned object as a bean". The <strong>bean name</strong> is the method name: <code>notificationService</code> and <code>orderService</code>.</li>
+    <li>The method <code>orderService(NotificationService notificationService)</code> has a <strong>parameter</strong>. Spring looks in its container for a bean of type <code>NotificationService</code>, finds the SMS one and passes it in. <strong>That is Spring doing dependency injection.</strong></li>
+  </ul>
+  <p>It looks a lot like <code>ManualAssembler</code> — and that is on purpose. The difference: Spring decides <em>when</em> to call these methods, in which <em>order</em>, keeps <em>one</em> instance of each, and gives you lots of extra features for free.</p>
+
+  <h3>3.10 Starting the container: <code>ApplicationContext</code></h3>
+  <pre><span class="file">App.java (step 3)</span><code class="lang-java">try (AnnotationConfigApplicationContext context =
+             new AnnotationConfigApplicationContext(AppConfig.class)) {
+
+    OrderService orderService = context.getBean(OrderService.class);   // ask for a ready bean
+    orderService.placeOrder("meera@example.com", "Laptop Stand");
+}</code></pre>
+  <ul>
+    <li><code>AnnotationConfigApplicationContext</code> is a kind of <code>ApplicationContext</code> that reads <strong>annotation-based</strong> configuration (our <code>AppConfig</code> class).</li>
+    <li>When you write <code>new AnnotationConfigApplicationContext(AppConfig.class)</code>, Spring <strong>starts up</strong>: reads <code>AppConfig</code>, calls the <code>@Bean</code> methods in the right order, and stores the results.</li>
+    <li><code>context.getBean(OrderService.class)</code> — "give me the bean of type <code>OrderService</code>". You get a fully wired object.</li>
+    <li>We use <strong>try-with-resources</strong> (Topic 10) because the context is <code>Closeable</code>: closing it shuts Spring down cleanly (it destroys beans and releases resources).</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ Beans are singletons by default</strong>
+    Ask for the same bean twice and you get the <strong>same object</strong>: <code>context.getBean(NotificationService.class) == context.getBean(NotificationService.class)</code> is <code>true</code>. Spring creates one instance and shares it. This is efficient and is what you want for "service" objects. (Topic 25 shows other options.)</div>
+  <div class="callout warn"><strong>⚠️ In real apps you rarely call <code>getBean()</code></strong>
+    We call <code>getBean</code> here only because <code>main()</code> is the entry point and lives outside Spring. Inside your application, beans get their dependencies <em>injected</em> — they never go looking for them. In Spring Boot you will almost never write <code>getBean</code>.</div>
+
+  <h3>3.11 What happens at startup (big picture)</h3>
+  <div class="flow">
+    <span class="box info">1. Read AppConfig</span><span class="arrow">→</span>
+    <span class="box info">2. Find @Bean methods</span><span class="arrow">→</span>
+    <span class="box">3. Work out order<br><small>(orderService needs notificationService)</small></span><span class="arrow">→</span>
+    <span class="box">4. Create + inject</span><span class="arrow">→</span>
+    <span class="box alt">5. Ready! getBean()</span>
+  </div>
+  <p>Topic 23 looks inside this process in more detail.</p>
+
+  <h3>3.12 The Maven project for plain Spring</h3>
+  <p>For topics 22–27 we use <strong>plain Spring</strong> (without Spring Boot) so you see what is really happening. The project needs just one Spring library:</p>
+  <pre><span class="file">pom.xml (dependencies)</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-context&lt;/artifactId&gt;
+    &lt;version&gt;6.2.11&lt;/version&gt;
+&lt;/dependency&gt;</code></pre>
+  <p><code>spring-context</code> is the IoC container. Thanks to <strong>transitive dependencies</strong> (Topic 20) it automatically brings:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Jar</th><th>What it contains</th></tr>
+    <tr><td><code>spring-core</code></td><td>Basic utilities used by everything else.</td></tr>
+    <tr><td><code>spring-beans</code></td><td>The bean factory: creating and wiring beans.</td></tr>
+    <tr><td><code>spring-context</code></td><td><code>ApplicationContext</code>, <code>@Configuration</code>, <code>@Bean</code>, <code>@Component</code>, events, etc.</td></tr>
+    <tr><td><code>spring-aop</code></td><td>Proxies — used for AOP (Topic 27).</td></tr>
+    <tr><td><code>spring-expression</code></td><td>SpEL, the Spring Expression Language (Topic 26).</td></tr>
+    <tr><td><code>spring-jcl</code></td><td>A small logging bridge.</td></tr>
+  </table></div>
+  <p>To run a <code>main()</code> method with Maven we add the <strong>exec-maven-plugin</strong> and tell it which class to run:</p>
+  <pre><span class="file">pom.xml (build)</span><code class="lang-xml">&lt;plugin&gt;
+    &lt;groupId&gt;org.codehaus.mojo&lt;/groupId&gt;
+    &lt;artifactId&gt;exec-maven-plugin&lt;/artifactId&gt;
+    &lt;version&gt;3.5.0&lt;/version&gt;
+    &lt;configuration&gt;
+        &lt;mainClass&gt;com.course.whyspring.App&lt;/mainClass&gt;
+    &lt;/configuration&gt;
+&lt;/plugin&gt;</code></pre>
+  <p>Now <code>mvn -q compile exec:java</code> means: "compile the code, then run <code>App.main()</code> with all the dependency jars on the classpath". (<code>-q</code> = quiet, so you only see your program's output.)</p>
+  <p>We also set <code>&lt;maven.compiler.parameters&gt;true&lt;/maven.compiler.parameters&gt;</code>. It keeps parameter names (like <code>notificationService</code>) inside the compiled <code>.class</code> files. Spring 6.1+ uses these names in some situations, so it's good to always switch it on. (Spring Boot does it for you.)</p>
+
+  <h3>3.13 A short history of Spring</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Year</th><th>What happened</th></tr>
+    <tr><td>Early 2000s</td><td>Enterprise Java (J2EE / EJB 2) was very heavy: lots of XML, special interfaces, a big application server just to run simple code. Testing was painful.</td></tr>
+    <tr><td>2002</td><td>Rod Johnson writes the book <em>Expert One-on-One J2EE Design and Development</em> with code showing a simpler way: plain Java objects (POJOs) + DI.</td></tr>
+    <tr><td>2004</td><td><strong>Spring Framework 1.0</strong> released. Configuration in XML files.</td></tr>
+    <tr><td>2007</td><td>Spring 2.5 — annotations like <code>@Component</code>, <code>@Autowired</code>.</td></tr>
+    <tr><td>2009</td><td>Spring 3.0 — Java-based configuration (<code>@Configuration</code>, <code>@Bean</code>), REST support.</td></tr>
+    <tr><td>2014</td><td><strong>Spring Boot 1.0</strong> — "just run it": auto-configuration, embedded server, almost zero setup.</td></tr>
+    <tr><td>2017</td><td>Spring 5 — reactive programming (WebFlux), Java 8+ baseline.</td></tr>
+    <tr><td>2022</td><td><strong>Spring 6 / Spring Boot 3</strong> — Java 17 minimum, move from <code>javax.*</code> to <code>jakarta.*</code> packages.</td></tr>
+    <tr><td>Today</td><td>This course uses <strong>Spring Framework 6.2</strong> and <strong>Spring Boot 3.5</strong>, which are very widely used at work. Newer major versions (Spring Framework 7 / Spring Boot 4) also exist; the ideas you learn here stay exactly the same.</td></tr>
+  </table></div>
+
+  <h3>3.14 The Spring ecosystem (the "Spring family")</h3>
+  <p>"Spring" is not one library — it's a family of projects. All of them are built on the core you learn in Part B.</p>
+  <div class="grid">
+    <div class="card"><strong>🌱 Spring Framework</strong><br>The core: IoC container, DI, AOP, events, Spring MVC (web), JDBC support, transactions. <em>Topics 22–27.</em></div>
+    <div class="card"><strong>🚀 Spring Boot</strong><br>Makes Spring apps quick to create and run: auto-configuration, starters, embedded Tomcat. <em>From Topic 28.</em></div>
+    <div class="card"><strong>🗄️ Spring Data</strong><br>Database access with almost no code: Spring Data JPA, MongoDB, Redis… <em>Topics 37–43.</em></div>
+    <div class="card"><strong>🔐 Spring Security</strong><br>Login, passwords, roles, JWT, OAuth2. <em>Topics 47–50.</em></div>
+    <div class="card"><strong>☁️ Spring Cloud</strong><br>Microservices: service discovery, gateway, config server, resilience. <em>Topics 59–65.</em></div>
+    <div class="card"><strong>📨 Others</strong><br>Spring Kafka, Spring AMQP (RabbitMQ), Spring Batch, Spring GraphQL, Spring WebFlux, Spring AI…</div>
+  </div>
+
+  <h3>3.15 Spring vs Spring Boot (preview)</h3>
+  <p>People often mix them up. Spring Boot is <strong>not</strong> a different framework — it is Spring with a smart "autopilot" on top.</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Spring Framework (Topics 22–27)</th><th>Spring Boot (Topic 28+)</th></tr>
+    <tr><td>What it is</td><td>The engine: container, DI, AOP, MVC…</td><td>The engine + autopilot: sensible defaults and auto-setup</td></tr>
+    <tr><td>Configuration</td><td>You configure everything yourself</td><td>Auto-configuration; you only override what you need</td></tr>
+    <tr><td>Dependencies</td><td>Pick each jar and version yourself</td><td>"Starters" with tested versions (e.g. <code>spring-boot-starter-web</code>)</td></tr>
+    <tr><td>Starting the app</td><td><code>new AnnotationConfigApplicationContext(...)</code></td><td><code>SpringApplication.run(...)</code></td></tr>
+    <tr><td>Web server</td><td>Deploy to an external Tomcat</td><td>Embedded Tomcat — just run the jar</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Why learn plain Spring first?</strong>
+    Spring Boot hides a lot of magic. When something goes wrong at work ("No qualifying bean of type…", "circular reference…"), the answer is always in the Spring core concepts you learn in Part B. Developers who understand the core debug problems in minutes instead of hours.</div>
+
+  <!-- ===================================================== 4. CODE ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Everything is in one Maven project. Package: <code>com.course.whyspring</code>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>Only <code>spring-context</code> (+ JUnit for the test) and <code>exec-maven-plugin</code> with <code>mainClass</code>.</td></tr>
+    <tr><td><code>step1/EmailSender.java</code></td><td>A simple class that prints an "email".</td></tr>
+    <tr><td><code>step1/TightOrderService.java</code></td><td>The problem: <code>new EmailSender()</code> inside the class.</td></tr>
+    <tr><td><code>notification/NotificationService.java</code></td><td>The interface (contract).</td></tr>
+    <tr><td><code>notification/EmailNotificationService.java</code></td><td>Implementation #1.</td></tr>
+    <tr><td><code>notification/SmsNotificationService.java</code></td><td>Implementation #2.</td></tr>
+    <tr><td><code>order/OrderService.java</code></td><td>Constructor injection. Plain Java — no Spring imports at all!</td></tr>
+    <tr><td><code>step2/ManualAssembler.java</code></td><td>Our hand-made container: decides, creates, wires.</td></tr>
+    <tr><td><code>step3/AppConfig.java</code></td><td>The Spring way: <code>@Configuration</code> + <code>@Bean</code>.</td></tr>
+    <tr><td><code>App.java</code></td><td>Runs step 1, step 2 and step 3 one after another.</td></tr>
+    <tr><td><code>src/test/java/.../order/OrderServiceTest.java</code></td><td>Shows how DI makes testing easy with a fake notifier.</td></tr>
+  </table></div>
+
+  <h3>4.1 <code>App.java</code> — the three steps</h3>
+  <pre><span class="file">src/main/java/com/course/whyspring/App.java</span><code class="lang-java">public static void main(String[] args) {
+
+    System.out.println("=== STEP 1: Tight coupling (new inside the class) ===");
+    TightOrderService tight = new TightOrderService();
+    tight.placeOrder("asha@example.com", "Java Book");
+
+    System.out.println("=== STEP 2: Plain Java DI (interface + constructor + assembler) ===");
+    OrderService emailOrders = ManualAssembler.buildOrderService("email");
+    emailOrders.placeOrder("ravi@example.com", "Headphones");
+    OrderService smsOrders = ManualAssembler.buildOrderService("sms");
+    smsOrders.placeOrder("+91-98765-43210", "Coffee Mug");
+
+    System.out.println("=== STEP 3: Spring IoC container (@Configuration + @Bean) ===");
+    try (AnnotationConfigApplicationContext context =
+                 new AnnotationConfigApplicationContext(AppConfig.class)) {
+
+        OrderService orderService = context.getBean(OrderService.class);
+        orderService.placeOrder("meera@example.com", "Laptop Stand");
+
+        for (String name : context.getBeanDefinitionNames()) {
+            if (!name.startsWith("org.springframework")) {     // hide Spring's internal beans
+                System.out.println("     - " + name);
+            }
+        }
+
+        NotificationService first = context.getBean(NotificationService.class);
+        NotificationService second = context.getBean(NotificationService.class);
+        System.out.println("Same NotificationService object both times? " + (first == second));
+    }
+}</code></pre>
+  <p>Line by line for the tricky parts:</p>
+  <ul>
+    <li><strong>Step 2</strong> uses the <em>same</em> <code>OrderService</code> class twice with two different notifiers. The class never changed — only the assembler's choice.</li>
+    <li><code>getBeanDefinitionNames()</code> lists all beans in the container. Spring also registers a few internal helper beans whose names start with <code>org.springframework</code>; we hide those. What remains: <code>appConfig</code> (yes — the configuration class itself is also a bean!), <code>notificationService</code> and <code>orderService</code>.</li>
+    <li><code>first == second</code> compares <em>references</em> (Topic 6). <code>true</code> proves both calls returned the very same object — the singleton default.</li>
+  </ul>
+
+  <h3>4.2 <code>OrderServiceTest.java</code> — DI pays off in testing</h3>
+  <pre><span class="file">src/test/java/com/course/whyspring/order/OrderServiceTest.java</span><code class="lang-java">static class FakeNotificationService implements NotificationService {
+    final List&lt;String&gt; sent = new ArrayList&lt;&gt;();
+
+    @Override
+    public void send(String recipient, String message) {
+        sent.add(recipient + " -&gt; " + message);       // remember instead of really sending
+    }
+
+    @Override
+    public String channel() { return "FAKE"; }
+}
+
+@Test
+void placeOrderSendsExactlyOneConfirmation() {
+    FakeNotificationService fake = new FakeNotificationService();
+    OrderService service = new OrderService(fake);     // inject the fake by hand
+
+    service.placeOrder("test@example.com", "Pen");
+
+    assertEquals(1, fake.sent.size());
+    assertEquals("test@example.com -&gt; Your order for Pen is confirmed!", fake.sent.get(0));
+}</code></pre>
+  <p>Notice: <strong>no Spring</strong> in the test. Because <code>OrderService</code> uses constructor injection, a plain <code>new OrderService(fake)</code> is enough. Try writing this test for <code>TightOrderService</code> — you can't stop it from "sending" a real email. This is one of the biggest practical benefits of DI.</p>
+
+  <!-- ===================================================== 5. RUN ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <h3>From the terminal (PowerShell or the VS Code terminal)</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\22-Why-Spring-IoC-And-DI-Concepts"
+mvn -q compile exec:java</code></pre>
+  <p>The first run downloads Spring jars from Maven Central into <code>C:\Users\&lt;you&gt;\.m2\repository</code>, so it can take a minute. Expected output:</p>
+  <pre class="terminal"><code>=== STEP 1: Tight coupling (new inside the class) ===
+   Order placed: Java Book for asha@example.com
+   [EMAIL] To: asha@example.com | Your order for Java Book is confirmed!
+   Problem: to switch to SMS we must EDIT TightOrderService.
+
+=== STEP 2: Plain Java DI (interface + constructor + assembler) ===
+   Order placed: Headphones for ravi@example.com (notify via EMAIL)
+   [EMAIL] To: ravi@example.com | Your order for Headphones is confirmed!
+   Order placed: Coffee Mug for +91-98765-43210 (notify via SMS)
+   [SMS]   To: +91-98765-43210 | Your order for Coffee Mug is confirmed!
+   OrderService.java did not change - only the assembler's choice did.
+
+=== STEP 3: Spring IoC container (@Configuration + @Bean) ===
+   Order placed: Laptop Stand for meera@example.com (notify via SMS)
+   [SMS]   To: meera@example.com | Your order for Laptop Stand is confirmed!
+   Beans created from AppConfig:
+     - appConfig
+     - notificationService
+     - orderService
+   Same NotificationService object both times? true
+=== Done ===</code></pre>
+  <p>Run the unit test:</p>
+  <pre class="terminal"><code>mvn -q test</code></pre>
+  <p>With <code>-q</code>, a passing test run prints almost nothing (you may see the "Order placed: Pen…" line). No <code>BUILD FAILURE</code> = success. Run <code>mvn test</code> without <code>-q</code> to see <code>Tests run: 1, Failures: 0</code>.</p>
+
+  <h3>From VS Code</h3>
+  <ol>
+    <li><strong>File → Open Folder…</strong> and choose <code>D:\Java-SpringBoot\22-Why-Spring-IoC-And-DI-Concepts</code> (open the topic folder itself, so VS Code sees <code>pom.xml</code> at the top).</li>
+    <li>Wait for the Java extension to import the Maven project (bottom-right status shows "Java: Ready").</li>
+    <li>Open <code>App.java</code> and click the small <strong>Run</strong> link above <code>main</code>. The output appears in the terminal panel.</li>
+    <li>Open <code>OrderServiceTest.java</code> and click the green ▶ next to the test, or use the <strong>Testing</strong> (flask) view.</li>
+  </ol>
+  <div class="callout info"><strong>ℹ️ Why not <code>java App.java</code>?</strong>
+    Single-file launch (Topic 1) only works for code without external libraries. This project needs the Spring jars on the classpath, and Maven puts them there for us. That is why we use <code>mvn compile exec:java</code> (or the VS Code Run button, which also uses Maven's classpath).</div>
+
+  <!-- ===================================================== 6. MISTAKES ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: creating the object yourself and expecting Spring to wire it</strong>
+    <code>OrderService s = new OrderService(null);</code> — this object is <em>not</em> a bean. Spring never sees it, never injects anything into it, and you get a <code>NullPointerException</code> later.<br>
+    <strong>Fix:</strong> let Spring create it (<code>@Bean</code>) and obtain it from the container (or, later, have it injected).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting <code>@Bean</code> or <code>@Configuration</code></strong>
+    A method without <code>@Bean</code> is just a method — Spring ignores it. Then <code>getBean(OrderService.class)</code> fails with <code>NoSuchBeanDefinitionException: No qualifying bean of type 'com.course.whyspring.order.OrderService' available</code>.<br>
+    <strong>Fix:</strong> read the message — it tells you exactly which type is missing. Add the <code>@Bean</code> method for it.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: two beans of the same type</strong>
+    If <code>AppConfig</code> had both an Email and an SMS <code>@Bean</code> of type <code>NotificationService</code>, Spring would not know which one you mean: <code>NoUniqueBeanDefinitionException: expected single matching bean but found 2</code>. (Exercise 4 lets you see this.)<br>
+    <strong>Fix:</strong> keep one, or tell Spring which one to prefer (<code>@Primary</code> / <code>@Qualifier</code> — Topic 24).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: depending on the concrete class instead of the interface</strong>
+    <code>public OrderService(SmsNotificationService sms)</code> brings back tight coupling — Spring cannot fix a bad design.<br>
+    <strong>Fix:</strong> constructor parameters should use the interface type (<code>NotificationService</code>).</div>
+  <div class="callout danger"><strong>🛑 Mistake: wrong import</strong>
+    VS Code may suggest another <code>@Bean</code> or <code>@Configuration</code> from a different library. The correct ones are <code>org.springframework.context.annotation.Bean</code> and <code>org.springframework.context.annotation.Configuration</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: running <code>mvn exec:java</code> without <code>compile</code></strong>
+    <code>exec:java</code> runs the already-compiled classes. If you edited code and skipped <code>compile</code>, you run the old version (or get <code>ClassNotFoundException</code> on a fresh folder).<br>
+    <strong>Fix:</strong> always <code>mvn -q compile exec:java</code>.</div>
+
+  <!-- ===================================================== 7. BEST ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Depend on interfaces</strong>, not concrete classes, when there can be more than one implementation (payment, notification, storage…).</li>
+    <li><strong>Use constructor injection</strong> and mark the fields <code>final</code>. The object is complete and valid right after construction (Topic 24 explains in depth).</li>
+    <li><strong>Keep business classes free of Spring code</strong> where possible. Our <code>OrderService</code> has zero Spring imports, so it's easy to test and reuse.</li>
+    <li><strong>Keep the "wiring" in one place</strong> (configuration classes), not scattered across the code.</li>
+    <li><strong>Don't call <code>getBean()</code> all over your code</strong> (this is called the <em>Service Locator</em> anti-pattern). Let dependencies be injected. <code>getBean</code> is fine in <code>main()</code> and in small demos.</li>
+    <li><strong>Close the context</strong> (try-with-resources) so Spring can clean up resources such as database connections.</li>
+    <li>Write <strong>unit tests with fakes or mocks</strong> — DI makes this easy, so take advantage of it.</li>
+  </ul>
+
+  <!-- ===================================================== 8. SUMMARY ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>A <strong>dependency</strong> is an object another object needs to do its job.</li>
+    <li><code>new</code> inside a class = <strong>tight coupling</strong>: hard to change, hard to test, hidden needs.</li>
+    <li>Fix it with an <strong>interface</strong> + <strong>constructor injection</strong> + one place that creates and wires objects.</li>
+    <li><strong>IoC</strong>: something outside your classes controls object creation. <strong>DI</strong>: dependencies are handed in.</li>
+    <li>The <strong>Spring container</strong> (<code>ApplicationContext</code>) is a professional, automatic assembler.</li>
+    <li>A <strong>bean</strong> is an object created and managed by Spring. By default each bean is a <strong>singleton</strong>.</li>
+    <li><code>@Configuration</code> marks a recipe class; <code>@Bean</code> methods produce beans; method parameters get injected.</li>
+    <li>Plain Spring needs only <code>spring-context</code>; we run it with <code>mvn -q compile exec:java</code>.</li>
+    <li>Spring Boot = Spring + auto-configuration + starters + embedded server. Same core ideas.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9. EXERCISES ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Switch the channel.</strong> Change <code>AppConfig</code> so that Spring uses email instead of SMS. Which files did you have to change? Run the app and confirm step 3 prints <code>[EMAIL]</code>.</p>
+    <details><summary>Hint / solution</summary>
+      <p>Only <code>AppConfig.java</code> changes — that's the beauty of DI:</p>
+      <pre><code class="lang-java">@Bean
+public NotificationService notificationService() {
+    return new EmailNotificationService();   // was SmsNotificationService
+}</code></pre>
+      <p>Don't forget the import <code>com.course.whyspring.notification.EmailNotificationService</code>.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Add a new channel.</strong> Create <code>PushNotificationService</code> (prints <code>[PUSH]</code>) and use it in Spring. Did <code>OrderService</code> need any change?</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">package com.course.whyspring.notification;
+
+public class PushNotificationService implements NotificationService {
+    @Override
+    public void send(String recipient, String message) {
+        System.out.println("   [PUSH]  To: " + recipient + " | " + message);
+    }
+    @Override
+    public String channel() { return "PUSH"; }
+}
+
+// AppConfig
+@Bean
+public NotificationService notificationService() {
+    return new PushNotificationService();
+}</code></pre>
+      <p><code>OrderService</code> did not change at all. This is the "open for extension, closed for modification" idea you'll meet again in Topic 70 (SOLID).</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>A second dependency.</strong> Create an interface <code>InvoiceGenerator</code> with a method <code>String generate(String item)</code> and an implementation <code>PdfInvoiceGenerator</code>. Make <code>OrderService</code> need <em>both</em> a <code>NotificationService</code> and an <code>InvoiceGenerator</code> (constructor with two parameters). Update the manual assembler, <code>AppConfig</code> and the test.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public interface InvoiceGenerator { String generate(String item); }
+
+public class PdfInvoiceGenerator implements InvoiceGenerator {
+    public String generate(String item) { return "invoice-" + item + ".pdf"; }
+}
+
+public class OrderService {
+    private final NotificationService notificationService;
+    private final InvoiceGenerator invoiceGenerator;
+
+    public OrderService(NotificationService notificationService, InvoiceGenerator invoiceGenerator) {
+        this.notificationService = notificationService;
+        this.invoiceGenerator = invoiceGenerator;
+    }
+
+    public String placeOrder(String customer, String item) {
+        String invoice = invoiceGenerator.generate(item);
+        String message = "Your order for " + item + " is confirmed! Invoice: " + invoice;
+        notificationService.send(customer, message);
+        return message;
+    }
+}
+
+// AppConfig - Spring injects BOTH parameters for you
+@Bean
+public InvoiceGenerator invoiceGenerator() { return new PdfInvoiceGenerator(); }
+
+@Bean
+public OrderService orderService(NotificationService n, InvoiceGenerator i) {
+    return new OrderService(n, i);
+}</code></pre>
+      <p>In the test, pass a lambda as a fake: <code>new OrderService(fake, item -&gt; "test.pdf")</code> (an interface with one method is a functional interface — Topic 13).</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>See the error yourself.</strong> In <code>AppConfig</code>, add a <em>second</em> <code>@Bean</code> method <code>emailNotificationService()</code> that returns <code>new EmailNotificationService()</code>. Run the app. Read the exception message carefully. What does it say and why?</p>
+    <details><summary>Hint / solution</summary>
+      <p>Surprise #1: the Spring order in step 3 still works and uses SMS! When Spring finds two candidates for the parameter <code>NotificationService notificationService</code>, it tries one last trick: is there a bean whose <em>name</em> equals the <em>parameter name</em>? Yes — <code>notificationService</code>. (This works because we compile with <code>-parameters</code>.)</p>
+      <p>Surprise #2: right after, the line <code>context.getBean(NotificationService.class)</code> crashes with:</p>
+      <pre class="terminal"><code>No qualifying bean of type 'com.course.whyspring.notification.NotificationService' available:
+expected single matching bean but found 2: notificationService,emailNotificationService</code></pre>
+      <p>A lookup <em>by type only</em> has no name to help, so Spring refuses to guess (<code>NoUniqueBeanDefinitionException</code>). Now rename the parameter in <code>orderService(...)</code> to <code>notifier</code> and run again: this time the <em>startup itself</em> fails with <code>UnsatisfiedDependencyException ... expected single matching bean but found 2</code>.</p>
+      <p>Lesson: don't rely on lucky parameter names. Topic 24 shows the proper tools to choose: <code>@Primary</code> and <code>@Qualifier</code>. Remove the extra method afterwards.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Smarter assembler.</strong> Change <code>ManualAssembler</code> so the channel comes from a system property: <code>mvn -q compile exec:java -Dchannel=sms</code>. Default to email when the property is missing. Then think: how many lines would your assembler need for 100 classes? Write down two features Spring gives you that your assembler doesn't.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public static OrderService buildOrderService() {
+    String channel = System.getProperty("channel", "email");   // default "email"
+    return buildOrderService(channel);
+}</code></pre>
+      <p>With <code>exec:java</code>, the program runs inside Maven's JVM, so <code>-Dchannel=sms</code> on the <code>mvn</code> command line becomes a system property your code can read.</p>
+      <p>Spring features your assembler lacks: automatic ordering of object creation, singleton caching, lifecycle callbacks (Topic 25), profiles and property files (Topic 26), AOP proxies (Topic 27), and much more.</p>
+    </details>
+  </div>
+
+  <!-- ===================================================== 10. INTERVIEW ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is Inversion of Control (IoC)?</summary>
+    <p>IoC is a design principle where the control of creating and connecting objects is moved from the application code to an external party — a framework or container. Instead of a class creating its own dependencies with <code>new</code>, the container creates them and gives them to the class. It's also called the Hollywood Principle: "Don't call us, we'll call you."</p></details>
+  <details><summary>Q2. What is Dependency Injection? How is it related to IoC?</summary>
+    <p>DI is a technique where an object receives its dependencies from outside (through the constructor, a setter or a field) rather than creating them itself. DI is the most common way to <em>implement</em> IoC. IoC is the general principle; DI is a concrete pattern.</p></details>
+  <details><summary>Q3. What problems does tight coupling cause?</summary>
+    <p>(1) Changes ripple — swapping one implementation forces you to edit every class that creates it. (2) Testing is hard — you can't replace real dependencies with fakes or mocks. (3) Dependencies are hidden inside the class. (4) Reuse is hard, because the class drags its specific helpers along.</p></details>
+  <details><summary>Q4. What is a Spring bean?</summary>
+    <p>A bean is an object that is instantiated, assembled (wired) and managed by the Spring IoC container. Apart from that it is a normal Java object (a POJO). Objects you create yourself with <code>new</code> are not beans.</p></details>
+  <details><summary>Q5. What is the Spring IoC container? Name its main interfaces.</summary>
+    <p>It's the part of Spring that reads configuration, creates beans, injects dependencies and manages their lifecycle. The main interfaces are <code>BeanFactory</code> (basic) and <code>ApplicationContext</code> (a richer extension used in practice). A common implementation for Java-based config is <code>AnnotationConfigApplicationContext</code>. Topic 23 compares them.</p></details>
+  <details><summary>Q6. What do <code>@Configuration</code> and <code>@Bean</code> do?</summary>
+    <p><code>@Configuration</code> marks a class as a source of bean definitions. <code>@Bean</code> on a method tells Spring to call that method and register the returned object as a bean; the bean name defaults to the method name. Parameters of a <code>@Bean</code> method are resolved from the container — that's how dependencies get injected.</p></details>
+  <details><summary>Q7. What is the default scope of a Spring bean?</summary>
+    <p><strong>Singleton</strong> — one shared instance per container. Every <code>getBean</code> or injection receives the same object. Other scopes like prototype, request and session exist (Topic 25).</p></details>
+  <details><summary>Q8. What is the difference between Spring and Spring Boot?</summary>
+    <p>Spring Framework provides the core features (IoC/DI, AOP, MVC, transactions). Spring Boot is built on top of it and adds auto-configuration, starter dependencies, an embedded web server, production features (Actuator) and opinionated defaults so you can create a runnable app with almost no setup. Boot doesn't replace Spring — it configures Spring for you.</p></details>
+  <details><summary>Q9. Why is constructor injection good for unit testing?</summary>
+    <p>Because the test can simply call the constructor with fakes or mocks: <code>new OrderService(fakeNotifier)</code>. No container or reflection is needed, and the compiler forces you to provide every required dependency.</p></details>
+  <details><summary>Q10. What benefits does Spring give compared to a hand-written factory/assembler?</summary>
+    <p>Automatic dependency resolution and creation order, singleton management, lifecycle callbacks, scopes, profiles and externalized configuration, AOP (transactions, security, logging around methods), events, easy integration with databases, web, messaging — and a huge, well-tested ecosystem.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../21-Unit-Testing-With-JUnit5/lesson.html"><small>← Previous</small>21. Unit Testing with JUnit 5</a>
+    <a class="next" href="../23-Spring-IoC-Container-And-Beans/lesson.html"><small>Next →</small>23. Spring IoC Container &amp; Beans</a>
+  </nav>
+</main>
+</body>
+</html>

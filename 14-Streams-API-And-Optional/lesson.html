@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>14 · Streams API &amp; Optional</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 14</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>14. Streams API &amp; Optional</h1>
+  <p class="subtitle">Process lists of data like a pro — filter, transform, group and summarise in a few readable lines — and handle "maybe there is no value" safely with Optional.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="14-Streams-API-And-Optional"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What a stream is and the 3-part pipeline: <strong>source → intermediate operations → terminal operation</strong>.</li>
+      <li>Laziness, short-circuiting and the "use once" rule.</li>
+      <li>Intermediate operations: <code>filter</code>, <code>map</code>, <code>flatMap</code>, <code>sorted</code>, <code>distinct</code>, <code>limit</code>, <code>skip</code>, <code>peek</code>.</li>
+      <li>Terminal operations: <code>forEach</code>, <code>collect</code>, <code>reduce</code>, <code>count</code>, <code>min</code>/<code>max</code>, <code>anyMatch</code>/<code>allMatch</code>/<code>noneMatch</code>, <code>findFirst</code>/<code>findAny</code>.</li>
+      <li>Collectors: <code>toList</code>, <code>toSet</code>, <code>toMap</code>, <code>groupingBy</code>, <code>partitioningBy</code>, <code>joining</code>, <code>counting</code>, <code>averagingDouble</code> and friends.</li>
+      <li>Primitive streams (<code>IntStream</code>, <code>range</code>) and parallel streams (and why to be careful).</li>
+      <li><code>Optional</code>: <code>of</code>, <code>ofNullable</code>, <code>orElse</code>, <code>orElseThrow</code>, <code>map</code>, <code>ifPresent</code> — and why Spring Data's <code>findById</code> returns it.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../13-Lambdas-And-Functional-Interfaces/lesson.html">Topic 13 · Lambdas &amp; Functional Interfaces</a> (very important — every stream step takes a lambda) and <a href="../11-Collections-Framework/lesson.html">Topic 11 · Collections</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- =========================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Business software is mostly about <strong>lists of things</strong>: orders, employees, products, transactions. And most tasks are the same few patterns: <em>keep some, change each one, sort, group, add up</em>.</p>
+  <p>With plain loops you write the "how" every time: create an empty list, loop, check with <code>if</code>, add, keep a counter… With streams you write the "what":</p>
+  <pre><code class="lang-java">// "Names of IT employees earning more than 75,000, sorted"
+List&lt;String&gt; names = employees.stream()
+        .filter(e -&gt; e.getDepartment().equals("IT"))
+        .filter(e -&gt; e.getSalary() &gt; 75000)
+        .map(Employee::getName)
+        .sorted()
+        .toList();</code></pre>
+  <p>It reads almost like the sentence in the comment. In real Spring Boot projects you will use streams every day:</p>
+  <ul>
+    <li>Converting database entities to DTOs: <code>products.stream().map(mapper::toDto).toList()</code></li>
+    <li>Building reports and dashboards (totals per category, top 5 customers).</li>
+    <li>Validating input (<code>anyMatch</code>, <code>allMatch</code>).</li>
+    <li>Handling "not found" with <code>Optional</code>: <code>repository.findById(id).orElseThrow(...)</code></li>
+  </ul>
+  <p>Streams are also a <strong>very common interview topic</strong> — "group employees by department and find the average salary" is a classic question.</p>
+
+  <!-- =========================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏭 A factory conveyor belt</strong>
+    Picture a juice factory.
+    <ul>
+      <li><strong>Source:</strong> a truck tips oranges onto a conveyor belt (your <code>List</code>).</li>
+      <li><strong>Intermediate stations:</strong> one worker throws away bad oranges (<code>filter</code>), the next machine squeezes each orange into juice (<code>map</code>), another station puts bottles in order (<code>sorted</code>), another lets only the first 100 through (<code>limit</code>).</li>
+      <li><strong>Terminal station:</strong> at the end, bottles are packed into a box (<code>collect</code>), or simply counted (<code>count</code>).</li>
+    </ul>
+    Two important facts about this belt:
+    <ol>
+      <li><strong>The belt doesn't move until someone is waiting at the end.</strong> Setting up stations does nothing by itself — that is <em>laziness</em>.</li>
+      <li><strong>The oranges in the truck are not changed.</strong> The belt produces new things (juice); the original list stays the same.</li>
+    </ol>
+  </div>
+  <div class="callout analogy"><strong>🎁 Optional = a gift box that may be empty</strong>
+    You order something online. The courier hands you a box. Before you use the item, you <em>check the box</em>. If it's empty you call customer care (<code>orElseThrow</code>) or use something you already have (<code>orElse</code>). <code>null</code> is like the courier not even giving you a box — you reach for the item and grab air (NullPointerException!).
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 What is a stream?</h3>
+  <p>A <strong>stream</strong> (<code>java.util.stream.Stream&lt;T&gt;</code>) is a <strong>sequence of elements that flows through a series of operations</strong>. It is <em>not</em> a collection:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Collection (List, Set…)</th><th>Stream</th></tr>
+    <tr><td>Stores data in memory</td><td>Does not store anything — data flows through it</td></tr>
+    <tr><td>You can loop over it many times</td><td>Can be used <strong>only once</strong></td></tr>
+    <tr><td>You add/remove elements</td><td>Never changes the source; produces a new result</td></tr>
+    <tr><td>Eager: elements exist right now</td><td>Lazy: work happens only when a result is asked for</td></tr>
+    <tr><td>You write the loop (external iteration)</td><td>The stream loops for you (internal iteration)</td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Not the same as "I/O streams"</strong>
+    <code>InputStream</code>/<code>OutputStream</code> (topic 16) are about reading bytes from files. They are a totally different thing that happens to share the word "stream".
+  </div>
+
+  <h3>3.2 The pipeline: source → intermediate → terminal</h3>
+  <figure class="diagram">
+    <svg viewBox="0 0 700 150" width="700" role="img" aria-label="Stream pipeline diagram">
+      <defs>
+        <marker id="arr14" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g font-family="Segoe UI, sans-serif" font-size="14" fill="currentColor">
+        <rect x="5" y="40" width="120" height="60" rx="8" fill="none" stroke="currentColor" stroke-width="2"/>
+        <text x="65" y="66" text-anchor="middle" font-weight="bold">SOURCE</text>
+        <text x="65" y="86" text-anchor="middle" font-size="12">list.stream()</text>
+        <line x1="125" y1="70" x2="160" y2="70" stroke="currentColor" stroke-width="2" marker-end="url(#arr14)"/>
+        <rect x="162" y="40" width="110" height="60" rx="8" fill="none" stroke="currentColor" stroke-dasharray="5 3"/>
+        <text x="217" y="66" text-anchor="middle">filter</text>
+        <text x="217" y="86" text-anchor="middle" font-size="12">keep some</text>
+        <line x1="272" y1="70" x2="300" y2="70" stroke="currentColor" stroke-width="2" marker-end="url(#arr14)"/>
+        <rect x="302" y="40" width="110" height="60" rx="8" fill="none" stroke="currentColor" stroke-dasharray="5 3"/>
+        <text x="357" y="66" text-anchor="middle">map</text>
+        <text x="357" y="86" text-anchor="middle" font-size="12">transform</text>
+        <line x1="412" y1="70" x2="440" y2="70" stroke="currentColor" stroke-width="2" marker-end="url(#arr14)"/>
+        <rect x="442" y="40" width="110" height="60" rx="8" fill="none" stroke="currentColor" stroke-dasharray="5 3"/>
+        <text x="497" y="66" text-anchor="middle">sorted</text>
+        <text x="497" y="86" text-anchor="middle" font-size="12">order</text>
+        <line x1="552" y1="70" x2="580" y2="70" stroke="currentColor" stroke-width="2" marker-end="url(#arr14)"/>
+        <rect x="582" y="40" width="112" height="60" rx="8" fill="none" stroke="currentColor" stroke-width="2"/>
+        <text x="638" y="66" text-anchor="middle" font-weight="bold">TERMINAL</text>
+        <text x="638" y="86" text-anchor="middle" font-size="12">collect / count</text>
+        <text x="357" y="25" text-anchor="middle" font-size="13">intermediate operations (0 or more, lazy, return a Stream)</text>
+        <text x="638" y="125" text-anchor="middle" font-size="12">exactly 1, starts the work,</text>
+        <text x="638" y="142" text-anchor="middle" font-size="12">returns a result</text>
+      </g>
+    </svg>
+    <figcaption>Every stream pipeline has one source, zero or more intermediate steps, and exactly one terminal step.</figcaption>
+  </figure>
+  <div class="table-wrap"><table>
+    <tr><th>Part</th><th>What it is</th><th>Examples</th></tr>
+    <tr><td><strong>Source</strong></td><td>Where elements come from</td><td><code>list.stream()</code>, <code>Stream.of(a, b, c)</code>, <code>Arrays.stream(array)</code>, <code>IntStream.range(1, 10)</code>, <code>Files.lines(path)</code></td></tr>
+    <tr><td><strong>Intermediate</strong></td><td>Returns a new <code>Stream</code>; lazy; can be chained</td><td><code>filter</code>, <code>map</code>, <code>flatMap</code>, <code>sorted</code>, <code>distinct</code>, <code>limit</code>, <code>skip</code>, <code>peek</code></td></tr>
+    <tr><td><strong>Terminal</strong></td><td>Produces a result or side effect; triggers the processing; ends the stream</td><td><code>collect</code>, <code>toList</code>, <code>forEach</code>, <code>count</code>, <code>reduce</code>, <code>min</code>, <code>max</code>, <code>anyMatch</code>, <code>findFirst</code></td></tr>
+  </table></div>
+
+  <h3>3.3 Laziness and short-circuiting</h3>
+  <p>Intermediate operations only <em>describe</em> work. Nothing runs until the terminal operation is called. And elements travel <strong>one by one through the whole pipeline</strong> — not "filter everything, then map everything".</p>
+  <pre><code class="lang-java">String firstLong = names.stream()                      // Ravi, Asha, John, Meena, Arjun, Bala
+        .peek(n -&gt; System.out.println("looking at " + n))
+        .filter(n -&gt; n.length() &gt; 4)
+        .findFirst()                                   // terminal: start!
+        .orElse("none");
+// looking at Ravi
+// looking at Asha
+// looking at John
+// looking at Meena      &lt;- found it, STOP. Arjun and Bala are never touched.</code></pre>
+  <p>Operations that can stop early — <code>findFirst</code>, <code>findAny</code>, <code>anyMatch</code>, <code>allMatch</code>, <code>noneMatch</code>, <code>limit</code> — are called <strong>short-circuiting</strong>. This makes streams efficient: they do the minimum work needed.</p>
+
+  <h3>3.4 Creating streams</h3>
+  <pre><code class="lang-java">List&lt;String&gt; list = List.of("a", "b");
+Stream&lt;String&gt; s1 = list.stream();                 // from any Collection
+Stream&lt;String&gt; s2 = Stream.of("Pen", "Book");      // from values
+IntStream s3 = Arrays.stream(new int[]{1, 2, 3});  // from an array
+IntStream s4 = IntStream.rangeClosed(1, 100);      // numbers 1..100
+Stream&lt;Integer&gt; s5 = Stream.iterate(1, n -&gt; n * 2).limit(10);  // 1,2,4,8...
+Stream&lt;String&gt; s6 = Stream.generate(() -&gt; "hi").limit(3);       // hi,hi,hi
+Map&lt;String, Integer&gt; map = Map.of("x", 1);
+Stream&lt;Map.Entry&lt;String, Integer&gt;&gt; s7 = map.entrySet().stream(); // maps: stream the entries</code></pre>
+
+  <h3>3.5 Intermediate operations</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Operation</th><th>Takes</th><th>Does</th><th>Example</th></tr>
+    <tr><td><code>filter</code></td><td><code>Predicate</code></td><td>Keeps elements for which the test is true</td><td><code>.filter(e -&gt; e.getSalary() &gt; 50000)</code></td></tr>
+    <tr><td><code>map</code></td><td><code>Function</code></td><td>Turns each element into another value (1 in → 1 out)</td><td><code>.map(Employee::getName)</code></td></tr>
+    <tr><td><code>flatMap</code></td><td><code>Function</code> returning a <code>Stream</code></td><td>Turns each element into 0..many elements and flattens them into one stream</td><td><code>.flatMap(e -&gt; e.getSkills().stream())</code></td></tr>
+    <tr><td><code>distinct</code></td><td>–</td><td>Removes duplicates (uses <code>equals</code>/<code>hashCode</code>)</td><td><code>.distinct()</code></td></tr>
+    <tr><td><code>sorted</code></td><td>– or <code>Comparator</code></td><td>Sorts (natural order or custom)</td><td><code>.sorted(Comparator.comparing(Employee::getSalary).reversed())</code></td></tr>
+    <tr><td><code>limit(n)</code></td><td><code>long</code></td><td>Keeps only the first n</td><td><code>.limit(3)</code></td></tr>
+    <tr><td><code>skip(n)</code></td><td><code>long</code></td><td>Throws away the first n</td><td><code>.skip(10)</code></td></tr>
+    <tr><td><code>peek</code></td><td><code>Consumer</code></td><td>Looks at each element as it passes (debugging)</td><td><code>.peek(System.out::println)</code></td></tr>
+    <tr><td><code>mapToInt</code> / <code>mapToDouble</code></td><td><code>ToIntFunction</code>…</td><td>Switches to a primitive stream for <code>sum</code>/<code>average</code></td><td><code>.mapToDouble(Employee::getSalary)</code></td></tr>
+  </table></div>
+
+  <p><strong>map vs flatMap — the most confusing pair, explained.</strong> Each employee has a <em>list</em> of skills.</p>
+  <pre><code class="lang-java">employees.stream().map(Employee::getSkills)                  // Stream&lt;List&lt;String&gt;&gt;
+// [[Java, Spring], [Excel], [Java, Docker, AWS], ...]   &lt;- a stream of LISTS
+
+employees.stream().flatMap(e -&gt; e.getSkills().stream())      // Stream&lt;String&gt;
+// [Java, Spring, Excel, Java, Docker, AWS, ...]         &lt;- one flat stream of skills</code></pre>
+  <div class="flow">
+    <span class="box">[A, B]</span><span class="box">[C]</span><span class="box">[D, E]</span>
+    <span class="arrow">→ flatMap →</span>
+    <span class="box alt">A</span><span class="box alt">B</span><span class="box alt">C</span><span class="box alt">D</span><span class="box alt">E</span>
+  </div>
+  <p>Rule: use <code>flatMap</code> whenever each element "contains many" things (order → items, department → employees, sentence → words) and you want to work with the inner things directly.</p>
+
+  <p><strong>skip + limit = pagination.</strong> Page <em>p</em> with page size <em>s</em> is <code>.skip((p - 1) * s).limit(s)</code>. Spring Data does pagination in the database (topic 41), but the idea is the same.</p>
+
+  <h3>3.6 Terminal operations</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Operation</th><th>Returns</th><th>Example</th></tr>
+    <tr><td><code>forEach(Consumer)</code></td><td><code>void</code></td><td><code>.forEach(System.out::println)</code></td></tr>
+    <tr><td><code>collect(Collector)</code></td><td>whatever the collector builds</td><td><code>.collect(Collectors.toList())</code></td></tr>
+    <tr><td><code>toList()</code> (Java 16+)</td><td>unmodifiable <code>List</code></td><td><code>.toList()</code></td></tr>
+    <tr><td><code>count()</code></td><td><code>long</code></td><td><code>.filter(...).count()</code></td></tr>
+    <tr><td><code>reduce(identity, op)</code></td><td><code>T</code></td><td><code>.reduce(0, Integer::sum)</code></td></tr>
+    <tr><td><code>reduce(op)</code></td><td><code>Optional&lt;T&gt;</code></td><td><code>.reduce((a, b) -&gt; a + b)</code></td></tr>
+    <tr><td><code>min(cmp)</code> / <code>max(cmp)</code></td><td><code>Optional&lt;T&gt;</code></td><td><code>.max(Comparator.comparing(Order::getAmount))</code></td></tr>
+    <tr><td><code>anyMatch</code> / <code>allMatch</code> / <code>noneMatch</code></td><td><code>boolean</code></td><td><code>.anyMatch(o -&gt; o.isCancelled())</code></td></tr>
+    <tr><td><code>findFirst()</code> / <code>findAny()</code></td><td><code>Optional&lt;T&gt;</code></td><td><code>.filter(...).findFirst()</code></td></tr>
+    <tr><td><code>toArray()</code></td><td>array</td><td><code>.toArray(String[]::new)</code></td></tr>
+  </table></div>
+
+  <p><strong>reduce — folding many values into one.</strong> Think of rolling a snowball: start with an <em>identity</em> (an empty snowball, e.g. <code>0</code> for sum, <code>1</code> for product, <code>""</code> for text), then combine each element into it.</p>
+  <pre><code class="lang-java">int total = Stream.of(10, 20, 30).reduce(0, (sum, x) -&gt; sum + x);
+// step 1: 0  + 10 = 10
+// step 2: 10 + 20 = 30
+// step 3: 30 + 30 = 60   -&gt; total = 60</code></pre>
+  <div class="callout info"><strong>ℹ️ <code>collect(Collectors.toList())</code> vs <code>.toList()</code></strong>
+    Both give you a <code>List</code>. <code>.toList()</code> (Java 16+) is shorter and returns an <strong>unmodifiable</strong> list — calling <code>add</code> on it throws <code>UnsupportedOperationException</code>. <code>Collectors.toList()</code> currently returns an <code>ArrayList</code> but does not <em>promise</em> it. If you need a list you will modify, use <code>Collectors.toCollection(ArrayList::new)</code>.
+  </div>
+
+  <h3>3.7 Collectors — the "GROUP BY" of Java</h3>
+  <p><code>collect(...)</code> takes a <strong>Collector</strong> — a recipe for building the result. The class <code>java.util.stream.Collectors</code> has ready-made recipes. If you know SQL, <code>groupingBy</code> is <code>GROUP BY</code>, and <code>counting</code>/<code>averagingDouble</code>/<code>summingDouble</code> are <code>COUNT</code>/<code>AVG</code>/<code>SUM</code>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Collector</th><th>Result</th><th>Example result</th></tr>
+    <tr><td><code>toList()</code>, <code>toSet()</code></td><td><code>List</code> / <code>Set</code></td><td><code>[Asha, Ravi]</code></td></tr>
+    <tr><td><code>toCollection(TreeSet::new)</code></td><td>any collection you choose</td><td>sorted set</td></tr>
+    <tr><td><code>toMap(keyFn, valueFn)</code></td><td><code>Map</code></td><td><code>{101=1200.0, 102=450.0}</code></td></tr>
+    <tr><td><code>toMap(keyFn, valueFn, mergeFn)</code></td><td><code>Map</code>, duplicates merged</td><td>dept → max salary</td></tr>
+    <tr><td><code>groupingBy(classifier)</code></td><td><code>Map&lt;K, List&lt;T&gt;&gt;</code></td><td><code>{HR=[Ravi, Bala], IT=[Asha, John]}</code></td></tr>
+    <tr><td><code>groupingBy(classifier, downstream)</code></td><td><code>Map&lt;K, X&gt;</code></td><td><code>{HR=2, IT=3}</code> with <code>counting()</code></td></tr>
+    <tr><td><code>partitioningBy(predicate)</code></td><td><code>Map&lt;Boolean, List&lt;T&gt;&gt;</code> — always keys <code>true</code> and <code>false</code></td><td><code>{false=[...], true=[...]}</code></td></tr>
+    <tr><td><code>joining(", ")</code></td><td><code>String</code></td><td><code>"Asha, Ravi, John"</code></td></tr>
+    <tr><td><code>counting()</code></td><td><code>Long</code></td><td><code>6</code></td></tr>
+    <tr><td><code>averagingDouble(fn)</code> / <code>averagingInt</code></td><td><code>Double</code></td><td><code>65833.33</code></td></tr>
+    <tr><td><code>summingDouble(fn)</code> / <code>summingInt</code></td><td><code>Double</code> / <code>Integer</code></td><td><code>395000.0</code></td></tr>
+    <tr><td><code>summarizingDouble(fn)</code></td><td><code>DoubleSummaryStatistics</code> (count, sum, min, avg, max)</td><td>all at once</td></tr>
+    <tr><td><code>mapping(fn, downstream)</code></td><td>transform before collecting inside a group</td><td>names per city</td></tr>
+  </table></div>
+  <p>The "downstream" collector is the second argument of <code>groupingBy</code>: it says what to do with each group's members (count them, average them, list just their names…).</p>
+  <pre><code class="lang-java">// SQL:  SELECT department, AVG(salary) FROM employee GROUP BY department
+Map&lt;String, Double&gt; avgByDept = employees.stream()
+        .collect(Collectors.groupingBy(
+                Employee::getDepartment,                        // GROUP BY department
+                Collectors.averagingDouble(Employee::getSalary) // AVG(salary)
+        ));</code></pre>
+  <div class="callout tip"><strong>💡 Predictable order of map keys</strong>
+    <code>groupingBy</code> returns a <code>HashMap</code> by default, whose order is not guaranteed. To get sorted keys, pass a map factory as the middle argument: <code>groupingBy(Employee::getDepartment, TreeMap::new, Collectors.counting())</code>. The examples in this folder do this so the output is always the same.
+  </div>
+  <div class="callout warn"><strong>⚠️ toMap and duplicate keys</strong>
+    <code>Collectors.toMap(Employee::getDepartment, Employee::getSalary)</code> throws <code>IllegalStateException: Duplicate key IT</code> because three employees are in IT. Give a merge function telling Java what to do with duplicates: <code>toMap(..., ..., (a, b) -&gt; Math.max(a, b))</code>.
+  </div>
+
+  <h3>3.8 Primitive streams: IntStream, LongStream, DoubleStream</h3>
+  <p><code>Stream&lt;Integer&gt;</code> stores boxed <code>Integer</code> objects. For numbers, Java has special streams that work directly with <code>int</code>/<code>long</code>/<code>double</code> — faster, and they have handy maths methods: <code>sum()</code>, <code>average()</code>, <code>max()</code>, <code>summaryStatistics()</code>.</p>
+  <pre><code class="lang-java">IntStream.range(1, 5)          // 1, 2, 3, 4      (end EXCLUSIVE)
+IntStream.rangeClosed(1, 5)    // 1, 2, 3, 4, 5   (end INCLUSIVE)
+IntStream.rangeClosed(1, 100).sum()                 // 5050
+IntStream.of(78, 92, 65).average().getAsDouble()     // OptionalDouble -&gt; 78.33...
+employees.stream().mapToDouble(Employee::getSalary).sum()   // object -&gt; primitive stream
+IntStream.range(0, 3).boxed().toList()               // primitive -&gt; Stream&lt;Integer&gt; -&gt; [0, 1, 2]
+IntStream.rangeClosed(1, 5).mapToObj(i -&gt; "Row " + i)   // primitive -&gt; objects</code></pre>
+  <p><code>IntStream.range</code> is a neat replacement for the classic counting <code>for</code> loop when you want to produce or collect values.</p>
+
+  <h3>3.9 Parallel streams — use with caution</h3>
+  <p>Call <code>.parallelStream()</code> on a collection (or <code>.parallel()</code> on a stream) and Java splits the work across your CPU cores using a shared thread pool (the <em>common ForkJoinPool</em>).</p>
+  <pre><code class="lang-java">long sum = LongStream.rangeClosed(1, 1_000_000).parallel().sum();   // same answer, maybe faster</code></pre>
+  <div class="callout danger"><strong>🚫 Why "caution"?</strong>
+    <ul>
+      <li><strong>Often slower</strong> for small lists — splitting and joining work has a cost. Use it only for large data with CPU-heavy work, and <em>measure</em>.</li>
+      <li><strong>Order is lost</strong> with <code>forEach</code> (use <code>forEachOrdered</code> if order matters).</li>
+      <li><strong>Race conditions</strong> if your lambdas change shared state, e.g. <code>parallelStream().forEach(x -&gt; sharedArrayList.add(x))</code> can lose elements or crash, because <code>ArrayList</code> is not thread-safe. Use <code>collect(...)</code> instead.</li>
+      <li><strong>In a web server</strong> (Spring Boot), every request already runs on its own thread. Parallel streams all share one common pool, so a few heavy requests can slow down everyone. In Spring apps, normally <strong>don't</strong> use parallel streams.</li>
+    </ul>
+  </div>
+
+  <h3>3.10 Optional — no more surprise nulls</h3>
+  <p>Look at this method: <code>Product findById(long id)</code>. What does it return if the product doesn't exist? Probably <code>null</code>. Nothing in the method signature warns you, and when you call <code>product.getName()</code>, the program crashes with a <code>NullPointerException</code> — the most common bug in Java.</p>
+  <p><code>Optional&lt;T&gt;</code> (in <code>java.util</code>) is a container that holds <strong>either one value or nothing</strong>. When a method returns <code>Optional&lt;Product&gt;</code>, the signature itself says: "<em>there may be no product — deal with it</em>".</p>
+  <div class="flow">
+    <span class="box">Optional[Monitor]</span><span class="arrow">or</span><span class="box alt">Optional.empty</span>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>What it does</th><th>Example</th></tr>
+    <tr><td><code>Optional.of(v)</code></td><td>Box a value that is definitely not null (null → NPE)</td><td><code>Optional.of("Chennai")</code></td></tr>
+    <tr><td><code>Optional.ofNullable(v)</code></td><td>Box a value that might be null (null → empty)</td><td><code>Optional.ofNullable(map.get(key))</code></td></tr>
+    <tr><td><code>Optional.empty()</code></td><td>An empty box</td><td><code>return Optional.empty();</code></td></tr>
+    <tr><td><code>isPresent()</code> / <code>isEmpty()</code></td><td>Check (isEmpty is Java 11+)</td><td><code>if (opt.isEmpty()) ...</code></td></tr>
+    <tr><td><code>orElse(default)</code></td><td>Value, or the default if empty</td><td><code>opt.orElse("Unknown")</code></td></tr>
+    <tr><td><code>orElseGet(supplier)</code></td><td>Value, or compute a default <em>only if empty</em></td><td><code>opt.orElseGet(() -&gt; loadDefault())</code></td></tr>
+    <tr><td><code>orElseThrow()</code></td><td>Value, or <code>NoSuchElementException</code></td><td><code>opt.orElseThrow()</code></td></tr>
+    <tr><td><code>orElseThrow(supplier)</code></td><td>Value, or throw <em>your</em> exception</td><td><code>opt.orElseThrow(() -&gt; new NotFoundException(id))</code></td></tr>
+    <tr><td><code>ifPresent(consumer)</code></td><td>Run code only if there is a value</td><td><code>opt.ifPresent(p -&gt; send(p))</code></td></tr>
+    <tr><td><code>ifPresentOrElse(c, r)</code></td><td>One action for "found", another for "empty" (Java 9+)</td><td>see Example06</td></tr>
+    <tr><td><code>map(fn)</code></td><td>Transform the value if present; empty stays empty</td><td><code>opt.map(Product::getName)</code></td></tr>
+    <tr><td><code>filter(pred)</code></td><td>Keep the value only if it passes</td><td><code>opt.filter(p -&gt; p.getPrice() &gt; 0)</code></td></tr>
+    <tr><td><code>get()</code></td><td>Value or <code>NoSuchElementException</code> — avoid; prefer <code>orElseThrow()</code></td><td>–</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ orElse vs orElseGet</strong>
+    <code>orElse(createDefault())</code> <strong>always</strong> calls <code>createDefault()</code> — even when the value is present — because Java evaluates the argument before calling the method. <code>orElseGet(() -&gt; createDefault())</code> calls it <strong>only if empty</strong>. Use <code>orElseGet</code> when the default is expensive (database call, new object).
+  </div>
+
+  <h3>3.11 Why Optional matters in Spring Data</h3>
+  <p>In topic 38 you will create repositories like <code>interface ProductRepository extends JpaRepository&lt;Product, Long&gt;</code>. Spring Data gives you <code>findById</code> for free, and it returns <code>Optional&lt;Product&gt;</code>. The pattern you will write in almost every service class is:</p>
+  <pre><code class="lang-java">public ProductDto getProduct(Long id) {
+    Product product = productRepository.findById(id)
+            .orElseThrow(() -&gt; new ResourceNotFoundException("Product " + id + " not found"));
+    return mapper.toDto(product);
+}</code></pre>
+  <p>And a global exception handler (topic 35) turns <code>ResourceNotFoundException</code> into an HTTP <strong>404 Not Found</strong>. Example06 in this folder builds a tiny fake repository so you can practise this exact pattern today.</p>
+
+  <!-- =========================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>Example01_StreamBasics.java</code></td><td>Loop vs stream for the same task; creating streams; laziness with <code>peek</code>; the use-once rule.</td></tr>
+    <tr><td><code>Example02_IntermediateOperations.java</code></td><td>All intermediate operations on an <code>Employee</code> list, including <code>flatMap</code> over skills and <code>skip</code>+<code>limit</code> pagination.</td></tr>
+    <tr><td><code>Example03_TerminalOperations.java</code></td><td>All terminal operations on an <code>Order</code> list.</td></tr>
+    <tr><td><code>Example04_Collectors.java</code></td><td>11 collector recipes: grouping, counting, averaging, partitioning, joining, statistics, toMap merge, nested grouping.</td></tr>
+    <tr><td><code>Example05_PrimitiveAndParallelStreams.java</code></td><td><code>IntStream</code>/<code>LongStream</code>, <code>range</code>, statistics, infinite streams with <code>limit</code>, parallel streams done safely.</td></tr>
+    <tr><td><code>Example06_Optional.java</code></td><td>The whole <code>Optional</code> API + a fake <code>ProductRepository.findById</code> like Spring Data.</td></tr>
+    <tr><td><code>Example07_OrderReport.java</code></td><td>Mini program: a full sales report built only with streams.</td></tr>
+  </table></div>
+
+  <h3>Example01 — loop vs stream</h3>
+  <pre><span class="file">Example01_StreamBasics.java</span><code class="lang-java">List&lt;String&gt; streamResult = names.stream()          // SOURCE
+        .filter(name -&gt; name.startsWith("A"))       // intermediate
+        .map(String::toUpperCase)                   // intermediate
+        .collect(Collectors.toList());              // TERMINAL</code></pre>
+  <p>Both the loop and the stream print <code>[ASHA, ARJUN]</code>, and the next line proves the original list was not modified. The laziness section builds a pipeline and prints a message <em>before</em> calling <code>findFirst()</code> — you will see that no "looking at" lines appear until the terminal operation runs. The last part calls <code>count()</code> on an already-used stream and catches the <code>IllegalStateException</code>.</p>
+
+  <h3>Example02 — intermediate operations</h3>
+  <p>The <code>Employee</code> class has a <code>List&lt;String&gt; skills</code> field to demonstrate <code>flatMap</code>. Compare the two output lines <code>map(skills)</code> (list of lists) and <code>flatMap(skills)</code> (flat list). The pagination part:</p>
+  <pre><span class="file">Example02_IntermediateOperations.java</span><code class="lang-java">int page = 2, size = 2;
+employees.stream()
+        .skip((long) (page - 1) * size)   // skip page 1 (2 people)
+        .limit(size)                      // take the next 2
+        .collect(Collectors.toList());    // [John, Meena]</code></pre>
+
+  <h3>Example03 — terminal operations</h3>
+  <p>Each terminal operation is used once with a clear label. Note <code>reduce</code> with and without an identity — without one, the result is an <code>Optional</code> because an empty stream has nothing to reduce. <code>min</code>/<code>max</code> also return <code>Optional</code>; we call <code>.get()</code> only because we know the list is not empty (in real code prefer <code>orElseThrow()</code>).</p>
+
+  <h3>Example04 — collectors</h3>
+  <p>Every map uses <code>TreeMap::new</code> so the keys print alphabetically. The most useful patterns:</p>
+  <pre><span class="file">Example04_Collectors.java</span><code class="lang-java">// average salary per department
+employees.stream().collect(Collectors.groupingBy(Employee::getDepartment, TreeMap::new,
+        Collectors.averagingDouble(Employee::getSalary)));
+// {Finance=60000.0, HR=42500.0, IT=83333.33333333333}
+
+// only names per city
+employees.stream().collect(Collectors.groupingBy(Employee::getCity, TreeMap::new,
+        Collectors.mapping(Employee::getName, Collectors.toList())));
+// {Chennai=[Asha, Meena, Arjun], Delhi=[Bala], Pune=[Ravi, John]}</code></pre>
+
+  <h3>Example05 — numbers and parallel</h3>
+  <p>Shows <code>range</code> vs <code>rangeClosed</code>, factorial with <code>LongStream.reduce</code>, counting vowels with <code>String.chars()</code>, and three ways to make infinite streams safe with <code>limit</code> or a stop condition. The parallel part proves the parallel sum equals the sequential sum, uses <code>forEachOrdered</code> to keep order, and collects results safely.</p>
+
+  <h3>Example06 — Optional</h3>
+  <pre><span class="file">Example06_Optional.java</span><code class="lang-java">Optional&lt;Product&gt; findById(long id) {
+    return products.stream()
+            .filter(p -&gt; p.getId() == id)
+            .findFirst();                 // findFirst already returns Optional!
+}
+
+Product monitor = repo.findById(2).orElseThrow(() -&gt; new ProductNotFoundException(2));
+String name = repo.findById(3).map(Product::getName).orElse("No such product");</code></pre>
+  <p>This is the exact style you will use with Spring Data repositories.</p>
+
+  <h3>Example07 — mini program: sales report</h3>
+  <p>An <code>Order</code> contains a list of <code>OrderItem</code>s. The order's total is itself computed with a small stream: <code>items.stream().mapToDouble(OrderItem::lineTotal).sum()</code>. The report then uses <code>flatMap</code> to go from orders to items (quantity per product, revenue per category), <code>sorted</code>+<code>limit</code> for the top 2 orders, and <code>partitioningBy</code> for big vs small orders. Mapping each order to a short summary string is the same idea as mapping JPA entities to DTOs later.</p>
+
+  <!-- =========================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <p><strong>In VS Code:</strong> open the folder <code>D:\Java-SpringBoot\14-Streams-API-And-Optional</code>, open a file, and click <strong>Run</strong> above <code>main</code>.</p>
+  <p><strong>From the terminal:</strong></p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\14-Streams-API-And-Optional"
+java Example01_StreamBasics.java
+java Example02_IntermediateOperations.java
+java Example03_TerminalOperations.java
+java Example04_Collectors.java
+java Example05_PrimitiveAndParallelStreams.java
+java Example06_Optional.java
+java Example07_OrderReport.java</code></pre>
+  <p>Expected output of <code>Example01_StreamBasics.java</code>:</p>
+  <pre class="terminal"><code>Loop   : [ASHA, ARJUN]
+Stream : [ASHA, ARJUN]
+Original list is unchanged: [Ravi, Asha, John, Meena, Arjun, Bala]
+Stream.of count = 3
+Arrays.stream sum = 235
+--- Building pipeline (no terminal op yet) ---
+--- Nothing printed above? Correct: streams are lazy! ---
+--- Now calling the terminal op findFirst() ---
+  looking at Ravi
+  looking at Asha
+  looking at John
+  looking at Meena
+First name longer than 4 letters: Meena
+Second use fails: stream has already been operated upon or closed</code></pre>
+  <p>Expected output of <code>Example04_Collectors.java</code>:</p>
+  <pre class="terminal"><code>1. By department      : {Finance=[Meena], HR=[Ravi, Bala], IT=[Asha, John, Arjun]}
+2. Count per dept     : {Finance=1, HR=2, IT=3}
+3. Avg salary per dept: {Finance=60000.0, HR=42500.0, IT=83333.33333333333}
+4. Payroll per city   : {Chennai=215000.0, Delhi=40000.0, Pune=140000.0}
+5. Names per city     : {Chennai=[Asha, Meena, Arjun], Delhi=[Bala], Pune=[Ravi, John]}
+6. Salary &gt;= 60k      : {false=[Ravi, Bala], true=[Asha, John, Meena, Arjun]}
+7. Joined             : [Team: Asha, Ravi, John, Meena, Arjun, Bala]
+8. Count / average    : 6 / 65833.33333333333
+9. Stats              : min=40000.0 max=95000.0 avg=65833.33333333333 sum=395000.0
+10. Max salary/dept   : {Finance=60000.0, HR=45000.0, IT=95000.0}
+11. Dept -&gt; city count: {Finance={Chennai=1}, HR={Delhi=1, Pune=1}, IT={Chennai=2, Pune=1}}</code></pre>
+  <p>Expected output of <code>Example07_OrderReport.java</code>:</p>
+  <pre class="terminal"><code>===== SALES REPORT =====
+Total revenue          : Rs.60150.00
+Revenue per customer   : {Asha=56000.0, John=1150.0, Meena=1400.0, Ravi=1600.0}
+Best customer          : Asha
+Quantity per product   : {Java Book=1, Laptop=1, Mouse=3, Olive Oil=1, Rice 5kg=6}
+Revenue per category   : {Books=650.0, Electronics=56500.0, Grocery=3000.0}
+Top 2 orders           : [#1 Asha Rs.56000.0, #2 Ravi Rs.1600.0]
+Orders &gt;= 2000 (ids)   : [1]
+Orders &lt;  2000 (ids)   : [2, 4, 5]
+Customers who cancelled: Asha
+Any book sold?         : true</code></pre>
+  <p>The other files show their full expected output in the <code>/* Output: ... */</code> comment at the end.</p>
+
+  <!-- =========================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting the terminal operation</strong>
+    <pre><code class="lang-java">names.stream().filter(n -&gt; n.startsWith("A")).map(String::toUpperCase);   // does NOTHING</code></pre>
+    <strong>Fix:</strong> end with a terminal operation: <code>.toList()</code>, <code>.forEach(...)</code>, <code>.count()</code>…
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: reusing a stream</strong>
+    <pre><code class="lang-java">Stream&lt;String&gt; s = names.stream();
+long c = s.count();
+List&lt;String&gt; l = s.toList();   // IllegalStateException: stream has already been operated upon or closed</code></pre>
+    <strong>Fix:</strong> create a new stream each time: <code>names.stream()</code> is cheap.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: modifying the source or outside state inside the stream</strong>
+    <pre><code class="lang-java">List&lt;String&gt; result = new ArrayList&lt;&gt;();
+names.stream().filter(...).forEach(n -&gt; result.add(n));   // works, but not the stream way
+names.stream().forEach(n -&gt; names.remove(n));             // ConcurrentModificationException!</code></pre>
+    <strong>Fix:</strong> let the stream build the result: <code>List&lt;String&gt; result = names.stream().filter(...).toList();</code> To remove items from a list, use <code>list.removeIf(predicate)</code>.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>toMap</code> with duplicate keys</strong>
+    Throws <code>IllegalStateException: Duplicate key</code>. <strong>Fix:</strong> add a merge function, or use <code>groupingBy</code> if you actually want lists.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: trying to add to the result of <code>.toList()</code></strong>
+    <code>stream.toList().add(x)</code> throws <code>UnsupportedOperationException</code> because the list is unmodifiable. <strong>Fix:</strong> <code>collect(Collectors.toCollection(ArrayList::new))</code>.
+  </div>
+  <div class="callout danger"><strong>🚫 Mistake: calling <code>optional.get()</code> without checking</strong>
+    <code>repo.findById(99).get()</code> throws <code>NoSuchElementException</code> — you just swapped a NullPointerException for another crash. <strong>Fix:</strong> <code>orElseThrow(() -&gt; new ProductNotFoundException(id))</code>, <code>orElse(...)</code>, or <code>map(...)</code>.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: misusing Optional</strong>
+    <ul>
+      <li><code>if (opt.isPresent()) { x = opt.get(); } else { x = "default"; }</code> — just write <code>opt.orElse("default")</code>.</li>
+      <li>Using Optional for fields, method parameters or collections (<code>Optional&lt;List&lt;…&gt;&gt;</code>). Optional is designed for <strong>return types</strong>. For collections return an empty list instead.</li>
+      <li>Returning <code>null</code> from a method declared to return <code>Optional</code> — return <code>Optional.empty()</code>.</li>
+    </ul>
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: infinite streams without <code>limit</code></strong>
+    <code>Stream.iterate(1, n -&gt; n + 1).forEach(System.out::println)</code> never stops. <strong>Fix:</strong> add <code>.limit(10)</code> or use the 3-argument <code>iterate(seed, hasNext, next)</code>.
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>One operation per line</strong> in a pipeline — easy to read, easy to debug.</li>
+    <li><strong>Keep lambdas pure</strong>: <code>filter</code> and <code>map</code> should not change anything outside; they just compute.</li>
+    <li><strong>Filter early</strong>: put <code>filter</code> before expensive <code>map</code>/<code>sorted</code> steps so less data flows through.</li>
+    <li><strong>Use method references</strong> (<code>Employee::getName</code>) and <code>Comparator.comparing</code> for readability.</li>
+    <li><strong>Don't force streams everywhere</strong>: a simple loop with <code>break</code>, or code that changes several variables, is often clearer as a loop.</li>
+    <li><strong>Use primitive streams</strong> (<code>mapToInt</code>, <code>mapToDouble</code>) for numeric work.</li>
+    <li><strong>Avoid parallel streams</strong> in web apps unless you have measured a real benefit.</li>
+    <li><strong>Return <code>Optional</code></strong> from "find" methods that may find nothing; never return <code>null</code> from them. Return empty collections instead of <code>null</code> or Optional for lists.</li>
+    <li><strong>In Spring</strong>: filter, sort and paginate <em>in the database</em> (queries, <code>Pageable</code>) — not by loading all rows and streaming them in Java. Use streams for mapping and small in-memory work.</li>
+    <li><strong>For money</strong>, real projects use <code>BigDecimal</code> rather than <code>double</code> (we use <code>double</code> here for simplicity).</li>
+  </ul>
+
+  <!-- =========================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>A stream is a pipeline: <strong>source → intermediate ops → one terminal op</strong>.</li>
+    <li>Streams are <strong>lazy</strong> (nothing runs until the terminal op), <strong>single-use</strong>, and <strong>don't modify</strong> the source.</li>
+    <li><code>filter</code> keeps, <code>map</code> transforms, <code>flatMap</code> flattens, <code>sorted</code>/<code>distinct</code>/<code>limit</code>/<code>skip</code> shape the flow.</li>
+    <li><code>collect</code> with <code>Collectors</code> builds lists, sets, maps, strings and grouped reports (<code>groupingBy</code>, <code>partitioningBy</code>, <code>joining</code>…).</li>
+    <li><code>reduce</code> folds all elements into one value; <code>count</code>, <code>min</code>, <code>max</code>, <code>anyMatch</code>, <code>findFirst</code> answer questions.</li>
+    <li>Use <code>IntStream</code>/<code>range</code> for numbers; be careful with parallel streams.</li>
+    <li><code>Optional</code> means "maybe a value". Use <code>orElse</code>, <code>orElseGet</code>, <code>orElseThrow</code>, <code>map</code>, <code>ifPresent</code> — avoid <code>get()</code>.</li>
+    <li>Spring Data's <code>findById</code> returns <code>Optional</code>; the pattern <code>findById(id).orElseThrow(...)</code> will be everywhere in your services.</li>
+  </ul></div>
+
+  <!-- =========================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <p>Create <code>Practice14.java</code> in this folder. Use this starting data for exercises 1–4:</p>
+  <pre><code class="lang-java">List&lt;Integer&gt; numbers = List.of(5, 12, 8, 3, 12, 20, 7, 8, 15);
+List&lt;String&gt; words = List.of("spring", "java", "boot", "stream", "lambda", "api");</code></pre>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1.</strong> From <code>numbers</code>: (a) list the even numbers, (b) list the squares of all numbers, (c) find the sum of numbers greater than 10.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">System.out.println(numbers.stream().filter(n -&gt; n % 2 == 0).toList());     // [12, 8, 12, 20, 8]
+System.out.println(numbers.stream().map(n -&gt; n * n).toList());             // [25, 144, 64, 9, 144, 400, 49, 64, 225]
+System.out.println(numbers.stream().filter(n -&gt; n &gt; 10)
+        .mapToInt(Integer::intValue).sum());                                // 59</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2.</strong> From <code>numbers</code>: get the unique values sorted from highest to lowest, and the second-highest unique value.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">List&lt;Integer&gt; uniqueDesc = numbers.stream()
+        .distinct()
+        .sorted(Comparator.reverseOrder())
+        .toList();
+System.out.println(uniqueDesc);                                   // [20, 15, 12, 8, 7, 5, 3]
+
+int secondHighest = numbers.stream().distinct()
+        .sorted(Comparator.reverseOrder())
+        .skip(1)
+        .findFirst()
+        .orElseThrow();
+System.out.println(secondHighest);                                // 15</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3.</strong> From <code>words</code>: (a) join them in upper case separated by " | ", (b) group them by length into a <code>TreeMap</code>, (c) find the longest word.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">System.out.println(words.stream().map(String::toUpperCase).collect(Collectors.joining(" | ")));
+// SPRING | JAVA | BOOT | STREAM | LAMBDA | API
+
+Map&lt;Integer, List&lt;String&gt;&gt; byLength = words.stream()
+        .collect(Collectors.groupingBy(String::length, TreeMap::new, Collectors.toList()));
+System.out.println(byLength);
+// {3=[api], 4=[java, boot], 6=[spring, stream, lambda]}
+// Tip: store complex collect() results in a typed variable first. Passing them
+// straight into println(...) can confuse Java's type inference (compile error).
+
+System.out.println(words.stream().max(Comparator.comparing(String::length)).orElse(""));
+// spring   (first of the longest ones)</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4.</strong> Count how many times each number appears in <code>numbers</code> (a frequency map), and print only the numbers that appear more than once.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">Map&lt;Integer, Long&gt; freq = numbers.stream()
+        .collect(Collectors.groupingBy(n -&gt; n, TreeMap::new, Collectors.counting()));
+System.out.println(freq);           // {3=1, 5=1, 7=1, 8=2, 12=2, 15=1, 20=1}
+
+List&lt;Integer&gt; duplicates = freq.entrySet().stream()
+        .filter(e -&gt; e.getValue() &gt; 1)
+        .map(Map.Entry::getKey)
+        .toList();
+System.out.println(duplicates);     // [8, 12]</code></pre>
+    <p><code>n -&gt; n</code> can also be written <code>Function.identity()</code>.</p>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5.</strong> Using the <code>Employee</code> class from <code>Example04</code>: find (a) the highest-paid employee in each department (<code>Map&lt;String, String&gt;</code> dept → name), (b) the department with the highest average salary.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">// (a) groupingBy + maxBy gives Optional&lt;Employee&gt; per group; collectingAndThen unwraps it
+Map&lt;String, String&gt; topPerDept = employees.stream()
+        .collect(Collectors.groupingBy(Employee::getDepartment, TreeMap::new,
+                Collectors.collectingAndThen(
+                        Collectors.maxBy(Comparator.comparing(Employee::getSalary)),
+                        opt -&gt; opt.map(Employee::getName).orElse("-"))));
+System.out.println(topPerDept);     // {Finance=Meena, HR=Ravi, IT=John}
+
+// (b) average per dept, then the entry with the max value
+String bestDept = employees.stream()
+        .collect(Collectors.groupingBy(Employee::getDepartment,
+                Collectors.averagingDouble(Employee::getSalary)))
+        .entrySet().stream()
+        .max(Map.Entry.comparingByValue())
+        .map(Map.Entry::getKey)
+        .orElse("none");
+System.out.println(bestDept);       // IT</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6.</strong> Write a small <code>UserRepository</code> with a list of users (id, email) and a method <code>Optional&lt;String&gt; findEmailById(int id)</code>. In <code>main</code>: print the email of user 1 in upper case, print "no email" for user 42, and throw <code>IllegalArgumentException("User 42 not found")</code> for user 42 using <code>orElseThrow</code> (catch it and print the message).</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">static class UserRepository {
+    private final Map&lt;Integer, String&gt; emails = Map.of(1, "asha@shop.com", 2, "ravi@shop.com");
+
+    Optional&lt;String&gt; findEmailById(int id) {
+        return Optional.ofNullable(emails.get(id));   // get() returns null if missing
+    }
+}
+
+UserRepository repo = new UserRepository();
+System.out.println(repo.findEmailById(1).map(String::toUpperCase).orElse("no email")); // ASHA@SHOP.COM
+System.out.println(repo.findEmailById(42).orElse("no email"));                       // no email
+try {
+    repo.findEmailById(42).orElseThrow(() -&gt; new IllegalArgumentException("User 42 not found"));
+} catch (IllegalArgumentException e) {
+    System.out.println(e.getMessage());                                               // User 42 not found
+}</code></pre>
+    </details>
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is a stream? How is it different from a collection?</summary>
+    <p>A stream is a sequence of elements supporting functional-style aggregate operations in a pipeline. Unlike a collection it doesn't store data, is lazily evaluated, can be consumed only once, uses internal iteration and never modifies its source. Collections are about <em>storing</em> data; streams are about <em>computing</em> with it.</p></details>
+  <details><summary>Q2. Difference between intermediate and terminal operations?</summary>
+    <p>Intermediate operations (<code>filter</code>, <code>map</code>, <code>sorted</code>…) return a new stream and are lazy — they don't execute until a terminal operation is invoked. Terminal operations (<code>collect</code>, <code>forEach</code>, <code>reduce</code>, <code>count</code>…) produce a result or side effect, trigger the whole pipeline and close the stream. Stateless intermediate ops (filter, map) process each element independently; stateful ones (sorted, distinct) need to see other elements.</p></details>
+  <details><summary>Q3. map vs flatMap?</summary>
+    <p><code>map</code> transforms each element to exactly one element (<code>Stream&lt;T&gt;</code> → <code>Stream&lt;R&gt;</code>). <code>flatMap</code> transforms each element into a stream of zero or more elements and flattens all those streams into one (<code>Stream&lt;List&lt;T&gt;&gt;</code> → <code>Stream&lt;T&gt;</code>). Example: orders → all order items.</p></details>
+  <details><summary>Q4. What does "lazy evaluation" mean in streams? Give an example of short-circuiting.</summary>
+    <p>Intermediate operations are not executed when declared; the pipeline runs only when a terminal operation needs results, and elements flow one at a time through all stages. Short-circuiting operations can finish without processing all elements, e.g. <code>filter(...).findFirst()</code> stops at the first match, <code>anyMatch</code> stops at the first true, <code>limit(n)</code> stops after n elements — allowing even infinite streams to finish.</p></details>
+  <details><summary>Q5. How do you group employees by department and get the average salary?</summary>
+    <p><code>employees.stream().collect(Collectors.groupingBy(Employee::getDepartment, Collectors.averagingDouble(Employee::getSalary)))</code> — returns <code>Map&lt;String, Double&gt;</code>. Use <code>counting()</code>, <code>summingDouble()</code>, <code>mapping()</code>, <code>maxBy()</code> as other downstream collectors.</p></details>
+  <details><summary>Q6. groupingBy vs partitioningBy?</summary>
+    <p><code>partitioningBy</code> takes a <code>Predicate</code> and always produces a <code>Map&lt;Boolean, …&gt;</code> with exactly two keys, <code>true</code> and <code>false</code> (both present even if empty). <code>groupingBy</code> takes a classifier function and produces as many keys as there are distinct classifier values.</p></details>
+  <details><summary>Q7. When should you NOT use parallel streams?</summary>
+    <p>For small datasets (overhead dominates), when operations have side effects or use shared mutable state, when order matters, for I/O-bound tasks (blocking calls tie up the common ForkJoinPool), and generally inside web servers where requests are already concurrent and the common pool is shared by the whole JVM. Measure before using them.</p></details>
+  <details><summary>Q8. What is Optional and why was it introduced?</summary>
+    <p><code>Optional&lt;T&gt;</code> is a container that may or may not hold a non-null value. It makes "no result" explicit in a method's return type, forcing callers to handle the empty case and reducing NullPointerExceptions. It is intended mainly as a <strong>return type</strong> — not for fields, parameters or collections.</p></details>
+  <details><summary>Q9. orElse vs orElseGet vs orElseThrow?</summary>
+    <p><code>orElse(value)</code> returns the value or the given default; the default expression is always evaluated. <code>orElseGet(supplier)</code> calls the supplier only if empty — better for expensive defaults. <code>orElseThrow()</code> throws <code>NoSuchElementException</code> if empty; <code>orElseThrow(supplier)</code> throws your custom exception — the usual choice in Spring services (e.g. <code>ResourceNotFoundException</code> → 404).</p></details>
+  <details><summary>Q10. Why does Spring Data JPA's findById return Optional?</summary>
+    <p>Because an entity with that id might not exist. Returning <code>Optional&lt;T&gt;</code> instead of <code>null</code> documents this in the API and forces the service layer to decide what "not found" means — usually <code>findById(id).orElseThrow(() -&gt; new ResourceNotFoundException(...))</code> which a <code>@RestControllerAdvice</code> maps to HTTP 404.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../13-Lambdas-And-Functional-Interfaces/lesson.html"><small>← Previous</small>13. Lambdas &amp; Functional Interfaces</a>
+    <a class="next" href="../15-Modern-Java-Features/lesson.html"><small>Next →</small>15. Modern Java Features</a>
+  </nav>
+</main>
+</body>
+</html>

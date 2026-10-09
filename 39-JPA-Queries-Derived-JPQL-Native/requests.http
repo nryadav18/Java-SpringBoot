@@ -1,0 +1,89 @@
+### Topic 39 - Library search API (VS Code "REST Client" extension)
+@base = http://localhost:8080/api/books
+
+### All books
+GET {{base}}
+
+### One book
+GET {{base}}/1
+
+########## A. Derived query methods ##########
+
+### findByAuthor
+GET {{base}}/by-author?name=J.R.R. Tolkien
+
+### findByTitleContainingIgnoreCase
+GET {{base}}/title-contains?text=java
+
+### findByPriceBetween
+GET {{base}}/price-range?min=10&max=20
+
+### findByGenreOrderByPriceAsc
+GET {{base}}/genre/PROGRAMMING
+
+### Invalid enum value -> 400
+GET {{base}}/genre/COOKING
+
+### findByPublishedYearGreaterThanEqualOrderByPublishedYearDesc
+GET {{base}}/published-since/2010
+
+### findTop3ByOrderByPriceDesc
+GET {{base}}/top-expensive
+
+### findFirstByOrderByPublishedYearAsc
+GET {{base}}/oldest
+
+### findByIsbn
+GET {{base}}/isbn/978-0132350884
+
+### existsByIsbn
+GET {{base}}/exists?isbn=978-0132350884
+
+### countByGenre
+GET {{base}}/count?genre=FANTASY
+
+########## B. JPQL ##########
+
+### Keyword search in title OR author (named parameter)
+GET {{base}}/search?keyword=tolkien
+
+### Positional parameter ?1
+GET {{base}}/thick?minPages=500
+
+########## C. Native SQL ##########
+
+### Published between two years
+GET {{base}}/published-between?from=1940&to=1990
+
+### Native GROUP BY + interface projection
+GET {{base}}/stats/genres
+
+########## E. Projections ##########
+
+### Interface projection (only title + author are selected)
+GET {{base}}/summaries?genre=HISTORY
+
+### Dynamic projection
+GET {{base}}/summaries/by-author?name=j.r.r. tolkien
+
+### Record projection with JPQL constructor expression
+GET {{base}}/stats/authors
+
+########## Specifications & Query by Example ##########
+
+### Any combination of filters (all optional)
+GET {{base}}/filter?genre=PROGRAMMING&maxPrice=48&available=true
+
+### Only one filter
+GET {{base}}/filter?title=the
+
+### Query by Example
+GET {{base}}/example?author=martin
+
+########## D. @Modifying (changes data!) ##########
+
+### Raise all FANTASY prices by 10 %
+PUT {{base}}/genre/FANTASY/price-factor?factor=1.10
+
+### Delete every unavailable book
+DELETE {{base}}/unavailable

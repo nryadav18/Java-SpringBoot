@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>35 · Global Exception Handling</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 35</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>35. Global Exception Handling</h1>
+  <p class="subtitle">Turn every error in your API — not found, invalid input, broken JSON, business rule, unexpected bug — into one clean, consistent, safe JSON response, written in one place.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="35-Global-Exception-Handling"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What Spring Boot does with an exception by default (the <code>/error</code> page and its JSON).</li>
+      <li>How to design <b>custom exceptions</b> like <code>ResourceNotFoundException</code>.</li>
+      <li><code>@ResponseStatus</code> — the quick way to attach an HTTP status to an exception.</li>
+      <li><code>@ExceptionHandler</code> — handle an exception in one controller.</li>
+      <li><code>@RestControllerAdvice</code> — handle exceptions for <b>all</b> controllers in one class.</li>
+      <li>A standard <b>ErrorResponse DTO</b> (timestamp, status, error, message, path, fieldErrors).</li>
+      <li>Handling <code>MethodArgumentNotValidException</code> and other common Spring MVC exceptions.</li>
+      <li><b>ProblemDetail</b> (RFC 7807 / RFC 9457), built into Spring 6, and <code>spring.mvc.problemdetails.enabled</code>.</li>
+      <li>Best practices — above all: <b>never leak stack traces</b>.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../34-Validation/lesson.html">Topic 34 · Validation</a>, <a href="../33-Layered-Architecture-And-DTOs/lesson.html">Topic 33 · Layers &amp; DTOs</a> and <a href="../10-Exception-Handling/lesson.html">Topic 10 · Exceptions</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Things go wrong all the time in a real API: a book id doesn't exist, a form is half empty, someone sends broken JSON, a business rule says "no", or — sadly — there is a bug. How your API <b>reports</b> these problems matters a lot:</p>
+  <ul>
+    <li><b>Front-end and mobile developers</b> need one predictable error format so they can show a nice message: "This book is not available" instead of "Error".</li>
+    <li><b>Security</b>: an error that prints a Java stack trace, a SQL statement or a class name tells attackers how your system is built.</li>
+    <li><b>Clean code</b>: without a central handler, every controller method fills up with <code>try/catch</code> blocks that build error responses by hand — copied, slightly different each time.</li>
+  </ul>
+  <p>In topic 33 we used <code>@ResponseStatus</code> and in topic 34 we saw Spring's long, technical validation errors. Now we do it properly — the way almost every production Spring Boot API does it: <b>throw meaningful exceptions anywhere, catch them in ONE place</b>.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏥 Think of a hospital's front desk</strong>
+    Doctors, nurses and labs (your controllers and services) do their work. When a problem happens — "the patient's file is missing", "this test is not possible today" — they don't each run out to the waiting room and explain it in their own words and jargon. They send the problem to the <b>front desk</b> (the <code>@RestControllerAdvice</code>).
+    <ul>
+      <li>The front desk explains every problem to the visitor in the <b>same polite format</b>: what happened, when, and what to do (the ErrorResponse).</li>
+      <li>It translates medical jargon into simple words — and never hands out internal notes (no stack traces).</li>
+      <li>For a truly unexpected emergency it says "Something went wrong, we are on it" to the visitor, while the full details go into the internal report (the server log).</li>
+    </ul>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 What Spring Boot does by default</h3>
+  <p>When an exception escapes your controller and nobody handles it, Spring Boot forwards the request to a special URL, <code>/error</code>, served by <code>BasicErrorController</code>. For a REST client it returns JSON like this:</p>
+  <pre><code class="lang-json">{
+  "timestamp": "2026-10-09T04:46:48.986+00:00",
+  "status": 500,
+  "error": "Internal Server Error",
+  "path": "/api/books/99"
+}</code></pre>
+  <p>(In a browser you'd see the famous <b>"Whitelabel Error Page"</b> instead.) Notice the problems:</p>
+  <ul>
+    <li>A missing book gives <b>500</b> — "server bug" — but really it is the client asking for something that doesn't exist (should be 404).</li>
+    <li>No <code>message</code> — by default Spring Boot hides it, because messages <i>might</i> contain sensitive details.</li>
+    <li>Validation errors don't say which field was wrong.</li>
+  </ul>
+  <div class="table-wrap"><table>
+    <tr><th>Property</th><th>Default</th><th>Meaning</th></tr>
+    <tr><td><code>server.error.include-message</code></td><td><code>never</code></td><td>Add the exception message</td></tr>
+    <tr><td><code>server.error.include-binding-errors</code></td><td><code>never</code></td><td>Add raw validation errors</td></tr>
+    <tr><td><code>server.error.include-stacktrace</code></td><td><code>never</code></td><td>Add the Java stack trace — <b>keep it <code>never</code></b></td></tr>
+    <tr><td><code>server.error.include-exception</code></td><td><code>false</code></td><td>Add the exception class name</td></tr>
+    <tr><td><code>server.error.whitelabel.enabled</code></td><td><code>true</code></td><td>The HTML Whitelabel page for browsers</td></tr>
+  </table></div>
+  <p>Turning on <code>include-message=always</code> looks helpful, but look what our "plain" profile returns for a simulated bug:</p>
+  <pre><code class="lang-json">{"status":500,"error":"Internal Server Error",
+ "message":"Cannot invoke \"String.toUpperCase()\" because \"notLoaded\" is null", ...}</code></pre>
+  <p>That's internal code leaking out. We need control: <b>our</b> messages for expected problems, a <b>generic</b> message for bugs.</p>
+
+  <h3>3.2 Step 1 — meaningful custom exceptions</h3>
+  <p>Instead of <code>throw new RuntimeException("not found")</code>, create exceptions whose <b>name</b> says what went wrong:</p>
+  <pre><span class="file">exception/ResourceNotFoundException.java</span><code class="lang-java">public class ResourceNotFoundException extends RuntimeException {
+
+    private final String resourceName;   // "Book"
+    private final String fieldName;      // "id"
+    private final Object fieldValue;     // 99
+
+    public ResourceNotFoundException(String resourceName, String fieldName, Object fieldValue) {
+        super(resourceName + " not found with " + fieldName + ": " + fieldValue);
+        this.resourceName = resourceName;
+        this.fieldName = fieldName;
+        this.fieldValue = fieldValue;
+    }
+    // getters...
+}
+
+// usage in ANY service:
+throw new ResourceNotFoundException("Book", "id", 99);       // "Book not found with id: 99"
+throw new ResourceNotFoundException("Member", "email", email);</code></pre>
+  <ul>
+    <li><b>Extend <code>RuntimeException</code></b> (unchecked, topic 10) — no <code>throws</code> clauses everywhere; Spring handles them centrally anyway.</li>
+    <li><b>Make it reusable</b>: one <code>ResourceNotFoundException</code> works for books, members, orders…</li>
+    <li>Typical family: <code>ResourceNotFoundException</code> (404), <code>DuplicateResourceException</code> (409), <code>BusinessRuleException</code>/<code>BookNotAvailableException</code> (422 or 409), <code>AccessDeniedException</code> (403, from Spring Security later).</li>
+  </ul>
+
+  <h3>3.3 Step 2 (quick option) — <code>@ResponseStatus</code></h3>
+  <pre><code class="lang-java">@ResponseStatus(HttpStatus.NOT_FOUND)
+public class ResourceNotFoundException extends RuntimeException { ... }</code></pre>
+  <p>Now when this exception escapes a controller, the status is 404 instead of 500. Simple! But limited:</p>
+  <ul>
+    <li>The body is still Spring Boot's default JSON (you can't add fields).</li>
+    <li>You can't use it on exceptions from libraries (you can't edit their classes).</li>
+    <li>It is <b>ignored</b> as soon as an <code>@ExceptionHandler</code> handles the exception — handlers win.</li>
+  </ul>
+  <p>Our exceptions keep <code>@ResponseStatus</code> as a sensible fallback (you'll see it working in the <code>plain</code> profile), but the real work is done by the advice.</p>
+  <div class="callout info"><strong>ℹ️ ResponseStatusException</strong> For a quick one-off you can also throw Spring's ready-made <code>throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Book not found")</code> without creating a class. Fine for prototypes; custom exception classes are clearer in bigger apps.</div>
+
+  <h3>3.4 Step 3 — <code>@ExceptionHandler</code> in one controller</h3>
+  <p>A method annotated with <code>@ExceptionHandler</code> is called when a controller method throws that exception type. Its return value becomes the response:</p>
+  <pre><code class="lang-java">@RestController
+public class BookController {
+    // ... endpoints ...
+
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity&lt;String&gt; handleNotFound(ResourceNotFoundException ex) {
+        return ResponseEntity.status(404).body(ex.getMessage());
+    }
+}</code></pre>
+  <p>Problem: it only works for exceptions thrown by <b>this</b> controller. With 20 controllers you would copy it 20 times. Enter the advice…</p>
+
+  <h3>3.5 Step 4 — <code>@RestControllerAdvice</code>: one handler for all controllers</h3>
+  <p><code>@ControllerAdvice</code> marks a class whose <code>@ExceptionHandler</code> methods apply to <b>all controllers</b>. <code>@RestControllerAdvice</code> = <code>@ControllerAdvice</code> + <code>@ResponseBody</code>, so return values are written as JSON.</p>
+  <div class="flow">
+    <span class="box">Request</span><span class="arrow">→</span>
+    <span class="box alt">Controller</span><span class="arrow">→</span>
+    <span class="box info">Service throws<br>ResourceNotFoundException</span><span class="arrow">↗ bubbles up ↗</span>
+    <span class="box alt">DispatcherServlet<br><small>asks exception resolvers</small></span><span class="arrow">→</span>
+    <span class="box info">@RestControllerAdvice<br>@ExceptionHandler(ResourceNotFound…)</span><span class="arrow">→</span>
+    <span class="box">404 + ErrorResponse JSON</span>
+  </div>
+  <p>How does Spring pick a method? It chooses the handler whose exception type is the <b>closest match</b> (the most specific class in the exception's hierarchy). So <code>@ExceptionHandler(ResourceNotFoundException.class)</code> beats <code>@ExceptionHandler(RuntimeException.class)</code>, which beats <code>@ExceptionHandler(Exception.class)</code>. Order of methods in the file does not matter.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Order Spring tries</th><th>Mechanism</th></tr>
+    <tr><td>1</td><td><code>@ExceptionHandler</code> in the controller itself</td></tr>
+    <tr><td>2</td><td><code>@ExceptionHandler</code> in a <code>@ControllerAdvice</code>/<code>@RestControllerAdvice</code></td></tr>
+    <tr><td>3</td><td><code>@ResponseStatus</code> on the exception class / <code>ResponseStatusException</code></td></tr>
+    <tr><td>4</td><td>Spring's built-in handling of its own exceptions (e.g. 405, 415, 400)</td></tr>
+    <tr><td>5</td><td>Nobody: forward to <code>/error</code> → default JSON with 500</td></tr>
+  </table></div>
+  <p>Handler methods can receive useful parameters: the exception itself, <code>HttpServletRequest</code> (for the path), <code>WebRequest</code>, <code>Locale</code>… and can return <code>ResponseEntity&lt;T&gt;</code>, any object (with <code>@ResponseStatus</code> on the method), or a <code>ProblemDetail</code>.</p>
+  <div class="callout tip"><strong>💡 Scope an advice</strong> <code>@RestControllerAdvice(basePackages = "com.course.exceptions.controller")</code> or <code>(assignableTypes = BookController.class)</code> limits it to some controllers — useful when an app has both a public API and an admin API with different error formats.</div>
+
+  <h3>3.6 Step 5 — a standard ErrorResponse DTO</h3>
+  <p>Every error should look the same. We use a record:</p>
+  <pre><span class="file">dto/ErrorResponse.java</span><code class="lang-java">@JsonInclude(JsonInclude.Include.NON_NULL)          // hide fieldErrors when null
+public record ErrorResponse(
+        Instant timestamp,      // when
+        int status,             // 404
+        String error,           // "Not Found"
+        String message,         // "Book not found with id: 99"  (safe, human-readable)
+        String path,            // "/api/books/99"
+        List&lt;FieldErrorDetail&gt; fieldErrors   // only for validation errors
+) {
+    public record FieldErrorDetail(String field, String message) { }
+
+    public static ErrorResponse of(int status, String error, String message, String path) {
+        return new ErrorResponse(Instant.now(), status, error, message, path, null);
+    }
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Field</th><th>Why it's useful</th></tr>
+    <tr><td><code>timestamp</code></td><td>Matching the error with server logs ("what happened at 10:15:30?")</td></tr>
+    <tr><td><code>status</code></td><td>Same as the HTTP status — handy when the body is logged or forwarded</td></tr>
+    <tr><td><code>error</code></td><td>Short standard reason phrase</td></tr>
+    <tr><td><code>message</code></td><td>Human-readable explanation — the UI can show it</td></tr>
+    <tr><td><code>path</code></td><td>Which URL failed</td></tr>
+    <tr><td><code>fieldErrors</code></td><td>Which input fields are wrong — the UI can highlight them in the form</td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Name clash</strong> Spring 6 also has an interface named <code>org.springframework.web.ErrorResponse</code>. When VS Code offers imports, pick <b>your</b> <code>com.course.exceptions.dto.ErrorResponse</code>. (Some teams name theirs <code>ApiError</code> to avoid confusion.)</div>
+
+  <h3>3.7 Handling validation errors: <code>MethodArgumentNotValidException</code></h3>
+  <p>From topic 34: a failed <code>@Valid @RequestBody</code> throws <code>MethodArgumentNotValidException</code>. Its <code>BindingResult</code> holds every <code>FieldError</code>. We turn them into a short list:</p>
+  <pre><code class="lang-java">@ExceptionHandler(MethodArgumentNotValidException.class)
+public ResponseEntity&lt;ErrorResponse&gt; handleBodyValidation(MethodArgumentNotValidException ex,
+                                                          HttpServletRequest request) {
+    List&lt;FieldErrorDetail&gt; fieldErrors = ex.getBindingResult().getFieldErrors().stream()
+            .map(fe -&gt; new FieldErrorDetail(fe.getField(), fe.getDefaultMessage()))
+            .sorted((a, b) -&gt; a.field().compareTo(b.field()))
+            .toList();
+    ErrorResponse body = new ErrorResponse(Instant.now(), 400, "Bad Request",
+            "Validation failed for " + fieldErrors.size() + " field(s)",
+            request.getRequestURI(), fieldErrors);
+    return ResponseEntity.badRequest().body(body);
+}</code></pre>
+  <p>Result — compare it with the 1,000-character monster from topic 34:</p>
+  <pre><code class="lang-json">{
+  "timestamp": "2026-10-09T04:45:45.242Z",
+  "status": 400,
+  "error": "Bad Request",
+  "message": "Validation failed for 3 field(s)",
+  "path": "/api/books",
+  "fieldErrors": [
+    { "field": "copies", "message": "Copies cannot be negative" },
+    { "field": "isbn",   "message": "ISBN must be exactly 13 digits" },
+    { "field": "title",  "message": "Title is required" }
+  ]
+}</code></pre>
+  <p>We deliberately do <b>not</b> echo the rejected value — it might be a password.</p>
+
+  <h3>3.8 Other exceptions every API should handle</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Exception</th><th>When it happens</th><th>Status</th></tr>
+    <tr><td><code>MethodArgumentNotValidException</code></td><td><code>@Valid @RequestBody</code> failed</td><td>400</td></tr>
+    <tr><td><code>HandlerMethodValidationException</code></td><td>Constraint on <code>@PathVariable</code>/<code>@RequestParam</code> failed (Spring 6.1+)</td><td>400</td></tr>
+    <tr><td><code>ConstraintViolationException</code></td><td>Method validation via class-level <code>@Validated</code> (services, older code)</td><td>400</td></tr>
+    <tr><td><code>HttpMessageNotReadableException</code></td><td>Broken / missing JSON, wrong type inside JSON</td><td>400</td></tr>
+    <tr><td><code>MethodArgumentTypeMismatchException</code></td><td><code>/api/books/abc</code> where a <code>Long</code> is expected</td><td>400</td></tr>
+    <tr><td><code>MissingServletRequestParameterException</code></td><td>A required <code>@RequestParam</code> is missing</td><td>400</td></tr>
+    <tr><td><code>HttpRequestMethodNotSupportedException</code></td><td>DELETE on a GET-only URL</td><td>405</td></tr>
+    <tr><td><code>HttpMediaTypeNotSupportedException</code></td><td>Sent XML/text where JSON is expected</td><td>415</td></tr>
+    <tr><td><code>NoResourceFoundException</code></td><td>Unknown URL (Spring 6.1+)</td><td>404</td></tr>
+    <tr><td><code>Exception</code> (catch-all)</td><td>Anything unexpected = a bug</td><td>500</td></tr>
+  </table></div>
+  <div class="callout danger"><strong>🛑 The catch-all trap</strong> Once you add <code>@ExceptionHandler(Exception.class)</code>, it also catches Spring's own exceptions that you didn't handle explicitly. A typo in a URL (<code>NoResourceFoundException</code>) or a wrong HTTP method would suddenly become <b>500</b>! Always handle the common Spring MVC exceptions explicitly (as in the table) — or extend <code>ResponseEntityExceptionHandler</code>, which handles all of them for you (section 3.10).</div>
+
+  <h3>3.9 The catch-all: log everything, reveal nothing</h3>
+  <pre><code class="lang-java">@ExceptionHandler(Exception.class)
+public ResponseEntity&lt;ErrorResponse&gt; handleUnexpected(Exception ex, HttpServletRequest request) {
+    log.error("Unexpected error on {} {}", request.getMethod(), request.getRequestURI(), ex); // full stack trace in LOG
+    return build(HttpStatus.INTERNAL_SERVER_ERROR,
+            "Something went wrong on our side. Please try again later.", request);              // nothing technical to CLIENT
+}</code></pre>
+  <p>Passing <code>ex</code> as the last argument to the logger prints the full stack trace (topic 30). Developers see everything in the logs; clients see a polite generic sentence.</p>
+
+  <h3>3.10 ProblemDetail — the official standard (RFC 7807 → RFC 9457)</h3>
+  <p>Many companies invented their own error JSON — every API looked different. The IETF published a standard: <b>"Problem Details for HTTP APIs"</b>, first RFC 7807 (2016), updated by <b>RFC 9457</b> (2023). Spring Framework 6 supports it out of the box with the <code>ProblemDetail</code> class. The response has Content-Type <code>application/problem+json</code>:</p>
+  <pre><code class="lang-json">{
+  "type": "https://api.library.example/problems/resource-not-found",
+  "title": "Resource not found",
+  "status": 404,
+  "detail": "Book not found with id: 99",
+  "instance": "/api/books/99",
+  "resource": "Book",
+  "timestamp": "2026-10-09T04:46:09.824Z"
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Field</th><th>Meaning</th><th>Our ErrorResponse equivalent</th></tr>
+    <tr><td><code>type</code></td><td>URI identifying the <b>kind</b> of problem (can link to docs). Default <code>about:blank</code></td><td>—</td></tr>
+    <tr><td><code>title</code></td><td>Short summary of the problem type</td><td><code>error</code></td></tr>
+    <tr><td><code>status</code></td><td>HTTP status code</td><td><code>status</code></td></tr>
+    <tr><td><code>detail</code></td><td>Explanation of <b>this</b> occurrence</td><td><code>message</code></td></tr>
+    <tr><td><code>instance</code></td><td>URI of this occurrence (Spring fills in the request path)</td><td><code>path</code></td></tr>
+    <tr><td>extra properties</td><td>Anything you add with <code>setProperty(...)</code></td><td><code>timestamp</code>, <code>fieldErrors</code></td></tr>
+  </table></div>
+  <pre><span class="file">exception/ProblemDetailExceptionHandler.java (part)</span><code class="lang-java">@RestControllerAdvice
+@Profile("problem")
+public class ProblemDetailExceptionHandler extends ResponseEntityExceptionHandler {
+
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ProblemDetail handleNotFound(ResourceNotFoundException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
+        problem.setType(URI.create("https://api.library.example/problems/resource-not-found"));
+        problem.setTitle("Resource not found");
+        problem.setProperty("resource", ex.getResourceName());   // custom extra field
+        problem.setProperty("timestamp", Instant.now());
+        return problem;                                         // status taken from the ProblemDetail
+    }
+}</code></pre>
+  <p><b>Why extend <code>ResponseEntityExceptionHandler</code>?</b> It is a Spring base class that already handles ~20 Spring MVC exceptions (bad JSON, 405, 415, type mismatch, missing parameter, unknown URL, parameter validation…) and returns them as <code>ProblemDetail</code>. You only add your own exceptions and override what you want to customise — e.g. <code>handleMethodArgumentNotValid</code> to add a <code>fieldErrors</code> list.</p>
+  <h4><code>spring.mvc.problemdetails.enabled</code></h4>
+  <pre><span class="file">application-problem.properties</span><code class="lang-properties">spring.mvc.problemdetails.enabled=true</code></pre>
+  <p>With <b>zero code</b>, this property makes Spring Boot register its own <code>ResponseEntityExceptionHandler</code>, so all of Spring MVC's built-in exceptions are answered as ProblemDetail. If you write your own subclass (like we did), Boot's one steps back and yours is used. Your custom exceptions with <code>@ResponseStatus</code> still get the right status either way.</p>
+  <p>Also handy: Spring's exception classes such as <code>ErrorResponseException</code> already <i>carry</i> a <code>ProblemDetail</code>. You can extend it for your own exceptions: <code>class BookNotFound extends ErrorResponseException { super(HttpStatus.NOT_FOUND, ProblemDetail.forStatusAndDetail(...), null); }</code>.</p>
+  <div class="callout tip"><strong>💡 Which format should I choose?</strong> For a <b>new</b> API, ProblemDetail is a great default — it's a standard, tools understand it, and Spring supports it natively.Your own ErrorResponse is fine too, and very common in existing projects. The important thing is: <b>one format, used everywhere</b>. This project shows both so you can recognise them.</div>
+
+  <h3>3.11 Our three profiles</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Run with</th><th>Active handler</th><th>Error format</th></tr>
+    <tr><td><code>mvn spring-boot:run</code></td><td><code>GlobalExceptionHandler</code> (<code>@Profile("!problem &amp; !plain")</code>)</td><td>Our <code>ErrorResponse</code></td></tr>
+    <tr><td><code>-Dspring-boot.run.profiles=problem</code></td><td><code>ProblemDetailExceptionHandler</code></td><td>RFC 9457 <code>application/problem+json</code></td></tr>
+    <tr><td><code>-Dspring-boot.run.profiles=plain</code></td><td>none</td><td>Spring Boot default (+ <code>@ResponseStatus</code>)</td></tr>
+  </table></div>
+  <p>A real project has just one handler — the profiles are only here so you can compare all three with the same requests.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder (Java code under <code>src/main/java/com/course/exceptions/</code>):</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>ExceptionHandlingApplication.java</code></td><td>Entry point; explains the three profiles.</td></tr>
+    <tr><td><code>controller/BookController.java</code></td><td>7 endpoints, <b>zero</b> try/catch. <code>/crash</code> simulates a bug.</td></tr>
+    <tr><td><code>service/BookService.java</code></td><td>Throws <code>ResourceNotFoundException</code>, <code>DuplicateResourceException</code>, <code>BookNotAvailableException</code>.</td></tr>
+    <tr><td><code>repository/BookRepository.java</code></td><td>In-memory storage with 3 sample books (one has 0 copies).</td></tr>
+    <tr><td><code>model/Book.java</code></td><td>Domain object.</td></tr>
+    <tr><td><code>dto/BookRequest.java</code>, <code>BookResponse.java</code></td><td>DTOs; the request has validation rules.</td></tr>
+    <tr><td><code>dto/ErrorResponse.java</code></td><td>The standard error DTO with nested <code>FieldErrorDetail</code>.</td></tr>
+    <tr><td><code>exception/ResourceNotFoundException.java</code></td><td>Reusable 404 exception with resource/field/value.</td></tr>
+    <tr><td><code>exception/DuplicateResourceException.java</code></td><td>409 Conflict.</td></tr>
+    <tr><td><code>exception/BookNotAvailableException.java</code></td><td>422 business rule failure.</td></tr>
+    <tr><td><code>exception/GlobalExceptionHandler.java</code></td><td>The <code>@RestControllerAdvice</code> producing <code>ErrorResponse</code>.</td></tr>
+    <tr><td><code>exception/ProblemDetailExceptionHandler.java</code></td><td>The ProblemDetail version (profile <code>problem</code>).</td></tr>
+    <tr><td><code>resources/application.properties</code> (+ <code>-problem</code>, <code>-plain</code>)</td><td>Error-related settings per profile.</td></tr>
+    <tr><td><code>src/test/.../GlobalExceptionHandlerTest.java</code></td><td>7 MockMvc tests: 404, 400 fieldErrors, 409, 422, 400 type/JSON, 400 param, 500 without leaks.</td></tr>
+    <tr><td><code>src/test/.../ProblemDetailHandlerTest.java</code></td><td>Tests the ProblemDetail format with <code>@ActiveProfiles("problem")</code>.</td></tr>
+    <tr><td><code>requests.http</code></td><td>13 requests triggering every error type.</td></tr>
+  </table></div>
+
+  <h3>4.1 The service: just throw</h3>
+  <pre><span class="file">service/BookService.java (part)</span><code class="lang-java">public BookResponse borrow(Long id) {
+    Book book = getBook(id);                                   // 404 if missing
+    if (book.getCopiesAvailable() == 0) {
+        throw new BookNotAvailableException(book.getTitle());  // 422 business rule
+    }
+    book.setCopiesAvailable(book.getCopiesAvailable() - 1);
+    return toResponse(repository.save(book));
+}
+
+private Book getBook(Long id) {
+    return repository.findById(id)
+            .orElseThrow(() -&gt; new ResourceNotFoundException("Book", "id", id));
+}</code></pre>
+  <p>No status codes, no <code>ResponseEntity</code>, no try/catch. The service says <i>what</i> went wrong; the advice decides <i>how to tell the client</i>.</p>
+
+  <h3>4.2 The controller: no error code at all</h3>
+  <pre><span class="file">controller/BookController.java (part)</span><code class="lang-java">@PostMapping
+@ResponseStatus(HttpStatus.CREATED)
+public BookResponse create(@Valid @RequestBody BookRequest request) {
+    return bookService.create(request);
+}
+
+@PostMapping("/{id}/borrow")
+public BookResponse borrow(@PathVariable Long id) {
+    return bookService.borrow(id);
+}</code></pre>
+
+  <h3>4.3 The global handler</h3>
+  <pre><span class="file">exception/GlobalExceptionHandler.java (structure)</span><code class="lang-java">@RestControllerAdvice
+@Profile("!problem &amp; !plain")
+public class GlobalExceptionHandler {
+
+    // 1. our business exceptions
+    @ExceptionHandler(ResourceNotFoundException.class)     -&gt; 404
+    @ExceptionHandler(DuplicateResourceException.class)    -&gt; 409
+    @ExceptionHandler(BookNotAvailableException.class)     -&gt; 422
+
+    // 2. validation (topic 34)
+    @ExceptionHandler(MethodArgumentNotValidException.class)   -&gt; 400 + fieldErrors
+    @ExceptionHandler(HandlerMethodValidationException.class)  -&gt; 400 + fieldErrors
+
+    // 3. client mistakes detected by Spring MVC
+    @ExceptionHandler(HttpMessageNotReadableException.class)        -&gt; 400
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)    -&gt; 400
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class) -&gt; 405
+    @ExceptionHandler(NoResourceFoundException.class)               -&gt; 404
+
+    // 4. safety net
+    @ExceptionHandler(Exception.class)                     -&gt; 500, generic message, full log
+}</code></pre>
+  <p>Each handler is short thanks to a private helper:</p>
+  <pre><code class="lang-java">@ExceptionHandler(ResourceNotFoundException.class)
+public ResponseEntity&lt;ErrorResponse&gt; handleNotFound(ResourceNotFoundException ex,
+                                                    HttpServletRequest request) {
+    return build(HttpStatus.NOT_FOUND, ex.getMessage(), request);
+}
+
+private ResponseEntity&lt;ErrorResponse&gt; build(HttpStatus status, String message, HttpServletRequest request) {
+    ErrorResponse body = ErrorResponse.of(status.value(), status.getReasonPhrase(), message,
+            request.getRequestURI());
+    return ResponseEntity.status(status).body(body);
+}</code></pre>
+  <p>Parameter validation errors (<code>HandlerMethodValidationException</code>) are a bit different from body errors — they are grouped per method parameter:</p>
+  <pre><code class="lang-java">List&lt;FieldErrorDetail&gt; fieldErrors = ex.getParameterValidationResults().stream()
+        .flatMap(result -&gt; result.getResolvableErrors().stream()
+                .map(error -&gt; new FieldErrorDetail(
+                        result.getMethodParameter().getParameterName(),   // "minCopies"
+                        error.getDefaultMessage())))                       // "minCopies must be at least 1"
+        .toList();</code></pre>
+
+  <h3>4.4 The ProblemDetail handler: customising validation</h3>
+  <pre><span class="file">exception/ProblemDetailExceptionHandler.java (part)</span><code class="lang-java">@Override
+protected ResponseEntity&lt;Object&gt; handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
+        HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+    ProblemDetail problem = ex.getBody();          // Spring already prepared a ProblemDetail
+    problem.setTitle("Validation failed");
+    problem.setDetail("One or more fields are invalid");
+    problem.setProperty("fieldErrors", ex.getBindingResult().getFieldErrors().stream()
+            .map(fe -&gt; Map.of("field", fe.getField(), "message", String.valueOf(fe.getDefaultMessage())))
+            .toList());
+    return handleExceptionInternal(ex, problem, headers, status, request);
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2 id="run">5. How to run</h2>
+  <h3>In VS Code</h3>
+  <ol>
+    <li>Open the folder <code>D:\Java-SpringBoot\35-Global-Exception-Handling</code>.</li>
+    <li>Run <code>ExceptionHandlingApplication.java</code>. To use a profile, add <code>"args": "--spring.profiles.active=problem"</code> to the launch configuration, or simply use the terminal commands below.</li>
+    <li>Open <code>requests.http</code> and send each request.</li>
+  </ol>
+  <h3>From the terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\35-Global-Exception-Handling"
+mvn spring-boot:run</code></pre>
+  <h3>Default profile — our ErrorResponse</h3>
+  <pre class="terminal"><code>curl -i http://localhost:8080/api/books/99</code></pre>
+  <pre class="terminal"><code>HTTP/1.1 404
+Content-Type: application/json
+
+{"timestamp":"2026-10-09T04:45:44.744Z","status":404,"error":"Not Found","message":"Book not found with id: 99","path":"/api/books/99"}</code></pre>
+  <pre class="terminal"><code>curl http://localhost:8080/api/books/abc
+{"timestamp":"...","status":400,"error":"Bad Request","message":"Parameter 'id' must be of type Long but was 'abc'","path":"/api/books/abc"}
+
+curl -X POST http://localhost:8080/api/books -H "Content-Type: application/json" -d '{"title":"","author":"X","isbn":"123","copies":-1}'
+{"timestamp":"...","status":400,"error":"Bad Request","message":"Validation failed for 3 field(s)","path":"/api/books",
+ "fieldErrors":[{"field":"copies","message":"Copies cannot be negative"},{"field":"isbn","message":"ISBN must be exactly 13 digits"},{"field":"title","message":"Title is required"}]}
+
+curl -X POST http://localhost:8080/api/books -H "Content-Type: application/json" -d '{"title":"Dup","author":"X","isbn":"9780132350884","copies":1}'
+{"timestamp":"...","status":409,"error":"Conflict","message":"A book with ISBN 9780132350884 already exists","path":"/api/books"}
+
+curl -X POST http://localhost:8080/api/books -H "Content-Type: application/json" -d '{"title": "broken'
+{"timestamp":"...","status":400,"error":"Bad Request","message":"Request body is missing or is not valid JSON","path":"/api/books"}
+
+curl -X POST http://localhost:8080/api/books/3/borrow
+{"timestamp":"...","status":422,"error":"Unprocessable Entity","message":"No copies of 'Head First Java' are available right now","path":"/api/books/3/borrow"}
+
+curl "http://localhost:8080/api/books/available?minCopies=0"
+{"timestamp":"...","status":400,"error":"Bad Request","message":"Invalid request parameter(s)","path":"/api/books/available","fieldErrors":[{"field":"minCopies","message":"minCopies must be at least 1"}]}
+
+curl -X DELETE http://localhost:8080/api/books
+{"timestamp":"...","status":405,"error":"Method Not Allowed","message":"HTTP method DELETE is not supported for this URL","path":"/api/books"}
+
+curl http://localhost:8080/api/bookz
+{"timestamp":"...","status":404,"error":"Not Found","message":"No endpoint found for /api/bookz","path":"/api/bookz"}
+
+curl http://localhost:8080/api/books/crash
+{"timestamp":"...","status":500,"error":"Internal Server Error","message":"Something went wrong on our side. Please try again later.","path":"/api/books/crash"}</code></pre>
+  <p>And in the <b>server console</b> for the crash you'll see the full story for developers:</p>
+  <pre class="terminal"><code>ERROR ... c.c.e.exception.GlobalExceptionHandler : Unexpected error on GET /api/books/crash
+java.lang.NullPointerException: Cannot invoke "String.toUpperCase()" because "notLoaded" is null
+    at com.course.exceptions.controller.BookController.crash(BookController.java:...)</code></pre>
+  <h3>Problem profile — RFC 9457</h3>
+  <pre class="terminal"><code>mvn spring-boot:run -Dspring-boot.run.profiles=problem
+curl -i http://localhost:8080/api/books/99</code></pre>
+  <pre class="terminal"><code>HTTP/1.1 404
+Content-Type: application/problem+json
+
+{"type":"https://api.library.example/problems/resource-not-found","title":"Resource not found","status":404,
+ "detail":"Book not found with id: 99","instance":"/api/books/99","resource":"Book","timestamp":"..."}</code></pre>
+  <p>Spring's built-in exceptions come for free in this format, e.g. <code>DELETE /api/books</code>:</p>
+  <pre class="terminal"><code>{"type":"about:blank","title":"Method Not Allowed","status":405,"detail":"Method 'DELETE' is not supported.","instance":"/api/books"}</code></pre>
+  <h3>Plain profile — Spring Boot defaults</h3>
+  <pre class="terminal"><code>mvn spring-boot:run -Dspring-boot.run.profiles=plain
+curl http://localhost:8080/api/books/99
+{"timestamp":"...","status":404,"error":"Not Found","message":"Book not found with id: 99","path":"/api/books/99"}
+curl http://localhost:8080/api/books/crash
+{"timestamp":"...","status":500,"error":"Internal Server Error","message":"Cannot invoke \"String.toUpperCase()\" because \"notLoaded\" is null","path":"/api/books/crash"}</code></pre>
+  <p>The 404 works thanks to <code>@ResponseStatus</code> — but look at the 500: internal details leak because <code>include-message=always</code>. That's why we write our own handler.</p>
+  <h3>Run the tests</h3>
+  <pre class="terminal"><code>mvn test</code></pre>
+  <pre class="terminal"><code>[INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS</code></pre>
+  <p>(You will see one <code>ERROR ... Unexpected error on GET /api/books/crash</code> log line during the tests — that is the crash test working as intended.)</p>
+
+  <!-- ============================================================ -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>🛑 Mistake: sending stack traces or exception messages of unexpected errors to clients</strong> <code>return ex.toString()</code> or <code>server.error.include-stacktrace=always</code> in production reveals class names, SQL, file paths.<br><strong>Fix:</strong> Catch-all handler returns a generic message and logs the full exception server-side.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: catch-all <code>Exception</code> handler turns 404/405 into 500</strong> Unknown URLs and wrong methods suddenly look like server bugs.<br><strong>Fix:</strong> Handle <code>NoResourceFoundException</code>, <code>HttpRequestMethodNotSupportedException</code> etc. explicitly, or extend <code>ResponseEntityExceptionHandler</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: swallowing exceptions</strong> <code>catch (Exception e) { return null; }</code> in a service. The client gets 200 with an empty body and nobody knows why.<br><strong>Fix:</strong> Let exceptions travel up to the advice; only catch what you can actually handle.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: try/catch in every controller method</strong> Hundreds of lines building error responses by hand, each slightly different.<br><strong>Fix:</strong> One <code>@RestControllerAdvice</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: wrong status codes</strong> Returning 500 for "not found", 200 with <code>{"error": "..."}</code>, or 400 for a missing resource.<br><strong>Fix:</strong> Client mistakes = 4xx (400 invalid, 404 missing, 409 conflict, 422 business rule); server bugs = 5xx.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: the advice class is not picked up</strong> Placed outside the main package, or missing <code>@RestControllerAdvice</code>.<br><strong>Fix:</strong> Put it in a sub-package of the <code>@SpringBootApplication</code> class.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: two handlers for the same exception</strong> Two advices both handling <code>ResourceNotFoundException</code> — which one wins is unclear.<br><strong>Fix:</strong> One global advice, or control priority with <code>@Order</code> and scoping (<code>basePackages</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: using <code>@ControllerAdvice</code> and returning an object</strong> Without <code>@ResponseBody</code> Spring tries to find a <i>view</i> with that name.<br><strong>Fix:</strong> Use <code>@RestControllerAdvice</code> for REST APIs (or return <code>ResponseEntity</code>).</div>
+
+  <!-- ============================================================ -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><b>One error format for the whole API</b> — your own <code>ErrorResponse</code> or the standard <b>ProblemDetail</b>. Document it (topic 44).</li>
+    <li><b>Throw specific, meaningful exceptions</b> from services; keep them unchecked and reusable (<code>ResourceNotFoundException("Book", "id", id)</code>).</li>
+    <li><b>Map exceptions to HTTP in one place</b> (<code>@RestControllerAdvice</code>), not in services.</li>
+    <li><b>Never leak internals</b>: no stack traces, exception class names, SQL, or file paths in responses. Keep <code>server.error.include-stacktrace=never</code>.</li>
+    <li><b>Log properly</b>: unexpected errors at ERROR with stack trace; expected client errors (404, 400) at most at DEBUG/INFO/WARN — they are not bugs and shouldn't flood your logs.</li>
+    <li><b>Return field-level validation errors</b> so UIs can highlight fields.</li>
+    <li><b>Don't echo sensitive input</b> (passwords, card numbers) in error messages.</li>
+    <li><b>Use correct status codes</b>: 400, 401, 403, 404, 405, 409, 415, 422, 500, 503.</li>
+    <li><b>Add a correlation/trace id</b> to error responses in bigger systems so support can find the matching log line (topic 65).</li>
+    <li><b>Test your error responses</b> like any other feature (MockMvc, see the tests).</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Without handling, exceptions become Spring Boot's default <code>/error</code> JSON — often a 500 with no useful message.</li>
+    <li>Create meaningful unchecked exceptions (<code>ResourceNotFoundException</code>, <code>DuplicateResourceException</code>…).</li>
+    <li><code>@ResponseStatus</code> on an exception sets its status quickly but can't change the body.</li>
+    <li><code>@ExceptionHandler</code> handles exceptions; inside <code>@RestControllerAdvice</code> it applies to all controllers.</li>
+    <li>The most specific <code>@ExceptionHandler</code> wins; handlers beat <code>@ResponseStatus</code>.</li>
+    <li>Use a standard ErrorResponse DTO: timestamp, status, error, message, path, fieldErrors.</li>
+    <li>Handle <code>MethodArgumentNotValidException</code> to return clean field errors.</li>
+    <li>ProblemDetail (RFC 9457) is the standard format, built into Spring 6; <code>spring.mvc.problemdetails.enabled=true</code> enables it for Spring's exceptions.</li>
+    <li>A catch-all returns a generic 500 and logs everything — never leak stack traces.</li>
+  </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Missing request parameter.</b> Add <code>GET /api/books/by-author?author=...</code> with a <b>required</b> <code>@RequestParam String author</code>. Call it without the parameter. What happens? Add a handler for <code>MissingServletRequestParameterException</code> returning 400 with the message <i>"Parameter 'author' is required"</i>.</p>
+    <details><summary>Hint / solution</summary>
+      <p>Without a handler, the catch-all turns it into 500 — another example of the catch-all trap!</p>
+<pre><code class="lang-java">@ExceptionHandler(MissingServletRequestParameterException.class)
+public ResponseEntity&lt;ErrorResponse&gt; handleMissingParam(MissingServletRequestParameterException ex,
+                                                        HttpServletRequest request) {
+    return build(HttpStatus.BAD_REQUEST,
+            "Parameter '" + ex.getParameterName() + "' is required", request);
+}</code></pre>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Return a book.</b> Add <code>POST /api/books/{id}/return</code>. If <code>copiesAvailable</code> would go above 10 (the library owns max 10 copies), throw a new <code>BusinessRuleException</code> mapped to 422.</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-java">public class BusinessRuleException extends RuntimeException {
+    public BusinessRuleException(String message) { super(message); }
+}
+// service
+if (book.getCopiesAvailable() &gt;= 10) throw new BusinessRuleException("All copies are already in the library");
+// handler
+@ExceptionHandler(BusinessRuleException.class)
+public ResponseEntity&lt;ErrorResponse&gt; handleRule(BusinessRuleException ex, HttpServletRequest req) {
+    return build(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), req);
+}</code></pre>
+      <p>Tip: make <code>BookNotAvailableException</code> extend <code>BusinessRuleException</code> — then one handler covers both.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Handle <code>ConstraintViolationException</code>.</b> Put <code>@Validated</code> on <code>BookService</code> and <code>@Min(1)</code> on the <code>id</code> parameter of <code>findById(@Min(1) Long id)</code>. Call <code>/api/books/0</code>. Then add a handler that returns 400 with fieldErrors.</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-java">@ExceptionHandler(ConstraintViolationException.class)
+public ResponseEntity&lt;ErrorResponse&gt; handleConstraint(ConstraintViolationException ex,
+                                                      HttpServletRequest request) {
+    List&lt;FieldErrorDetail&gt; errors = ex.getConstraintViolations().stream()
+            .map(v -&gt; new FieldErrorDetail(v.getPropertyPath().toString(), v.getMessage()))
+            .toList();
+    return ResponseEntity.badRequest().body(new ErrorResponse(Instant.now(), 400, "Bad Request",
+            "Invalid input", request.getRequestURI(), errors));
+}</code></pre>
+      <p>The field will be named like <code>findById.id</code> (method name + parameter).</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Error code for clients.</b> Add a machine-readable <code>code</code> field to <code>ErrorResponse</code> (e.g. <code>"BOOK_NOT_AVAILABLE"</code>, <code>"RESOURCE_NOT_FOUND"</code>, <code>"VALIDATION_FAILED"</code>). Why is this better for front-ends than comparing message texts?</p>
+    <details><summary>Hint / solution</summary>
+      <p>Add <code>String code</code> to the record and pass it from each handler. Messages may change wording or be translated; codes are stable, so the UI can do <code>if (error.code === 'BOOK_NOT_AVAILABLE') showWaitlistButton()</code>. In ProblemDetail the <code>type</code> URI plays this role.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>Unify the two formats.</b> Make <code>GlobalExceptionHandler</code> extend <code>ResponseEntityExceptionHandler</code> and override <code>handleExceptionInternal(...)</code> so that <i>all</i> Spring MVC exceptions (415, missing params, etc.) are returned as your <code>ErrorResponse</code> — then remove your hand-written handlers for <code>HttpMessageNotReadableException</code>, <code>HttpRequestMethodNotSupportedException</code> and <code>NoResourceFoundException</code>.</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-java">@Override
+protected ResponseEntity&lt;Object&gt; handleExceptionInternal(Exception ex, Object body, HttpHeaders headers,
+                                                         HttpStatusCode statusCode, WebRequest request) {
+    HttpStatus status = HttpStatus.valueOf(statusCode.value());
+    String path = ((ServletWebRequest) request).getRequest().getRequestURI();
+    String message = (body instanceof ProblemDetail pd &amp;&amp; pd.getDetail() != null)
+            ? pd.getDetail() : status.getReasonPhrase();
+    ErrorResponse error = ErrorResponse.of(status.value(), status.getReasonPhrase(), message, path);
+    return new ResponseEntity&lt;&gt;(error, headers, status);
+}</code></pre>
+      <p>Careful: once you extend it, you must <b>not</b> also declare <code>@ExceptionHandler(MethodArgumentNotValidException.class)</code> — the base class already handles it (you'd get an "Ambiguous @ExceptionHandler" startup error). Override <code>handleMethodArgumentNotValid</code> instead.</p>
+    </details>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. How do you handle exceptions globally in Spring Boot?</summary><p>Create a class annotated with <code>@RestControllerAdvice</code> containing <code>@ExceptionHandler</code> methods for each exception type. Each method builds a consistent response (custom DTO or <code>ProblemDetail</code>) with the right status. Services throw meaningful exceptions, controllers stay free of try/catch.</p></details>
+  <details><summary>Q2. What is the difference between @ControllerAdvice and @RestControllerAdvice?</summary><p><code>@RestControllerAdvice</code> is <code>@ControllerAdvice</code> + <code>@ResponseBody</code>: handler return values are serialized into the response body (JSON). With plain <code>@ControllerAdvice</code> a returned String is treated as a view name unless you use <code>@ResponseBody</code> or <code>ResponseEntity</code>.</p></details>
+  <details><summary>Q3. @ResponseStatus vs @ExceptionHandler — when to use which?</summary><p><code>@ResponseStatus</code> on an exception class is a quick way to set the HTTP status, but you can't customise the body, can't use it on third-party exceptions, and it is ignored if a handler exists. <code>@ExceptionHandler</code> gives full control over status, headers and body. In real APIs, a <code>@RestControllerAdvice</code> with handlers is the standard approach.</p></details>
+  <details><summary>Q4. If several @ExceptionHandler methods match, which one is chosen?</summary><p>The one declared for the closest (most specific) exception type in the thrown exception's class hierarchy. Handlers in the controller itself take precedence over those in an advice; between multiple advices, <code>@Order</code>/<code>Ordered</code> decides.</p></details>
+  <details><summary>Q5. What is ProblemDetail?</summary><p>A Spring 6 class implementing RFC 9457 (formerly RFC 7807) "Problem Details for HTTP APIs": a standard JSON error format with <code>type</code>, <code>title</code>, <code>status</code>, <code>detail</code>, <code>instance</code> plus custom properties, served as <code>application/problem+json</code>. You can return it from <code>@ExceptionHandler</code> methods; <code>ResponseEntityExceptionHandler</code> and <code>ErrorResponseException</code> use it natively; <code>spring.mvc.problemdetails.enabled=true</code> makes Spring Boot use it for built-in MVC exceptions.</p></details>
+  <details><summary>Q6. How do you return field-level validation errors?</summary><p>Handle <code>MethodArgumentNotValidException</code>, iterate <code>ex.getBindingResult().getFieldErrors()</code> and map each to <code>{field, message}</code>. For parameter validation handle <code>HandlerMethodValidationException</code> (Spring 6.1+) or <code>ConstraintViolationException</code> (class-level <code>@Validated</code>).</p></details>
+  <details><summary>Q7. What is ResponseEntityExceptionHandler?</summary><p>A convenient base class for a <code>@ControllerAdvice</code> that already handles the standard Spring MVC exceptions (HttpRequestMethodNotSupported, HttpMediaTypeNotSupported, MissingServletRequestParameter, MethodArgumentNotValid, NoResourceFound, etc.) and returns ProblemDetail bodies. You extend it and override specific <code>handleXxx</code> methods or <code>handleExceptionInternal</code> to customise.</p></details>
+  <details><summary>Q8. Why should you not expose stack traces in API responses?</summary><p>They reveal implementation details — framework versions, class and package names, SQL, file paths — which help attackers find vulnerabilities, and they are useless/confusing for API consumers. Log them on the server, return a generic message (optionally with a correlation id) to the client.</p></details>
+  <details><summary>Q9. Checked or unchecked exceptions for business errors in Spring?</summary><p>Usually unchecked (<code>RuntimeException</code> subclasses): they don't pollute method signatures, they propagate naturally to the global handler, and by default Spring's <code>@Transactional</code> rolls back on unchecked exceptions (topic 42) — checked exceptions don't trigger rollback unless configured with <code>rollbackFor</code>.</p></details>
+  <details><summary>Q10. Which status code for a business rule violation like "book not available"?</summary><p>The request is syntactically valid and the resource exists, so 400 and 404 don't fit. Common choices are 409 Conflict (conflicts with the current state of the resource) or 422 Unprocessable Content (understood but can't be processed due to semantic/business rules). Choose one convention and use it consistently.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../34-Validation/lesson.html"><small>← Previous</small>34. Validation</a>
+    <a class="next" href="../36-Thymeleaf-Server-Side-Web-Apps/lesson.html"><small>Next →</small>36. Thymeleaf Server-Side Web Apps</a>
+  </nav>
+</main>
+</body>
+</html>

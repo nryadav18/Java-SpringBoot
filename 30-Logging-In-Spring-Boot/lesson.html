@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>30 · Logging in Spring Boot</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 30</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~1.5 hours</span>
+  <h1>30. Logging in Spring Boot</h1>
+  <p class="subtitle">Replace System.out.println with real logging: the right level, the right place, a request id on every line — and never a password in your logs.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="30-Logging-In-Spring-Boot"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Why <code>System.out.println</code> is not enough in real applications.</li>
+      <li>SLF4J (the API you call) and Logback (the engine that writes) — and how Spring Boot sets them up for you.</li>
+      <li>The five log levels and how to choose one.</li>
+      <li>One logger per class, and parameterized messages with <code>{}</code>.</li>
+      <li>Setting levels per package, log groups, and logging to a file.</li>
+      <li><code>logback-spring.xml</code> with a rolling file appender and profile-specific settings.</li>
+      <li>MDC: putting a request id on every log line.</li>
+      <li>What to log — and what you must NEVER log (passwords, card numbers, personal data).</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../29-Configuration-Properties-And-Profiles/lesson.html">Topic 29 · Configuration &amp; Profiles</a> and threads basics from <a href="../17-Multithreading-And-Concurrency/lesson.html">Topic 17</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ 1. WHY -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>It is 2 a.m. A customer says: "I paid for my pizza but the order never arrived." Your app runs on a server in the cloud. You can't attach a debugger,
+    you can't add breakpoints. The <strong>only</strong> evidence you have is the <strong>log</strong> — the diary your application wrote while it was running.</p>
+  <p>Good logs answer: <em>What happened? When? For which order? Which request? Which error?</em> Bad logs (or no logs) mean hours of guessing.</p>
+  <p>Why not just <code>System.out.println</code>?</p>
+  <div class="table-wrap"><table>
+    <tr><th><code>System.out.println</code></th><th>A real logger</th></tr>
+    <tr><td>No time stamp, no thread, no class name</td><td>Every line has time, level, thread, class automatically</td></tr>
+    <tr><td>Always prints — you can't switch it off without changing code</td><td>Turn levels up/down per package via configuration, even at runtime</td></tr>
+    <tr><td>Only goes to the console</td><td>Console, files, rolling archives, central log systems</td></tr>
+    <tr><td>No severity — an error looks like a hello</td><td>Levels: TRACE, DEBUG, INFO, WARN, ERROR</td></tr>
+    <tr><td>Slow and synchronized for heavy use</td><td>Optimised, can be asynchronous</td></tr>
+  </table></div>
+  <p>In companies, logs are collected into tools like ELK (Elasticsearch + Kibana), Grafana Loki, Splunk or Datadog, where support teams search them. You will see that in topic 65.
+    Every professional Java developer is expected to log well.</p>
+
+  <!-- ============================================================ 2. ANALOGY -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>✈️ An aeroplane's black box and the pilot's logbook</strong>
+    <p>A pilot writes a <strong>logbook</strong>: "10:02 take-off from Hyderabad", "10:45 light turbulence, seat-belt sign on", "11:30 engine 2 warning — switched to backup".
+      Each entry has a <strong>time</strong>, a <strong>severity</strong> and a short, clear <strong>message</strong>.</p>
+    <ul>
+      <li>Routine entries ("take-off") = <strong>INFO</strong>.</li>
+      <li>"Light turbulence" = <strong>WARN</strong> — unusual, but handled.</li>
+      <li>"Engine warning" = <strong>ERROR</strong> — needs attention.</li>
+      <li>The engineers' detailed sensor readings = <strong>DEBUG/TRACE</strong> — normally not printed, but recorded when investigating a problem.</li>
+      <li>The <strong>flight number</strong> written on every page = the <strong>request id (MDC)</strong>: it lets you pull out every entry belonging to one flight.</li>
+      <li>The logbook never contains passengers' passport numbers = <strong>don't log personal data</strong>.</li>
+    </ul>
+  </div>
+
+  <!-- ============================================================ 3. CONCEPTS -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 SLF4J + Logback — "the plug and the socket"</h3>
+  <p>Java has several logging libraries (Logback, Log4j2, java.util.logging). To avoid tying your code to one of them, the Java world uses <strong>SLF4J</strong>
+    (Simple Logging Facade for Java): an <em>interface</em> you call in your code. Behind it, an <em>implementation</em> does the real writing. Spring Boot's default is <strong>Logback</strong>.</p>
+  <div class="flow">
+    <span class="box">Your code<br><small>log.info(...)</small></span><span class="arrow">→</span>
+    <span class="box alt">SLF4J API<br><small>org.slf4j.Logger</small></span><span class="arrow">→</span>
+    <span class="box info">Logback<br><small>formats &amp; writes</small></span><span class="arrow">→</span>
+    <span class="box">Console / file</span>
+  </div>
+  <p>This is "programming to an interface" again (topic 8)! You can switch Logback to Log4j2 by changing dependencies — your code doesn't change.
+    Every Spring Boot starter brings <code>spring-boot-starter-logging</code> (SLF4J + Logback + bridges for other libraries), so <strong>you add nothing to the pom</strong>.</p>
+
+  <h3>3.2 Creating a logger — one per class</h3>
+  <pre><code class="lang-java">import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+@Service
+public class OrderService {
+    private static final Logger log = LoggerFactory.getLogger(OrderService.class);
+
+    public void placeOrder() {
+        log.info("Order placed");
+    }
+}</code></pre>
+  <ul>
+    <li><code>private</code> — the logger belongs to this class only.</li>
+    <li><code>static final</code> — created once and shared, not once per object.</li>
+    <li><code>OrderService.class</code> — gives the logger the <strong>name</strong> <code>com.course.loggingdemo.OrderService</code>. Names matter: levels are configured by name (package) later.</li>
+  </ul>
+  <div class="callout warn"><strong>⚠️ Import the right Logger!</strong> VS Code may offer <code>java.util.logging.Logger</code> or <code>org.apache.logging...</code>. Choose <code>org.slf4j.Logger</code> and <code>org.slf4j.LoggerFactory</code>.</div>
+  <div class="callout info"><strong>ℹ️ Lombok shortcut (later)</strong> From topic 33 you may see <code>@Slf4j</code> on a class: Lombok generates exactly this logger line for you. Same result.</div>
+
+  <h3>3.3 The five log levels</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Level</th><th>Use it for</th><th>Example</th></tr>
+    <tr><td><strong>ERROR</strong></td><td>Something failed and needs attention. A request could not be completed.</td><td>"Payment gateway call failed for order 1001"</td></tr>
+    <tr><td><strong>WARN</strong></td><td>Something unexpected, but the app coped. Might become a problem.</td><td>"Invalid quantity 99 rejected", "Retrying call (2/3)"</td></tr>
+    <tr><td><strong>INFO</strong></td><td>Important normal events — the story of what the app does.</td><td>"Order 1001 placed", "Application started on port 8080"</td></tr>
+    <tr><td><strong>DEBUG</strong></td><td>Details useful to developers while investigating.</td><td>"Validating order for customer Asha"</td></tr>
+    <tr><td><strong>TRACE</strong></td><td>Very fine-grained, step-by-step details. Usually off.</td><td>"placeOrder() called with customer=Asha, item=Pizza"</td></tr>
+  </table></div>
+  <p><strong>How filtering works:</strong> a logger set to a level prints that level <em>and everything more serious</em>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Configured level →</th><th>TRACE</th><th>DEBUG</th><th>INFO</th><th>WARN</th><th>ERROR</th></tr>
+    <tr><td>TRACE</td><td>✔</td><td>✔</td><td>✔</td><td>✔</td><td>✔</td></tr>
+    <tr><td>DEBUG</td><td>✘</td><td>✔</td><td>✔</td><td>✔</td><td>✔</td></tr>
+    <tr><td>INFO (Spring Boot default)</td><td>✘</td><td>✘</td><td>✔</td><td>✔</td><td>✔</td></tr>
+    <tr><td>WARN</td><td>✘</td><td>✘</td><td>✘</td><td>✔</td><td>✔</td></tr>
+    <tr><td>ERROR</td><td>✘</td><td>✘</td><td>✘</td><td>✘</td><td>✔</td></tr>
+  </table></div>
+  <p>There is also <code>OFF</code> (nothing). By default Spring Boot logs at <strong>INFO</strong>, which is why you never saw DEBUG messages before.</p>
+
+  <h3>3.4 Parameterized logging with {}</h3>
+  <pre><code class="lang-java">// ❌ String concatenation - builds the string EVEN IF debug is switched off
+log.debug("Order " + id + " for " + customer + " has " + items.size() + " items");
+
+// ✅ Placeholders - the string is only built if the level is enabled
+log.debug("Order {} for {} has {} items", id, customer, items.size());</code></pre>
+  <p>Each <code>{}</code> is replaced by the next argument, in order. It is shorter, more readable and faster. For truly expensive work (building a big report just for a log),
+    guard it:</p>
+  <pre><code class="lang-java">if (log.isDebugEnabled()) {
+    log.debug("Full report: {}", buildExpensiveReport());
+}</code></pre>
+
+  <h3>3.5 Logging exceptions correctly</h3>
+  <pre><code class="lang-java">try {
+    restaurantClient.notify(orderId);
+} catch (IllegalStateException ex) {
+    log.error("Could not notify restaurant for order {}", orderId, ex);   // ✅ ex LAST, no {} for it
+}</code></pre>
+  <p>When the <strong>last argument is an exception</strong>, SLF4J prints the message <strong>plus the full stack trace</strong>. Common wrong versions:</p>
+  <pre><code class="lang-java">log.error("Failed: " + ex.getMessage());   // ❌ stack trace lost - you won't know WHERE it failed
+ex.printStackTrace();                       // ❌ bypasses logging config, goes to System.err
+log.error("Failed", ex); throw ex;          // ⚠️ "log and throw" - the same error gets logged twice or more</code></pre>
+
+  <h3>3.6 Configuring levels in application.properties</h3>
+  <pre><code class="lang-properties"># everything: INFO (the default)
+logging.level.root=INFO
+# our code: more detail
+logging.level.com.course.loggingdemo=DEBUG
+# a noisy library: quieter
+logging.level.org.apache.catalina=WARN
+# helpful when debugging requests/SQL:
+logging.level.org.springframework.web=DEBUG
+logging.level.org.hibernate.SQL=DEBUG</code></pre>
+  <p>Levels are <strong>inherited by package</strong>: setting <code>com.course</code> to DEBUG applies to <code>com.course.loggingdemo.OrderService</code> too, unless a more specific
+    setting exists. Because they are normal properties, you can use profiles (topic 29) and command-line args: <code>--logging.level.com.course=TRACE</code>.</p>
+  <p><strong>Log groups</strong> let you name several packages together:</p>
+  <pre><code class="lang-properties">logging.group.food=com.course.loggingdemo,com.course.payments
+logging.level.food=TRACE</code></pre>
+  <p>Spring Boot has built-in groups <code>web</code> and <code>sql</code>: <code>logging.level.web=DEBUG</code>.</p>
+
+  <h3>3.7 Reading a Spring Boot log line</h3>
+  <pre class="terminal"><code>2026-10-09T10:03:32.548+05:30  INFO 3728 --- [food-delivery] [nio-8080-exec-1] c.course.loggingdemo.OrderService : Order 1001 placed: 2 x Pizza for customer Asha</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Part</th><th>Meaning</th></tr>
+    <tr><td><code>2026-10-09T10:03:32.548+05:30</code></td><td>Date and time with milliseconds and time zone</td></tr>
+    <tr><td><code>INFO</code></td><td>Level</td></tr>
+    <tr><td><code>3728</code></td><td>Process id (PID)</td></tr>
+    <tr><td><code>[food-delivery]</code></td><td>Application name (<code>spring.application.name</code>)</td></tr>
+    <tr><td><code>[nio-8080-exec-1]</code></td><td>Thread name — each HTTP request runs on a Tomcat thread (topic 17)</td></tr>
+    <tr><td><code>c.course.loggingdemo.OrderService</code></td><td>Logger name (package shortened)</td></tr>
+    <tr><td>after <code>:</code></td><td>Your message</td></tr>
+  </table></div>
+
+  <h3>3.8 Logging to a file — the easy way</h3>
+  <p>Without any XML, two properties are enough:</p>
+  <pre><code class="lang-properties">logging.file.name=logs/food-delivery.log
+logging.logback.rollingpolicy.max-file-size=10MB
+logging.logback.rollingpolicy.max-history=7</code></pre>
+  <p>Spring Boot then writes to the console <em>and</em> the file, and starts a new file ("rolls over") when it reaches 10 MB, keeping 7 days of archives.
+    For most apps, this is enough.</p>
+
+  <h3>3.9 logback-spring.xml — full control</h3>
+  <p>When you need custom patterns, several files, or different setups per profile, create <code>src/main/resources/logback-spring.xml</code>. Its building blocks:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Element</th><th>Question it answers</th></tr>
+    <tr><td><code>&lt;appender&gt;</code></td><td><strong>Where</strong> do logs go? (ConsoleAppender, RollingFileAppender…)</td></tr>
+    <tr><td><code>&lt;encoder&gt;&lt;pattern&gt;</code></td><td><strong>How</strong> does a line look?</td></tr>
+    <tr><td><code>&lt;rollingPolicy&gt;</code></td><td><strong>When</strong> to start a new file and how many old files to keep?</td></tr>
+    <tr><td><code>&lt;logger name="..." level="..."&gt;</code></td><td><strong>Which</strong> package logs at which level?</td></tr>
+    <tr><td><code>&lt;root&gt;</code></td><td>The default level and appenders for everything</td></tr>
+    <tr><td><code>&lt;springProfile name="prod"&gt;</code></td><td>Settings only for a profile (Spring extension)</td></tr>
+    <tr><td><code>&lt;springProperty&gt;</code></td><td>Read a value from <code>application.properties</code> (Spring extension)</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Why "-spring" in the name?</strong> Logback itself would read <code>logback.xml</code> very early, before Spring is ready. With <code>logback-spring.xml</code>,
+    Spring Boot loads it at the right time and adds the <code>&lt;springProfile&gt;</code> and <code>&lt;springProperty&gt;</code> tags. Always use the <code>-spring</code> name in Boot apps.</div>
+  <p><strong>Pattern cheat sheet:</strong></p>
+  <div class="table-wrap"><table>
+    <tr><th>Token</th><th>Prints</th></tr>
+    <tr><td><code>%d{yyyy-MM-dd HH:mm:ss.SSS}</code></td><td>Date/time</td></tr>
+    <tr><td><code>%-5level</code></td><td>Level, padded to 5 characters so columns line up</td></tr>
+    <tr><td><code>%thread</code></td><td>Thread name</td></tr>
+    <tr><td><code>%logger{36}</code></td><td>Logger name, shortened to ~36 characters</td></tr>
+    <tr><td><code>%msg</code> / <code>%n</code></td><td>The message / new line</td></tr>
+    <tr><td><code>%X{requestId}</code></td><td>A value from the MDC (next section); <code>%X{requestId:-none}</code> prints "none" if missing</td></tr>
+    <tr><td><code>%clr(...)</code></td><td>Colour in the console (Spring Boot converter)</td></tr>
+  </table></div>
+  <p><strong>Rolling:</strong> <code>SizeAndTimeBasedRollingPolicy</code> starts a new file each day <em>or</em> when the size limit is reached, names old files like
+    <code>food-delivery-2026-10-09.0.log.gz</code> (compressed because of <code>.gz</code>), and deletes files older than <code>maxHistory</code> days or beyond <code>totalSizeCap</code>.
+    Without rolling, one log file grows forever and eventually fills the disk — a real cause of production outages.</p>
+
+  <h3>3.10 MDC — a request id on every line</h3>
+  <p>A web server handles many requests at once. Their log lines get mixed:</p>
+  <pre class="terminal"><code>10:01:01 INFO  OrderService - Validating order for customer Asha
+10:01:01 INFO  OrderService - Validating order for customer Ravi
+10:01:01 ERROR OrderService - Payment failed        &lt;-- whose payment??</code></pre>
+  <p><strong>MDC</strong> (Mapped Diagnostic Context) is a small per-thread map provided by SLF4J. Put a value in at the start of a request, and the log pattern
+    <code>%X{requestId}</code> prints it on <em>every</em> line logged on that thread — even from classes that know nothing about HTTP:</p>
+  <pre class="terminal"><code>10:01:01 INFO  [req:2a546f48] OrderService - Validating order for customer Asha
+10:01:01 INFO  [req:7c1e90b3] OrderService - Validating order for customer Ravi
+10:01:01 ERROR [req:7c1e90b3] OrderService - Payment failed        &lt;-- Ravi's!</code></pre>
+  <div class="flow">
+    <span class="box">Request arrives</span><span class="arrow">→</span>
+    <span class="box alt">Filter: MDC.put("requestId", ...)</span><span class="arrow">→</span>
+    <span class="box info">Controller → Service logs</span><span class="arrow">→</span>
+    <span class="box alt">finally: MDC.remove(...)</span>
+  </div>
+  <p>We put it in a servlet <strong>filter</strong> — code that runs before every request reaches a controller. Because Tomcat <strong>reuses</strong> threads, the MDC must be
+    cleared in <code>finally</code>; otherwise the next request on that thread would carry the old id. In microservices (topic 65) the same idea becomes a <em>trace id</em> that travels between services.</p>
+
+  <h3>3.11 What to log — and what NEVER to log</h3>
+  <div class="grid">
+    <div class="callout tip"><strong>✅ Do log</strong><ul>
+      <li>Business events: order placed, payment succeeded, user registered (with ids).</li>
+      <li>Calls to external systems and their outcome/time.</li>
+      <li>Warnings: rejected input, retries, fallbacks.</li>
+      <li>Errors with stack traces and context (which order? which user id?).</li>
+      <li>Startup information: version, profile, port.</li>
+    </ul></div>
+    <div class="callout danger"><strong>❌ Never log</strong><ul>
+      <li>Passwords (even wrong ones!), PINs, OTPs.</li>
+      <li>Full card numbers, CVV, bank account numbers.</li>
+      <li>Access tokens, JWTs, API keys, session ids.</li>
+      <li>Personal data (PII): Aadhaar/PAN/passport numbers, full addresses, phone numbers, health data — mask or omit.</li>
+      <li>Whole request bodies "just in case" — they often contain all of the above.</li>
+    </ul></div>
+  </div>
+  <p>Laws like GDPR (Europe) and India's DPDP Act treat leaked personal data seriously, and logs are often read by many people and kept for months. If you really need
+    to identify something, log a masked form (<code>************1111</code>) or an internal id instead.</p>
+
+  <!-- ============================================================ 4. CODE -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>Only the web starter — logging is included</td></tr>
+    <tr><td><code>LoggingDemoApplication.java</code></td><td>Main class with a startup INFO log</td></tr>
+    <tr><td><code>Order.java</code></td><td>Simple record</td></tr>
+    <tr><td><code>OrderService.java</code></td><td>All levels, <code>{}</code> placeholders, exception logging, card masking</td></tr>
+    <tr><td><code>OrderController.java</code></td><td>Endpoints that trigger each kind of log, <code>isDebugEnabled()</code></td></tr>
+    <tr><td><code>RequestIdFilter.java</code></td><td>MDC request id + <code>X-Request-Id</code> response header</td></tr>
+    <tr><td><code>application.properties</code></td><td>Levels per package, groups, file properties (commented)</td></tr>
+    <tr><td><code>logback-spring.xml</code></td><td>Console + rolling file appenders, pattern with <code>%X{requestId}</code>, <code>&lt;springProfile&gt;</code></td></tr>
+    <tr><td><code>OrderServiceTest.java</code></td><td>Tests that check log output and that card numbers never appear</td></tr>
+    <tr><td><code>requests.http</code></td><td>Requests that trigger each log type</td></tr>
+  </table></div>
+
+  <h3>4.1 OrderService — levels in action</h3>
+  <pre><span class="file">src/main/java/com/course/loggingdemo/OrderService.java (key parts)</span><code class="lang-java">private static final Logger log = LoggerFactory.getLogger(OrderService.class);
+
+public Order placeOrder(String customer, String item, int quantity, String cardNumber) {
+    log.trace("placeOrder() called with customer={}, item={}, quantity={}", customer, item, quantity);
+    log.debug("Validating order for customer {}", customer);
+
+    if (quantity &lt;= 0 || quantity &gt; MAX_QUANTITY) {
+        log.warn("Rejected order from {}: invalid quantity {} (allowed 1-{})", customer, quantity, MAX_QUANTITY);
+        throw new IllegalArgumentException("Quantity must be between 1 and " + MAX_QUANTITY);
+    }
+
+    log.debug("Charging card {}", maskCard(cardNumber));      // NEVER the full number
+
+    long id = idSequence.incrementAndGet();
+    Order order = new Order(id, customer, item, quantity, "PLACED");
+    orders.put(id, order);
+
+    log.info("Order {} placed: {} x {} for customer {}", id, quantity, item, customer);
+    return order;
+}
+
+public void notifyRestaurant(long orderId) {
+    try {
+        throw new IllegalStateException("Restaurant system timed out");
+    } catch (IllegalStateException ex) {
+        log.error("Could not notify restaurant for order {}", orderId, ex);   // ex last = stack trace
+    }
+}
+
+static String maskCard(String cardNumber) {
+    if (cardNumber == null || cardNumber.length() &lt; 4) return "****";
+    return "*".repeat(cardNumber.length() - 4) + cardNumber.substring(cardNumber.length() - 4);
+}</code></pre>
+  <p>Notice how each message carries <strong>context</strong> (order id, customer, quantity) — a log line without context ("Error occurred") is almost useless.</p>
+
+  <h3>4.2 RequestIdFilter — MDC</h3>
+  <pre><span class="file">src/main/java/com/course/loggingdemo/RequestIdFilter.java</span><code class="lang-java">@Component
+public class RequestIdFilter extends OncePerRequestFilter {
+
+    public static final String HEADER = "X-Request-Id";
+    public static final String MDC_KEY = "requestId";
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
+                                    FilterChain filterChain) throws ServletException, IOException {
+        String requestId = request.getHeader(HEADER);
+        if (requestId == null || requestId.isBlank()) {
+            requestId = UUID.randomUUID().toString().substring(0, 8);
+        }
+        MDC.put(MDC_KEY, requestId);
+        response.setHeader(HEADER, requestId);
+        try {
+            filterChain.doFilter(request, response);   // go on to the controller
+        } finally {
+            MDC.remove(MDC_KEY);                       // ALWAYS clean up
+        }
+    }
+}</code></pre>
+  <ul>
+    <li><code>OncePerRequestFilter</code> — a Spring base class guaranteeing the filter runs once per request. Being a <code>@Component</code>, Spring Boot registers it automatically.</li>
+    <li>If the caller already sent an <code>X-Request-Id</code>, we reuse it — so one id can follow a request through several services.</li>
+    <li>We return the id in the response header. A customer can quote it to support, and support finds every related line with one search.</li>
+  </ul>
+
+  <h3>4.3 logback-spring.xml</h3>
+  <pre><span class="file">src/main/resources/logback-spring.xml (key parts)</span><code class="lang-xml">&lt;configuration&gt;
+    &lt;include resource="org/springframework/boot/logging/logback/defaults.xml"/&gt;
+    &lt;springProperty scope="context" name="APP_NAME" source="spring.application.name" defaultValue="app"/&gt;
+    &lt;property name="LOG_DIR" value="logs"/&gt;
+    &lt;property name="LINE_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [req:%X{requestId:-none}] %logger{36} - %msg%n"/&gt;
+
+    &lt;appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender"&gt;
+        &lt;encoder&gt;
+            &lt;pattern&gt;%d{HH:mm:ss.SSS} %clr(%-5level) [%thread] [req:%X{requestId:-none}] %clr(%logger{36}){cyan} - %msg%n&lt;/pattern&gt;
+        &lt;/encoder&gt;
+    &lt;/appender&gt;
+
+    &lt;appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender"&gt;
+        &lt;file&gt;${LOG_DIR}/${APP_NAME}.log&lt;/file&gt;
+        &lt;rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy"&gt;
+            &lt;fileNamePattern&gt;${LOG_DIR}/${APP_NAME}-%d{yyyy-MM-dd}.%i.log.gz&lt;/fileNamePattern&gt;
+            &lt;maxFileSize&gt;10MB&lt;/maxFileSize&gt;
+            &lt;maxHistory&gt;7&lt;/maxHistory&gt;
+            &lt;totalSizeCap&gt;100MB&lt;/totalSizeCap&gt;
+        &lt;/rollingPolicy&gt;
+        &lt;encoder&gt;&lt;pattern&gt;${LINE_PATTERN}&lt;/pattern&gt;&lt;/encoder&gt;
+    &lt;/appender&gt;
+
+    &lt;springProfile name="prod"&gt;
+        &lt;logger name="com.course.loggingdemo" level="INFO"/&gt;
+    &lt;/springProfile&gt;
+
+    &lt;root level="INFO"&gt;
+        &lt;appender-ref ref="CONSOLE"/&gt;
+        &lt;appender-ref ref="FILE"/&gt;
+    &lt;/root&gt;
+&lt;/configuration&gt;</code></pre>
+  <p>Read it top to bottom: reuse Boot's defaults (for <code>%clr</code>), read the app name from properties, define a pattern, define two appenders (console and rolling file),
+    lower our package to INFO in <code>prod</code>, and send everything at INFO and above to both appenders. The <code>logging.level.*</code> properties are still applied on top,
+    which is why our DEBUG lines appear in dev.</p>
+
+  <h3>4.4 Testing log output</h3>
+  <pre><span class="file">src/test/java/com/course/loggingdemo/OrderServiceTest.java (part)</span><code class="lang-java">@ExtendWith(OutputCaptureExtension.class)
+class OrderServiceTest {
+    private final OrderService service = new OrderService();
+
+    @Test
+    void theFullCardNumberIsNeverLogged(CapturedOutput output) {
+        service.placeOrder("Ravi", "Biryani", 1, "4111111111111111");
+        assertThat(output).doesNotContain("4111111111111111");
+    }
+}</code></pre>
+  <p><code>OutputCaptureExtension</code> (from <code>spring-boot-test</code>) captures the console so we can assert on it. A test that guarantees "no card numbers in logs" is a cheap safety net.</p>
+
+  <!-- ============================================================ 5. RUN -->
+  <h2 id="run">5. How to run</h2>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\30-Logging-In-Spring-Boot"
+mvn spring-boot:run</code></pre>
+  <p>In a second terminal (or use <code>requests.http</code> in VS Code):</p>
+  <pre class="terminal"><code>curl.exe -X POST "http://localhost:8080/orders?customer=Asha&amp;item=Pizza&amp;quantity=2"
+{"id":1001,"customer":"Asha","item":"Pizza","quantity":2,"status":"PLACED"}
+
+curl.exe -i -X POST -H "X-Request-Id: my-id-123" "http://localhost:8080/orders?customer=Ravi&amp;item=Biryani&amp;quantity=1"
+HTTP/1.1 200
+X-Request-Id: my-id-123
+...
+
+curl.exe -X POST "http://localhost:8080/orders?customer=Asha&amp;item=Pizza&amp;quantity=99"
+{"error":"Quantity must be between 1 and 20"}
+
+curl.exe -X POST http://localhost:8080/orders/1001/notify
+curl.exe http://localhost:8080/orders/levels-demo</code></pre>
+  <p>Console output (real run, shortened):</p>
+  <pre class="terminal"><code>10:03:32.074 INFO  [main] [req:none] c.c.l.LoggingDemoApplication - Food delivery app started. Try: POST /orders?...
+10:03:32.542 DEBUG [http-nio-8080-exec-1] [req:2a546f48] c.course.loggingdemo.OrderController - HTTP request to place an order received
+10:03:32.543 DEBUG [http-nio-8080-exec-1] [req:2a546f48] com.course.loggingdemo.OrderService - Validating order for customer Asha
+10:03:32.547 DEBUG [http-nio-8080-exec-1] [req:2a546f48] com.course.loggingdemo.OrderService - Charging card ************1111
+10:03:32.548 INFO  [http-nio-8080-exec-1] [req:2a546f48] com.course.loggingdemo.OrderService - Order 1001 placed: 2 x Pizza for customer Asha
+10:03:32.817 DEBUG [http-nio-8080-exec-2] [req:my-id-123] c.course.loggingdemo.OrderController - HTTP request to place an order received
+...
+10:03:33.010 WARN  [http-nio-8080-exec-3] [req:5d0c7e21] com.course.loggingdemo.OrderService - Rejected order from Asha: invalid quantity 99 (allowed 1-20)
+10:03:33.200 ERROR [http-nio-8080-exec-5] [req:a91f3c02] com.course.loggingdemo.OrderService - Could not notify restaurant for order 1001
+java.lang.IllegalStateException: Restaurant system timed out
+	at com.course.loggingdemo.OrderService.notifyRestaurant(OrderService.java:66)
+	...
+10:03:33.431 DEBUG [http-nio-8080-exec-8] [req:0f0d17f8] c.course.loggingdemo.OrderController - DEBUG - developer details
+10:03:33.432 INFO  [http-nio-8080-exec-8] [req:0f0d17f8] c.course.loggingdemo.OrderController - INFO  - normal business event
+10:03:33.433 WARN  [http-nio-8080-exec-8] [req:0f0d17f8] c.course.loggingdemo.OrderController - WARN  - something odd, but we coped
+10:03:33.434 ERROR [http-nio-8080-exec-8] [req:0f0d17f8] c.course.loggingdemo.OrderController - ERROR - something failed</code></pre>
+  <p>Notice: no TRACE line (our package is at DEBUG), the masked card, the request id on every line, and the stack trace for the ERROR.
+    Open <code>logs\food-delivery.log</code> in the topic folder — the same lines are there (without colours).</p>
+  <h3>Experiments</h3>
+  <pre class="terminal"><code># see TRACE lines too:
+mvn spring-boot:run "-Dspring-boot.run.arguments=--logging.level.com.course.loggingdemo=TRACE"
+
+# prod profile: our DEBUG lines disappear
+mvn spring-boot:run -Dspring-boot.run.profiles=prod
+
+# watch the log file live in PowerShell:
+Get-Content logs\food-delivery.log -Wait -Tail 20</code></pre>
+  <pre class="terminal"><code>mvn test
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0</code></pre>
+  <div class="callout tip"><strong>💡 Tip</strong> Add <code>logs/</code> to <code>.gitignore</code> — log files never belong in Git.</div>
+
+  <!-- ============================================================ 6. MISTAKES -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: "my DEBUG messages don't show"</strong>
+    The default level is INFO.<br><strong>Fix:</strong> <code>logging.level.your.package=DEBUG</code>. Check that the package name matches your logger's class.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: wrong logger import</strong>
+    Using <code>java.util.logging.Logger</code> or Log4j classes directly. Code compiles but formatting/levels behave differently.<br>
+    <strong>Fix:</strong> always <code>org.slf4j.Logger</code> + <code>LoggerFactory</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: wrong class in getLogger</strong>
+    Copy-pasting <code>LoggerFactory.getLogger(OrderService.class)</code> into <code>PaymentService</code>. Logs now claim to come from the wrong class and level settings get confusing.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: losing the stack trace</strong>
+    <code>log.error("Failed: " + ex.getMessage())</code>. You see "Failed: null" and no idea where.<br><strong>Fix:</strong> <code>log.error("Failed to ... {}", id, ex)</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: counting the {} wrong</strong>
+    <code>log.info("Order {} for {}", id)</code> prints a literal <code>{}</code>. More arguments than <code>{}</code> are ignored (except a final exception).</div>
+  <div class="callout danger"><strong>❌ Mistake: logging secrets or personal data</strong>
+    <code>log.info("Login attempt user={} password={}", user, password)</code>. Now everyone with log access knows the password.<br><strong>Fix:</strong> never log credentials; mask or skip PII.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting MDC.remove()</strong>
+    Threads are reused, so the next request shows the previous request's id. Always clean up in <code>finally</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: naming the file logback.xml</strong>
+    Then <code>&lt;springProfile&gt;</code> doesn't work and it may load before Spring is ready. Use <code>logback-spring.xml</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: DEBUG everywhere in production</strong>
+    Gigabytes of logs per hour, slow app, huge storage bills, and real problems hidden in noise. Use INFO in prod and raise levels temporarily when needed (Actuator <code>/loggers</code>, topic 53).</div>
+
+  <!-- ============================================================ 7. BEST -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>One <code>private static final Logger</code> per class</strong>, named after the class.</li>
+    <li><strong>Always use <code>{}</code> placeholders</strong>; pass exceptions as the last argument.</li>
+    <li><strong>Pick levels deliberately:</strong> INFO tells the story, WARN = handled oddities, ERROR = needs action, DEBUG/TRACE = developer details.</li>
+    <li><strong>Include context</strong> (ids, counts, durations): "Order 1001 placed in 120 ms" beats "Done".</li>
+    <li><strong>Log an error once</strong>, where it is handled — avoid "log and rethrow" at every layer.</li>
+    <li><strong>Add a correlation/request id</strong> with MDC; return it in a response header.</li>
+    <li><strong>Never log secrets or PII</strong>; add tests for masking where it matters.</li>
+    <li><strong>Roll and cap log files</strong> (size, history, total size cap).</li>
+    <li><strong>In containers, log to the console</strong> (stdout) and let the platform collect it (Docker/Kubernetes, topics 66–69). Many teams use JSON logs: Spring Boot 3.4+ supports <code>logging.structured.format.console=ecs</code> (or <code>logstash</code>) for structured output.</li>
+    <li><strong>Different levels per profile</strong>: DEBUG in dev, INFO in prod.</li>
+  </ul>
+
+  <!-- ============================================================ 8. SUMMARY -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Use a logger, not <code>System.out</code>: time, level, thread, class, configurable output.</li>
+    <li>SLF4J is the API you call; Logback is Spring Boot's default implementation. Nothing to add to the pom.</li>
+    <li>Levels: TRACE &lt; DEBUG &lt; INFO &lt; WARN &lt; ERROR; default INFO; a level shows itself and everything more serious.</li>
+    <li><code>log.info("Order {} placed", id)</code>; exception as last argument for stack traces.</li>
+    <li>Configure with <code>logging.level.&lt;package&gt;</code>, <code>logging.file.name</code>, or <code>logback-spring.xml</code> for full control.</li>
+    <li>Rolling file appenders prevent full disks.</li>
+    <li>MDC + <code>%X{requestId}</code> ties all lines of a request together; clear it in <code>finally</code>.</li>
+    <li>Never log passwords, tokens, card numbers or personal data.</li>
+  </ul></div>
+
+  <!-- ============================================================ 9. EXERCISES -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Fix the logging.</strong> Rewrite this code properly:</p>
+    <pre><code class="lang-java">System.out.println("Cancelling order " + orderId);
+try { cancel(orderId); }
+catch (Exception e) { System.out.println("Error: " + e.getMessage()); }</code></pre>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">private static final Logger log = LoggerFactory.getLogger(OrderService.class);
+...
+log.info("Cancelling order {}", orderId);
+try {
+    cancel(orderId);
+} catch (Exception e) {
+    log.error("Could not cancel order {}", orderId, e);
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Levels per package.</strong> Make Spring's web package log at DEBUG and our package at TRACE, then call <code>/orders/levels-demo</code>. What new lines do you see?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-properties">logging.level.org.springframework.web=DEBUG
+logging.level.com.course.loggingdemo=TRACE</code></pre>
+    <p>You now see the TRACE line from our controller and Spring's DEBUG lines such as <code>Mapped to com.course.loggingdemo.OrderController#levelsDemo()</code> and <code>Completed 200 OK</code>.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Timing log.</strong> In <code>placeOrder</code>, measure how long the method takes and log <code>"Order {} placed in {} ms"</code> at INFO. Log at WARN instead if it takes over 500 ms.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">long start = System.nanoTime();
+// ... existing logic ...
+long ms = (System.nanoTime() - start) / 1_000_000;
+if (ms &gt; 500) {
+    log.warn("Order {} placed SLOWLY in {} ms", id, ms);
+} else {
+    log.info("Order {} placed in {} ms", id, ms);
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Separate error file.</strong> Add a second file appender to <code>logback-spring.xml</code> that writes <strong>only ERROR</strong> lines to <code>logs/errors.log</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-xml">&lt;appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender"&gt;
+    &lt;filter class="ch.qos.logback.classic.filter.ThresholdFilter"&gt;
+        &lt;level&gt;ERROR&lt;/level&gt;
+    &lt;/filter&gt;
+    &lt;file&gt;${LOG_DIR}/errors.log&lt;/file&gt;
+    &lt;rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy"&gt;
+        &lt;fileNamePattern&gt;${LOG_DIR}/errors-%d{yyyy-MM-dd}.%i.log.gz&lt;/fileNamePattern&gt;
+        &lt;maxFileSize&gt;10MB&lt;/maxFileSize&gt;
+        &lt;maxHistory&gt;30&lt;/maxHistory&gt;
+    &lt;/rollingPolicy&gt;
+    &lt;encoder&gt;&lt;pattern&gt;${LINE_PATTERN}&lt;/pattern&gt;&lt;/encoder&gt;
+&lt;/appender&gt;
+
+&lt;!-- and inside &lt;root&gt; --&gt;
+&lt;appender-ref ref="ERROR_FILE"/&gt;</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. More MDC.</strong> Add the customer name to the MDC as <code>customer</code> inside <code>placeOrder</code> (and remove it at the end), and show it in the pattern as <code>[cust:...]</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">MDC.put("customer", customer);
+try {
+    // ... existing logic ...
+} finally {
+    MDC.remove("customer");
+}
+// pattern:  ... [req:%X{requestId:-none}] [cust:%X{customer:-}] ...</code></pre>
+    <p>Think: is a customer <em>name</em> personal data? In real systems prefer an internal customer id.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Mask emails.</strong> Write <code>maskEmail("asha.rao@gmail.com")</code> returning <code>"a*******@gmail.com"</code>, use it in a log line, and write a test proving the full email never appears in the output.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">static String maskEmail(String email) {
+    int at = email.indexOf('@');
+    if (at &lt;= 1) return "***" + email.substring(Math.max(at, 0));
+    return email.charAt(0) + "*".repeat(at - 1) + email.substring(at);
+}
+
+@Test
+void emailIsMasked(CapturedOutput output) {
+    log.info("Receipt sent to {}", OrderService.maskEmail("asha.rao@gmail.com"));
+    assertThat(output).contains("a*******@gmail.com").doesNotContain("asha.rao@");
+}</code></pre></details>
+  </div>
+
+  <!-- ============================================================ 10. INTERVIEW -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is SLF4J and why use it instead of Logback directly?</summary>
+    <p>SLF4J is a logging facade (API). Code depends only on the facade; the actual implementation (Logback, Log4j2…) is chosen by dependencies. This decouples application and library code from a specific logging framework. Spring Boot uses SLF4J with Logback by default.</p></details>
+  <details><summary>Q2. Name the log levels in order and when you would use each.</summary>
+    <p>TRACE (very detailed flow), DEBUG (diagnostic details for developers), INFO (normal significant events), WARN (unexpected but handled situations), ERROR (failures needing attention). A logger enabled at a level outputs that level and all higher ones.</p></details>
+  <details><summary>Q3. Why are parameterized messages ({}) better than string concatenation?</summary>
+    <p>The message is only formatted if the level is enabled, avoiding wasted string building; they are also cleaner. For expensive argument computation, additionally guard with <code>isDebugEnabled()</code>.</p></details>
+  <details><summary>Q4. How do you change log levels in Spring Boot?</summary>
+    <p>With <code>logging.level.&lt;logger-name&gt;=LEVEL</code> in properties/YAML, via command-line args or env vars, per profile, in <code>logback-spring.xml</code>, or at runtime via Actuator's <code>/actuator/loggers</code> endpoint.</p></details>
+  <details><summary>Q5. What is the difference between logback.xml and logback-spring.xml?</summary>
+    <p><code>logback.xml</code> is loaded by Logback directly, too early for Spring. <code>logback-spring.xml</code> is loaded by Spring Boot, which enables Spring extensions such as <code>&lt;springProfile&gt;</code> and <code>&lt;springProperty&gt;</code>. Spring recommends the <code>-spring</code> variant.</p></details>
+  <details><summary>Q6. What is MDC and how is it used?</summary>
+    <p>Mapped Diagnostic Context — a thread-local key/value map whose values can be printed in the log pattern with <code>%X{key}</code>. Typically a filter puts a request/correlation id at the start of a request and removes it in <code>finally</code>, so all log lines of that request can be correlated.</p></details>
+  <details><summary>Q7. What is a rolling file appender?</summary>
+    <p>An appender that switches to a new log file based on time and/or size and deletes or compresses old files according to a policy (e.g., <code>SizeAndTimeBasedRollingPolicy</code> with <code>maxFileSize</code>, <code>maxHistory</code>, <code>totalSizeCap</code>), preventing unbounded log growth.</p></details>
+  <details><summary>Q8. What should never be logged?</summary>
+    <p>Credentials (passwords, OTPs), secrets (API keys, tokens, session ids), payment data (card numbers, CVV) and personal data (government ids, contact details, health data). Mask or omit them to comply with security standards (PCI-DSS) and privacy laws (GDPR, DPDP).</p></details>
+  <details><summary>Q9. How do you log an exception properly?</summary>
+    <p>Pass the exception as the last argument: <code>log.error("Failed to process order {}", id, ex)</code>. This prints the stack trace. Avoid <code>printStackTrace()</code> and logging only <code>getMessage()</code>; avoid logging the same exception at multiple layers.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../29-Configuration-Properties-And-Profiles/lesson.html"><small>← Previous</small>29. Configuration Properties &amp; Profiles</a>
+    <a class="next" href="../31-Spring-MVC-And-REST-Fundamentals/lesson.html"><small>Next →</small>31. Spring MVC &amp; REST Fundamentals</a>
+  </nav>
+</main>
+</body>
+</html>

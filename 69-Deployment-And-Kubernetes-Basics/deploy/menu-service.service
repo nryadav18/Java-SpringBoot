@@ -1,0 +1,33 @@
+# =====================================================================
+# deploy/menu-service.service - run the jar as a Linux SERVICE with systemd
+# (deployment option 1: a plain virtual machine, e.g. AWS EC2, DigitalOcean droplet)
+#
+# On the Linux server (Ubuntu):
+#   sudo useradd --system --no-create-home menuapp
+#   sudo mkdir -p /opt/menu-service && sudo cp app.jar /opt/menu-service/
+#   sudo cp menu-service.service /etc/systemd/system/
+#   sudo cp menu-service.env /etc/menu-service.env && sudo chmod 600 /etc/menu-service.env
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now menu-service     # start now AND at every boot
+#   sudo systemctl status menu-service
+#   journalctl -u menu-service -f                # follow the logs
+# =====================================================================
+[Unit]
+Description=Menu Service (Spring Boot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=menuapp
+WorkingDirectory=/opt/menu-service
+# Secrets and per-server settings live in a root-only file, not in the jar
+EnvironmentFile=/etc/menu-service.env
+ExecStart=/usr/bin/java -Xms256m -Xmx512m -XX:+ExitOnOutOfMemoryError -jar /opt/menu-service/app.jar
+# systemd sends SIGTERM on "systemctl stop"; Spring then shuts down gracefully
+SuccessExitStatus=143
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

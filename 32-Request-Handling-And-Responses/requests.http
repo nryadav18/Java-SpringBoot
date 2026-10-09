@@ -1,0 +1,75 @@
+### Topic 32 - Request Handling & Responses (Product API)
+### Start the app first: mvn spring-boot:run
+### Look at the STATUS LINE and HEADERS of each response, not only the body!
+
+@baseUrl = http://localhost:8080/api/products
+
+### 1. List all products (see the X-Total-Count header)
+GET {{baseUrl}}
+
+### 2. Filter with query parameters (@RequestParam)
+GET {{baseUrl}}?category=electronics&maxPrice=1000&sort=price
+
+### 3. One product (@PathVariable) - note "stock", no "supplierCode", formatted dates
+GET {{baseUrl}}/1
+
+### 4. Unknown id -> 404 Not Found
+GET {{baseUrl}}/999
+
+### 5. Create (@RequestBody + @RequestHeader) -> 201 Created + Location header
+POST {{baseUrl}}
+Content-Type: application/json
+X-Client-Id: mobile-app
+
+{
+  "name": "USB-C Cable",
+  "category": "electronics",
+  "price": 199.00,
+  "stock": 300
+}
+
+### 6. Replace ALL fields (PUT)
+PUT {{baseUrl}}/3
+Content-Type: application/json
+
+{
+  "name": "Big Java Mug",
+  "category": "kitchen",
+  "price": 349.00,
+  "stock": 80
+}
+
+### 7. Change ONE field (PATCH)
+PATCH {{baseUrl}}/3
+Content-Type: application/json
+
+{
+  "price": 299.00
+}
+
+### 8. Delete -> 204 No Content (send it twice: the second time gives 404)
+DELETE {{baseUrl}}/4
+
+### 9. Read request headers
+GET {{baseUrl}}/headers-demo
+Accept-Language: hi-IN
+
+### 10. Content negotiation: we only speak JSON -> 406 Not Acceptable
+GET {{baseUrl}}/1
+Accept: application/xml
+
+### 11. A typo in the JSON ("prise") -> 400 Bad Request (fail-on-unknown-properties=true)
+POST {{baseUrl}}
+Content-Type: application/json
+
+{
+  "name": "Pen",
+  "category": "office",
+  "prise": 10,
+  "stock": 5
+}
+
+### 12. CORS preflight as a browser would send it from http://localhost:5173
+OPTIONS {{baseUrl}}
+Origin: http://localhost:5173
+Access-Control-Request-Method: POST

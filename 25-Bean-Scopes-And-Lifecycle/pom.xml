@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Topic 25 - Bean scopes and the bean lifecycle.
+
+  Plain Spring project (no Spring Boot).
+    - spring-context          : the IoC container
+    - jakarta.annotation-api  : gives us @PostConstruct and @PreDestroy
+                                (they are NOT part of the JDK since Java 11, so we add this small jar;
+                                 Spring Boot brings it automatically)
+
+  Run it with:   mvn -q compile exec:java
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.course</groupId>
+    <artifactId>bean-scopes-and-lifecycle</artifactId>
+    <version>1.0.0</version>
+    <name>25 - Bean Scopes and Lifecycle</name>
+
+    <properties>
+        <maven.compiler.release>17</maven.compiler.release>
+        <!-- keep parameter names in .class files (Spring 6.1+ uses them) -->
+        <maven.compiler.parameters>true</maven.compiler.parameters>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring.version>6.2.11</spring.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+            <version>${spring.version}</version>
+        </dependency>
+
+        <!-- @PostConstruct / @PreDestroy (package jakarta.annotation) -->
+        <dependency>
+            <groupId>jakarta.annotation</groupId>
+            <artifactId>jakarta.annotation-api</artifactId>
+            <version>2.1.1</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- mvn compile exec:java  ->  runs com.course.scopes.App.main() -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <mainClass>com.course.scopes.App</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

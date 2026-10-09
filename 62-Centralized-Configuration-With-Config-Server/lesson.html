@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>62 · Centralized Configuration with Config Server</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part F · Microservices &amp; Spring Cloud › Topic 62</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag adv">Part F · Microservices &amp; Spring Cloud</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>62. Centralized Configuration with Config Server</h1>
+  <p class="subtitle">Keep the settings of all your services in one place, per service and per environment – and change them at runtime without rebuilding or restarting.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="62-Centralized-Configuration-With-Config-Server"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Why configuration "scattered" across many services becomes a problem.</li>
+      <li>Building a <strong>Spring Cloud Config Server</strong> with <code>@EnableConfigServer</code>.</li>
+      <li>The <strong>native</strong> backend (a local <code>config-repo/</code> folder) and the <strong>Git</strong> backend used in real teams.</li>
+      <li>Making a service a <strong>config client</strong> with <code>spring.config.import=optional:configserver:http://localhost:8888</code>.</li>
+      <li><strong>Per-service</strong> and <strong>per-profile</strong> files (<code>application.yml</code>, <code>product-service.yml</code>, <code>product-service-dev.yml</code>) and their priority.</li>
+      <li><strong>Refreshing</strong> config at runtime with <code>@RefreshScope</code>, <code>@ConfigurationProperties</code> and <code>POST /actuator/refresh</code>.</li>
+      <li><strong>Encrypting secrets</strong> with <code>{cipher}</code> values (and why a vault is better).</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../29-Configuration-Properties-And-Profiles/lesson.html">Topic 29 · Configuration &amp; Profiles</a> and
+    <a href="../60-Service-Discovery-With-Eureka/lesson.html">Topic 60 · Spring Cloud basics (BOM)</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1. WHY -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>In Topic 29 you learned to put settings in <code>application.yml</code> and use profiles. That works great for <em>one</em> app. Now imagine 20 microservices, each running in dev, test and prod:</p>
+  <ul>
+    <li>20 services × 3 environments = <strong>60 config files</strong>, inside 20 different jars.</li>
+    <li>The company changes its support e-mail → you edit 20 projects, rebuild 20 jars, redeploy 20 services.</li>
+    <li>Marketing wants a 10% discount <em>now</em> → a full release just to change one number.</li>
+    <li>Nobody knows which value is active where. Secrets (DB passwords, API keys) are copied around in plain text.</li>
+  </ul>
+  <p>This is the <strong>"config scattered everywhere"</strong> problem. Factor 3 of the 12-factor app (Topic 59) says: <em>store config outside the code</em>. <strong>Spring Cloud Config</strong> takes that further: one <strong>Config Server</strong> serves the configuration of <em>all</em> services from one place (usually a Git repository), and services fetch it at startup – and can reload it later without a restart.</p>
+  <p>At work you'll see the same idea with other tools too: Kubernetes ConfigMaps/Secrets (Topic 69), HashiCorp Consul and Vault, AWS Parameter Store, Azure App Configuration. Learn the idea once, recognise it everywhere.</p>
+
+  <!-- ===================================================== 2. ANALOGY -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🍔 The restaurant chain's central menu office</strong>
+    <p>A burger chain has 200 branches. If every branch printed its own menu, prices would be different everywhere and a price change would take weeks.</p>
+    <p>Instead, there is a <strong>head office</strong> (= <strong>Config Server</strong>) with one master folder of menus (= <strong>config repository</strong>):</p>
+    <ul>
+      <li>a <strong>common page</strong> used by every branch: company name, hygiene rules (= <code>application.yml</code>),</li>
+      <li>a page per <strong>type of branch</strong>: drive-through, mall kiosk (= <code>product-service.yml</code>),</li>
+      <li>special pages per <strong>situation</strong>: festival season, test kitchen (= profiles: <code>product-service-dev.yml</code>).</li>
+    </ul>
+    <p>Each morning a branch opens and <strong>downloads its menu</strong> from head office (= the service fetches config at startup). If head office changes a price at noon, it sends a message "please re-print your menu" (= <code>POST /actuator/refresh</code>) – the branch doesn't close and re-open. The master folder is kept in a <strong>filing cabinet with a history of every change</strong> (= Git): who changed what, when, and how to go back. The safe-box code is written in <strong>secret ink</strong> that only head office can read (= encrypted <code>{cipher}</code> values).</p>
+  </div>
+
+  <!-- ===================================================== 3. CONCEPTS -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The architecture</h3>
+  <figure class="diagram">
+    <svg viewBox="0 0 660 270" width="660" role="img" aria-label="Config server architecture: config-repo (folder or Git) is read by config-server on 8888, which serves product-service and other services at startup and on refresh">
+      <rect x="10" y="80" width="170" height="120" rx="10" style="fill:var(--surface);stroke:var(--java);stroke-width:2.5"/>
+      <text x="95" y="104" text-anchor="middle" style="fill:currentColor;font-size:14px;font-weight:700">config-repo/</text>
+      <text x="95" y="124" text-anchor="middle" style="fill:var(--muted);font-size:11px">(folder or Git repo)</text>
+      <text x="25" y="148" style="fill:currentColor;font-size:12px">application.yml</text>
+      <text x="25" y="166" style="fill:currentColor;font-size:12px">product-service.yml</text>
+      <text x="25" y="184" style="fill:currentColor;font-size:12px">product-service-dev.yml</text>
+      <line x1="180" y1="140" x2="250" y2="140" style="stroke:var(--muted);stroke-width:2"/>
+      <text x="215" y="132" text-anchor="middle" style="fill:var(--muted);font-size:11px">reads</text>
+      <rect x="250" y="100" width="160" height="80" rx="10" style="fill:var(--surface);stroke:var(--info);stroke-width:3"/>
+      <text x="330" y="132" text-anchor="middle" style="fill:currentColor;font-size:14px;font-weight:700">config-server</text>
+      <text x="330" y="152" text-anchor="middle" style="fill:var(--muted);font-size:12px">:8888 @EnableConfigServer</text>
+      <line x1="410" y1="125" x2="480" y2="70" style="stroke:var(--accent);stroke-width:2.2"/>
+      <line x1="410" y1="155" x2="480" y2="210" style="stroke:var(--accent);stroke-width:2.2"/>
+      <rect x="480" y="40" width="170" height="56" rx="10" style="fill:var(--surface);stroke:var(--accent);stroke-width:2.5"/>
+      <text x="565" y="64" text-anchor="middle" style="fill:currentColor;font-size:14px;font-weight:600">product-service</text>
+      <text x="565" y="83" text-anchor="middle" style="fill:var(--muted);font-size:11px">:8081 profile=dev</text>
+      <rect x="480" y="180" width="170" height="56" rx="10" style="fill:var(--surface);stroke:var(--accent);stroke-width:2.5"/>
+      <text x="565" y="204" text-anchor="middle" style="fill:currentColor;font-size:14px;font-weight:600">order-service</text>
+      <text x="565" y="223" text-anchor="middle" style="fill:var(--muted);font-size:11px">(any other service)</text>
+      <text x="420" y="88" style="fill:var(--accent);font-size:11px">GET /product-service/dev</text>
+      <text x="330" y="255" text-anchor="middle" style="fill:var(--muted);font-size:12px">services fetch config at startup, and again after POST /actuator/refresh</text>
+    </svg>
+    <figcaption>The Config Server sits between the config repository and all services.</figcaption>
+  </figure>
+  <ol>
+    <li>The <strong>config repository</strong> holds plain YAML/properties files (a folder in dev, a Git repo in real life).</li>
+    <li>The <strong>Config Server</strong> reads them and offers an HTTP API: <code>GET /{application}/{profile}[/{label}]</code>.</li>
+    <li>Each <strong>client service</strong>, at startup, asks: "I am <code>product-service</code>, profile <code>dev</code> – give me my config." The answer is merged into its <code>Environment</code> like any other property source (Topic 26).</li>
+  </ol>
+
+  <h3>3.2 The Config Server</h3>
+  <ul>
+    <li>Dependency: <code>org.springframework.cloud:spring-cloud-config-server</code> (with the Spring Cloud 2025.0.0 BOM).</li>
+    <li>Annotation: <code>@EnableConfigServer</code> on the main class.</li>
+    <li>Port: <strong>8888</strong> by convention (clients assume it by default).</li>
+  </ul>
+  <p>Its REST API (try them in the browser!):</p>
+  <div class="table-wrap"><table>
+    <tr><th>URL</th><th>Returns</th></tr>
+    <tr><td><code>/product-service/default</code></td><td>JSON: list of property sources for the default profile</td></tr>
+    <tr><td><code>/product-service/dev</code></td><td>JSON for the dev profile (dev file first = highest priority)</td></tr>
+    <tr><td><code>/product-service/dev/main</code></td><td>same, from Git branch/tag <code>main</code> (the "label")</td></tr>
+    <tr><td><code>/product-service-dev.yml</code> or <code>.properties</code></td><td>The <em>merged</em> result as a file</td></tr>
+    <tr><td><code>POST /encrypt</code>, <code>POST /decrypt</code></td><td>Encrypt / decrypt a value (when a key is configured)</td></tr>
+  </table></div>
+
+  <h3>3.3 Backends: native (folder) and Git</h3>
+  <div class="grid">
+    <div class="card"><strong>📁 Native (file system)</strong>
+      <p>Activated with the <code>native</code> profile. Reads files from <code>spring.cloud.config.server.native.search-locations</code> (e.g. <code>file:../config-repo/</code>).</p>
+      <p>✅ zero setup – perfect for learning and local dev<br>❌ no history, no review, the folder must exist on the server machine</p>
+    </div>
+    <div class="card"><strong>🌿 Git (the default and the industry standard)</strong>
+      <p>Set <code>spring.cloud.config.server.git.uri</code> to a repo. The server clones it and serves the files from a branch/tag (<strong>label</strong>).</p>
+      <p>✅ full history, pull-request reviews, easy rollback, audit trail ("who changed the DB URL?")<br>❌ needs a Git server and credentials</p>
+    </div>
+  </div>
+  <p>Other backends exist too: Vault (secrets), JDBC, Redis, AWS S3… and you can combine them (composite).</p>
+
+  <h3>3.4 File naming and priority</h3>
+  <p>The server picks files based on the client's <strong>application name</strong> (<code>spring.application.name</code>) and <strong>active profiles</strong>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File in config-repo</th><th>Used by</th><th>Priority</th></tr>
+    <tr><td><code>product-service-dev.yml</code></td><td>product-service with profile <code>dev</code></td><td>🥇 highest</td></tr>
+    <tr><td><code>application-dev.yml</code></td><td>ALL services with profile <code>dev</code></td><td>🥈</td></tr>
+    <tr><td><code>product-service.yml</code></td><td>product-service, every profile</td><td>🥉</td></tr>
+    <tr><td><code>application.yml</code></td><td>ALL services, every profile</td><td>lowest (shared defaults)</td></tr>
+  </table></div>
+  <p>Rule of thumb: <strong>more specific wins</strong> – profile-specific beats general, service-specific beats shared. And everything from the Config Server beats the client's own local <code>application.yml</code>. (Command-line arguments and environment variables still beat everything – Topic 29.)</p>
+  <div class="callout info"><strong>ℹ️ Example from our repo</strong><code>shop.welcome-message</code> is defined in <em>three</em> files. With profile <code>dev</code>, product-service gets the one from <code>product-service-dev.yml</code>; with no profile, the one from <code>product-service.yml</code>; the shared one from <code>application.yml</code> would only be used by a service without its own value.</div>
+
+  <h3>3.5 The client side: <code>spring.config.import</code></h3>
+  <p>A service becomes a config client with the dependency <code>spring-cloud-starter-config</code> and one line:</p>
+  <pre><code class="lang-yaml">spring:
+  application:
+    name: product-service                               # which files to fetch
+  config:
+    import: optional:configserver:http://localhost:8888 # where the server is</code></pre>
+  <ul>
+    <li><code>configserver:</code> – "import config from a Config Server at this URL". This happens <strong>very early</strong>, before beans are created, so even <code>server.port</code> or <code>spring.datasource.url</code> can come from the server.</li>
+    <li><code>optional:</code> – if the server is unreachable, start anyway with local values. Without <code>optional:</code> the app <strong>fails to start</strong> (often preferred in production – better to crash than to run with wrong settings). You can add <code>spring.cloud.config.fail-fast=true</code> and retries for that.</li>
+  </ul>
+  <div class="callout warn"><strong>⚠️ Old way: bootstrap.yml</strong>Before Spring Cloud 2020, clients used a separate <code>bootstrap.yml</code> with <code>spring.cloud.config.uri</code>. That is <strong>legacy</strong> (it needs the extra <code>spring-cloud-starter-bootstrap</code>). Use <code>spring.config.import</code> in new projects.</div>
+
+  <h3>3.6 Refreshing config at runtime</h3>
+  <p>Config is read at startup. To pick up changes without a restart:</p>
+  <ol>
+    <li>Change the file in config-repo (or push to Git).</li>
+    <li>Call <code>POST /actuator/refresh</code> on the <strong>client</strong> (needs actuator and the <code>refresh</code> endpoint exposed).</li>
+    <li>The client re-fetches its config, compares it and returns the <strong>list of changed keys</strong>, e.g. <code>["shop.welcome-message","shop.discount-percent"]</code>.</li>
+  </ol>
+  <p>Which beans see the new values?</p>
+  <div class="table-wrap"><table>
+    <tr><th>How the value is used</th><th>After refresh</th></tr>
+    <tr><td><code>@ConfigurationProperties</code> bean (JavaBean with setters)</td><td>✅ <strong>re-bound automatically</strong></td></tr>
+    <tr><td><code>@Value</code> in a bean annotated <code>@RefreshScope</code></td><td>✅ the bean is re-created on next use with new values</td></tr>
+    <tr><td><code>@Value</code> in a normal singleton</td><td>❌ keeps the old value until restart</td></tr>
+    <tr><td><code>Environment.getProperty(...)</code> each time</td><td>✅ always current</td></tr>
+    <tr><td>Things built once at startup (DataSource pool, server port)</td><td>❌ need a restart (or careful refresh-scope design)</td></tr>
+  </table></div>
+  <p><strong>How does <code>@RefreshScope</code> work?</strong> Spring injects a <strong>proxy</strong> instead of the real object. On refresh, the real object behind the proxy is thrown away. The next method call creates a brand-new object – which gets the new <code>@Value</code>s. (Remember proxies from Topic 27.)</p>
+  <div class="flow">
+    <span class="box">edit config-repo</span><span class="arrow">→</span>
+    <span class="box alt">POST /actuator/refresh</span><span class="arrow">→</span>
+    <span class="box info">client re-fetches from :8888</span><span class="arrow">→</span>
+    <span class="box">@ConfigurationProperties re-bound<br>@RefreshScope beans recreated</span>
+  </div>
+  <div class="callout info"><strong>ℹ️ 50 instances? Spring Cloud Bus</strong>Calling <code>/actuator/refresh</code> on every instance by hand doesn't scale. <strong>Spring Cloud Bus</strong> connects all instances through RabbitMQ/Kafka (Topics 57, 58): one call to <code>/actuator/busrefresh</code> broadcasts the refresh to all. A Git webhook can even trigger it automatically on every push.</div>
+
+  <h3>3.7 Secrets: encryption with <code>{cipher}</code></h3>
+  <p>Config repos are read by many people, so <strong>plain-text passwords don't belong there</strong>. The Config Server can store values <strong>encrypted</strong>:</p>
+  <ol>
+    <li>Give the server a key: <code>encrypt.key</code> (symmetric) – in real life via the <code>ENCRYPT_KEY</code> environment variable, never in Git. (Asymmetric RSA keystores are also supported.)</li>
+    <li>Encrypt a value: <code>POST http://localhost:8888/encrypt</code> with the secret as body → a long hex string.</li>
+    <li>Put it in the repo with a prefix and quotes: <code>payment-api-key: '{cipher}1501635eab...'</code></li>
+    <li>When a client asks, the server <strong>decrypts</strong> and sends the plain value (over HTTPS in production!). The repo only ever contains cipher text.</li>
+  </ol>
+  <div class="callout warn"><strong>⚠️ Encryption is the minimum</strong>Anyone who can call the Config Server gets decrypted secrets – so secure the server (Spring Security, private network, HTTPS). Many companies go further and keep secrets in a dedicated vault (HashiCorp Vault, AWS Secrets Manager, Azure Key Vault, Kubernetes Secrets) and keep only non-secret config in Git.</div>
+
+  <!-- ===================================================== 4. CODE -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>config-server/pom.xml</code></td><td>BOM 2025.0.0 + <code>spring-cloud-config-server</code> + actuator</td></tr>
+    <tr><td><code>config-server/.../ConfigServerApplication.java</code></td><td><code>@EnableConfigServer</code></td></tr>
+    <tr><td><code>config-server/.../application.yml</code></td><td>Port 8888, <code>native</code> profile, search locations, <code>encrypt.key</code></td></tr>
+    <tr><td><code>config-server/.../application-git.yml</code></td><td>Optional Git backend (activate with profile <code>git</code>)</td></tr>
+    <tr><td><code>config-repo/application.yml</code></td><td>Shared settings for ALL services (company name, support e-mail)</td></tr>
+    <tr><td><code>config-repo/product-service.yml</code></td><td>product-service settings: welcome message, discount 5%, feature flag off, encrypted key</td></tr>
+    <tr><td><code>config-repo/product-service-dev.yml</code></td><td>dev: discount 50%, feature flag on, DEBUG logging</td></tr>
+    <tr><td><code>config-repo/product-service-prod.yml</code></td><td>prod: discount 10%, WARN logging</td></tr>
+    <tr><td><code>product-service/pom.xml</code></td><td>web + <code>spring-cloud-starter-config</code> + actuator</td></tr>
+    <tr><td><code>product-service/.../application.yml</code></td><td><code>spring.config.import</code>, local fallback values, refresh endpoint</td></tr>
+    <tr><td><code>product-service/.../ShopProperties.java</code></td><td>Type-safe <code>@ConfigurationProperties("shop")</code> – re-bound on refresh</td></tr>
+    <tr><td><code>product-service/.../MessageController.java</code></td><td><code>@RefreshScope</code> + <code>@Value</code> → <code>GET /api/message</code></td></tr>
+    <tr><td><code>product-service/.../ProductController.java</code></td><td>Discounted prices, feature flag endpoint, decrypted-secret check</td></tr>
+    <tr><td><code>requests.http</code></td><td>All demo requests</td></tr>
+  </table></div>
+
+  <h3>4.1 config-server</h3>
+  <pre><span class="file">config-server/src/main/java/com/course/configdemo/configserver/ConfigServerApplication.java</span><code class="lang-java">@SpringBootApplication
+@EnableConfigServer
+public class ConfigServerApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(ConfigServerApplication.class, args);
+    }
+}</code></pre>
+  <pre><span class="file">config-server/src/main/resources/application.yml</span><code class="lang-yaml">server:
+  port: 8888
+spring:
+  application:
+    name: config-server
+  profiles:
+    active: native                    # read from a folder, not Git
+  cloud:
+    config:
+      server:
+        native:
+          search-locations: ${CONFIG_REPO_PATH:file:../config-repo/,file:./config-repo/}
+
+encrypt:
+  key: ${ENCRYPT_KEY:course-demo-key-change-me-in-real-life}   # DEMO ONLY</code></pre>
+  <ul>
+    <li><code>search-locations</code> lists two places, so it works whether you start the server from the <code>config-server</code> folder (<code>../config-repo</code>) or from the topic folder (<code>./config-repo</code>). A missing location is simply ignored.</li>
+    <li><code>${CONFIG_REPO_PATH:...}</code> means "use the environment variable <code>CONFIG_REPO_PATH</code> if set, otherwise the default after the first colon".</li>
+    <li><code>encrypt.key</code> enables <code>/encrypt</code>, <code>/decrypt</code> and <code>{cipher}</code> values.</li>
+  </ul>
+  <pre><span class="file">config-server/src/main/resources/application-git.yml</span><code class="lang-yaml">spring:
+  cloud:
+    config:
+      server:
+        git:
+          uri: https://github.com/YOUR-GITHUB-USER/course-config-repo
+          default-label: main
+          clone-on-start: true
+          # username: ${GIT_USER}      # private repo: use a personal access token
+          # password: ${GIT_TOKEN}</code></pre>
+
+  <h3>4.2 config-repo</h3>
+  <pre><span class="file">config-repo/application.yml (shared by ALL services)</span><code class="lang-yaml">shop:
+  company-name: CourseShop Pvt Ltd
+  support-email: support@courseshop.example
+  welcome-message: Hello from the SHARED config-repo/application.yml</code></pre>
+  <pre><span class="file">config-repo/product-service.yml</span><code class="lang-yaml">shop:
+  welcome-message: Welcome to the product catalog (from config-repo/product-service.yml)
+  discount-percent: 5
+  feature:
+    new-arrivals: false
+  payment-api-key: '{cipher}1501635eabb27e06e553e9c1d4afcffd74528a5a...'</code></pre>
+  <pre><span class="file">config-repo/product-service-dev.yml</span><code class="lang-yaml">shop:
+  welcome-message: Welcome, DEVELOPER! (from config-repo/product-service-dev.yml)
+  discount-percent: 50
+  feature:
+    new-arrivals: true      # a feature flag: try new features in dev first
+logging:
+  level:
+    com.course.configdemo: DEBUG</code></pre>
+  <p>Note that <strong>any</strong> Spring property can live here – including <code>logging.level</code>. Changing a log level centrally and refreshing is a very handy trick for debugging production.</p>
+
+  <h3>4.3 product-service – the client</h3>
+  <pre><span class="file">product-service/src/main/resources/application.yml</span><code class="lang-yaml">spring:
+  application:
+    name: product-service
+  config:
+    import: optional:configserver:http://localhost:8888
+server:
+  port: 8081
+
+# LOCAL FALLBACK values (used only if the Config Server is not reachable)
+shop:
+  company-name: (local fallback company)
+  welcome-message: LOCAL fallback message - the Config Server was NOT reached
+  discount-percent: 0
+  feature:
+    new-arrivals: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,refresh,env
+  endpoint:
+    env:
+      show-values: always     # LEARNING ONLY - never in production</code></pre>
+
+  <h3>4.4 ShopProperties – re-bound on refresh</h3>
+  <pre><span class="file">product-service/src/main/java/com/course/configdemo/product/ShopProperties.java</span><code class="lang-java">@ConfigurationProperties(prefix = "shop")
+public class ShopProperties {
+
+    private String companyName;
+    private String supportEmail;
+    private String welcomeMessage;
+    private int discountPercent;
+    private String paymentApiKey;
+    private final Feature feature = new Feature();   // shop.feature.*
+
+    public static class Feature {
+        private boolean newArrivals;                 // shop.feature.new-arrivals
+        public boolean isNewArrivals() { return newArrivals; }
+        public void setNewArrivals(boolean newArrivals) { this.newArrivals = newArrivals; }
+    }
+
+    public int getDiscountPercent() { return discountPercent; }
+    public void setDiscountPercent(int discountPercent) { this.discountPercent = discountPercent; }
+    // ... other getters and setters
+}</code></pre>
+  <p>It is registered with <code>@EnableConfigurationProperties(ShopProperties.class)</code> on the main class. In Topic 29 we used a <strong>record</strong> for type-safe properties. Here we deliberately use a <strong>class with setters</strong>: on refresh Spring Cloud <em>re-binds</em> <code>@ConfigurationProperties</code> beans by calling the setters again. A record is immutable, so it could not be updated in place.</p>
+
+  <h3>4.5 MessageController – @RefreshScope + @Value</h3>
+  <pre><span class="file">product-service/src/main/java/com/course/configdemo/product/MessageController.java</span><code class="lang-java">@RestController
+@RefreshScope
+public class MessageController {
+
+    private final String welcomeMessage;
+    private final String companyName;
+    private final Environment environment;
+    private final LocalTime beanCreatedAt = LocalTime.now().withNano(0);
+
+    public MessageController(@Value("${shop.welcome-message}") String welcomeMessage,
+                             @Value("${shop.company-name}") String companyName,
+                             Environment environment) {
+        this.welcomeMessage = welcomeMessage;
+        this.companyName = companyName;
+        this.environment = environment;
+    }
+
+    @GetMapping("/api/message")
+    public Map&lt;String, Object&gt; message() {
+        Map&lt;String, Object&gt; result = new LinkedHashMap&lt;&gt;();
+        result.put("welcomeMessage", welcomeMessage);
+        result.put("companyName", companyName);
+        result.put("activeProfiles", Arrays.toString(environment.getActiveProfiles()));
+        result.put("beanCreatedAt", beanCreatedAt.toString());
+        return result;
+    }
+}</code></pre>
+  <p><code>beanCreatedAt</code> is a little trick: after a refresh the time changes, proving that a <strong>new bean object</strong> was created. Remove <code>@RefreshScope</code> and the message will never change until restart – try it!</p>
+
+  <h3>4.6 ProductController – behaviour driven by config</h3>
+  <pre><span class="file">product-service/src/main/java/com/course/configdemo/product/ProductController.java</span><code class="lang-java">@GetMapping
+public List&lt;ProductView&gt; findAll() {
+    int discount = shop.getDiscountPercent();          // read on EVERY request -&gt; always current
+    log.debug("Building product list with discount {}%", discount);
+    return List.of(view(1L, "Laptop", 55000.0, discount), ...);
+}
+
+@GetMapping("/new-arrivals")
+public List&lt;ProductView&gt; newArrivals() {
+    if (!shop.getFeature().isNewArrivals()) {          // feature flag
+        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "New arrivals are not available yet");
+    }
+    return List.of(view(10L, "Smart Watch", 12999.0, shop.getDiscountPercent()));
+}
+
+@GetMapping("/secret-check")
+public Map&lt;String, Object&gt; secretCheck() {
+    String key = shop.getPaymentApiKey();
+    boolean decrypted = key != null &amp;&amp; !key.startsWith("{cipher}") &amp;&amp; !key.isBlank();
+    String masked = decrypted ? key.substring(0, Math.min(4, key.length())) + "****" : String.valueOf(key);
+    return Map.of("paymentApiKeyReceived", decrypted, "maskedValue", masked);   // never return real secrets!
+}</code></pre>
+  <p>A <strong>feature flag</strong> is a config switch that turns a feature on or off without a release – a very common enterprise technique (dark launches, A/B tests, "kill switches").</p>
+
+  <!-- ===================================================== 5. RUN -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 Start the Config Server (first!)</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\62-Centralized-Configuration-With-Config-Server\config-server"
+mvn spring-boot:run</code></pre>
+  <p>Run it <strong>from the config-server folder</strong>. Check it directly in the browser or with curl:</p>
+  <pre class="terminal"><code>curl.exe http://localhost:8888/product-service-dev.yml
+shop:
+  company-name: CourseShop Pvt Ltd
+  support-email: support@courseshop.example
+  welcome-message: Welcome, DEVELOPER! (from config-repo/product-service-dev.yml)
+  discount-percent: 50
+  feature:
+    new-arrivals: true
+  payment-api-key: demo-payment-key-123
+logging:
+  level:
+    com:
+      course:
+        configdemo: DEBUG</code></pre>
+  <p>See the decrypted <code>payment-api-key</code>? The repo file only contains the <code>{cipher}</code> text. Also try <code>http://localhost:8888/product-service/dev</code> to see the JSON list of property sources (dev file first).</p>
+
+  <h3>5.2 Start product-service</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\62-Centralized-Configuration-With-Config-Server\product-service"
+mvn spring-boot:run                                   # default profile
+# or
+mvn spring-boot:run "-Dspring-boot.run.profiles=dev"  # dev profile</code></pre>
+  <p>The log shows the fetch:</p>
+  <pre class="terminal"><code>INFO ... ConfigServerConfigDataLoader : Fetching config from server at : http://localhost:8888
+INFO ... ConfigServerConfigDataLoader : Located environment: name=product-service, profiles=[default], ...</code></pre>
+  <p>(In VS Code's Spring Boot Dashboard you can start both apps too; to use a profile there, set <code>spring.profiles.active</code> in a launch configuration or use the terminal.)</p>
+
+  <h3>5.3 Try it (default profile)</h3>
+  <pre class="terminal"><code>curl.exe http://localhost:8081/api/message
+{"welcomeMessage":"Welcome to the product catalog (from config-repo/product-service.yml)","companyName":"CourseShop Pvt Ltd","activeProfiles":"[]","beanCreatedAt":"10:16:28"}
+
+curl.exe http://localhost:8081/api/products
+[{"id":1,"name":"Laptop","price":55000.0,"discountPercent":5,"finalPrice":52250.0}, ...]
+
+curl.exe http://localhost:8081/api/products/new-arrivals
+{"status":404,"error":"Not Found",...}            # feature flag is OFF
+
+curl.exe http://localhost:8081/api/products/secret-check
+{"maskedValue":"demo****","paymentApiKeyReceived":true}</code></pre>
+  <p>With the <code>dev</code> profile: welcome message "Welcome, DEVELOPER!", <code>discountPercent: 50</code> (Laptop 27500.0), <code>/new-arrivals</code> returns the Smart Watch, and DEBUG log lines appear.</p>
+
+  <h3>5.4 Change config live (no restart!)</h3>
+  <ol>
+    <li>Open <code>config-repo/product-service.yml</code> (or <code>-dev.yml</code> if you run dev), change <code>discount-percent</code> to <code>30</code> and the <code>welcome-message</code> text. Save.</li>
+    <li>Tell product-service to refresh:
+      <pre class="terminal"><code>curl.exe -X POST http://localhost:8081/actuator/refresh
+["shop.welcome-message","shop.discount-percent"]</code></pre></li>
+    <li>Call <code>/api/message</code> and <code>/api/products</code> again: new message, new <code>beanCreatedAt</code>, prices with 30% discount.</li>
+  </ol>
+  <p>Where did a value come from? <code>curl.exe http://localhost:8081/actuator/env/shop.discount-percent</code> lists every property source that defines it (config server sources and the local file).</p>
+
+  <h3>5.5 Fallback experiment</h3>
+  <p>Stop the Config Server and restart product-service. Thanks to <code>optional:</code> it still starts, logs <code>Could not locate PropertySource ... Connection refused</code>, and serves the local values:</p>
+  <pre class="terminal"><code>{"welcomeMessage":"LOCAL fallback message - the Config Server was NOT reached","companyName":"(local fallback company)","activeProfiles":"[]",...}</code></pre>
+  <p>Now remove <code>optional:</code> from <code>spring.config.import</code> and restart: the app refuses to start. That's "fail fast". Put <code>optional:</code> back afterwards. Stop the apps with <strong>Ctrl+C</strong>.</p>
+
+  <!-- ===================================================== 6. MISTAKES -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: the client always shows the local fallback values</strong>The server isn't running, runs on another port, or the client started first.<br><strong>Fix:</strong> start config-server first; check <code>http://localhost:8888/product-service/default</code>; look for "Fetching config from server" in the client log.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: the server returns empty <code>propertySources</code></strong>The server can't find the folder (started from the wrong directory) or the file name doesn't match <code>spring.application.name</code> (<code>product_service.yml</code>, <code>productservice.yml</code>…).<br><strong>Fix:</strong> start from the <code>config-server</code> folder or set <code>CONFIG_REPO_PATH</code>; name files exactly <code>&lt;application-name&gt;[-&lt;profile&gt;].yml</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "No spring.config.import property has been defined"</strong>You added <code>spring-cloud-starter-config</code> but no <code>spring.config.import</code> line – the app refuses to start.<br><strong>Fix:</strong> add <code>spring.config.import=optional:configserver:http://localhost:8888</code> (or set <code>spring.cloud.config.enabled=false</code> to switch the client off, e.g. in tests).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: refresh returns <code>[]</code> or the value doesn't change</strong>(a) You forgot to save the file, (b) you edited the wrong profile file, (c) the value is used via <code>@Value</code> in a bean <em>without</em> <code>@RefreshScope</code>, (d) the properties class is a record.<br><strong>Fix:</strong> use <code>@ConfigurationProperties</code> JavaBeans or <code>@RefreshScope</code>; check with <code>/actuator/env</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: 404 on <code>POST /actuator/refresh</code></strong>The endpoint is not exposed or actuator is missing.<br><strong>Fix:</strong> add <code>spring-boot-starter-actuator</code> and <code>management.endpoints.web.exposure.include: refresh</code>. It must be a <strong>POST</strong>.</div>
+  <div class="callout danger"><strong>🛑 Mistake: committing secrets or the encrypt key to Git</strong>Plain-text passwords in config-repo, or <code>encrypt.key</code> in the server's committed <code>application.yml</code> in production.<br><strong>Fix:</strong> <code>{cipher}</code> values or a vault for secrets; pass the key via the <code>ENCRYPT_KEY</code> environment variable; secure the Config Server endpoints.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: an unexpected <code>${...}</code> inside a config value</strong>Values containing <code>${...}</code> are resolved by Spring on the client side. That's a feature (<code>url: jdbc:mysql://${DB_HOST}/shop</code>), but a surprise if you didn't mean it.<br><strong>Fix:</strong> escape or avoid <code>${</code> in literal text.</div>
+
+  <!-- ===================================================== 7. BEST -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li>Use a <strong>Git backend</strong> in real projects: changes go through <strong>pull requests</strong>, history and rollback come for free.</li>
+    <li>Use <strong>labels</strong> (branches/tags) to tie config versions to releases, e.g. <code>spring.cloud.config.label=v1.4.0</code>.</li>
+    <li>Keep only <strong>bootstrap facts</strong> locally (<code>spring.application.name</code>, <code>spring.config.import</code>); everything else centrally.</li>
+    <li>Put company-wide values in <code>application.yml</code>, service values in <code>&lt;service&gt;.yml</code>, environment differences in <code>-&lt;profile&gt;.yml</code>.</li>
+    <li>In production, prefer <strong>fail-fast</strong> (no <code>optional:</code>) with retries, so a service never runs with incomplete config.</li>
+    <li>Run <strong>2+ Config Server instances</strong> (or register it in Eureka and use discovery) – startup of every service depends on it.</li>
+    <li><strong>Secure</strong> the Config Server (HTTPS, Spring Security basic auth / OAuth2, private network).</li>
+    <li><strong>Never</strong> store secrets in plain text; use <code>{cipher}</code> or better a vault; never expose <code>/actuator/env</code> values in production.</li>
+    <li>Make refreshable things refreshable on purpose (<code>@ConfigurationProperties</code>); restart for infrastructure changes (DB pools, ports).</li>
+    <li>Use <strong>Spring Cloud Bus</strong> (or a rolling restart) to refresh many instances consistently.</li>
+  </ul>
+
+  <!-- ===================================================== 8. SUMMARY -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>A <strong>Config Server</strong> (<code>@EnableConfigServer</code>, port <strong>8888</strong>) serves configuration for all services from one repository.</li>
+    <li>Backends: <strong>native</strong> folder (learning) and <strong>Git</strong> (industry standard, with history and reviews).</li>
+    <li>Files are chosen by <strong>application name</strong> and <strong>profile</strong>: <code>application.yml</code> &lt; <code>product-service.yml</code> &lt; <code>application-dev.yml</code> &lt; <code>product-service-dev.yml</code>.</li>
+    <li>Clients use <code>spring-cloud-starter-config</code> + <code>spring.config.import=optional:configserver:http://localhost:8888</code>; <code>optional:</code> allows starting without the server.</li>
+    <li>Server values override the client's local <code>application.yml</code>; local values act as fallback.</li>
+    <li><code>POST /actuator/refresh</code> reloads config: <code>@ConfigurationProperties</code> beans are re-bound, <code>@RefreshScope</code> beans are re-created.</li>
+    <li>Secrets: <code>{cipher}</code> values decrypted by the server with <code>encrypt.key</code>; better: a vault. Never commit keys.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9. EXERCISES -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Test profile.</strong> Create <code>config-repo/product-service-test.yml</code> with <code>discount-percent: 0</code> and a test welcome message. Start product-service with the <code>test</code> profile and check <code>/api/message</code> and <code>/api/products</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-yaml">shop:
+  welcome-message: TEST environment (from config-repo/product-service-test.yml)
+  discount-percent: 0</code></pre>
+    <pre class="terminal"><code>mvn spring-boot:run "-Dspring-boot.run.profiles=test"</code></pre>
+    <p>The native backend reads files on each request, so no Config Server restart is needed.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Shared profile file.</strong> Create <code>config-repo/application-dev.yml</code> with <code>shop.support-email: dev-support@courseshop.example</code>. Which services get it? Show it in <code>/api/message</code>.</p>
+    <details><summary>Hint / solution</summary>
+      <p>Every service running with the <code>dev</code> profile gets it. Add <code>@Value("${shop.support-email}") String supportEmail</code> to <code>MessageController</code> and put it in the map. Check <code>http://localhost:8888/product-service/dev</code>: <code>application-dev.yml</code> is listed between <code>product-service-dev.yml</code> and <code>product-service.yml</code>.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Prove why @RefreshScope matters.</strong> Create a second controller <code>NoRefreshController</code> <em>without</em> <code>@RefreshScope</code> that returns <code>@Value("${shop.welcome-message}")</code> on <code>GET /api/message-no-refresh</code>. Change the message, refresh, and compare both endpoints.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@RestController
+public class NoRefreshController {
+    private final String msg;
+    public NoRefreshController(@Value("${shop.welcome-message}") String msg) { this.msg = msg; }
+
+    @GetMapping("/api/message-no-refresh")
+    public String message() { return msg; }
+}</code></pre>
+    <p>After <code>/actuator/refresh</code>, <code>/api/message</code> shows the new text but <code>/api/message-no-refresh</code> keeps the old one – the singleton was created once and never again.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Encrypt your own secret.</strong> Encrypt <code>s3cr3t-db-pass</code> with the Config Server, add it as <code>shop.db-password</code> to <code>product-service.yml</code>, and verify the client receives the plain value (masked!).</p>
+    <details><summary>Hint / solution</summary>
+      <pre class="terminal"><code>curl.exe -X POST http://localhost:8888/encrypt -H "Content-Type: text/plain" -d "s3cr3t-db-pass"
+3f9a...e21          # your value will differ: AES with a random salt</code></pre>
+      <pre><code class="lang-yaml">  db-password: '{cipher}3f9a...e21'     # quotes are required in YAML!</code></pre>
+      <p>Add a <code>dbPassword</code> field + getter/setter to <code>ShopProperties</code>, refresh, and show only <code>dbPassword.substring(0, 2) + "****"</code>. Check <code>http://localhost:8888/product-service/default</code> – the server shows it decrypted.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Switch to a Git backend.</strong> Create a Git repository from <code>config-repo</code> (local is fine!) and run the Config Server with the <code>git</code> profile pointing at it. Change a value with a commit, then refresh the client.</p>
+    <details><summary>Hint / solution</summary>
+      <pre class="terminal"><code>cd "D:\Java-SpringBoot\62-Centralized-Configuration-With-Config-Server\config-repo"
+git init -b main
+git add .
+git commit -m "initial config"</code></pre>
+      <p>Point the server at the local repo with a <code>file:</code> URI (no GitHub needed):</p>
+      <pre class="terminal"><code>mvn spring-boot:run "-Dspring-boot.run.profiles=git" "-Dspring-boot.run.arguments=--spring.cloud.config.server.git.uri=file:///D:/Java-SpringBoot/62-Centralized-Configuration-With-Config-Server/config-repo"</code></pre>
+      <p>Now <strong>uncommitted</strong> edits are ignored – only committed changes are served. Edit, <code>git commit -am "discount 15"</code>, then <code>POST /actuator/refresh</code>. The <code>version</code> field in <code>/product-service/default</code> shows the commit id. (Delete the <code>.git</code> folder afterwards if you want the topic folder clean.)</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Fail fast with retry.</strong> Make product-service refuse to start without the Config Server, but retry 6 times first.</p>
+    <details><summary>Hint / solution</summary>
+      <p>Add <code>org.springframework.retry:spring-retry</code> and <code>spring-boot-starter-aop</code> to product-service, then:</p>
+      <pre><code class="lang-yaml">spring:
+  config:
+    import: configserver:http://localhost:8888      # no "optional:"
+  cloud:
+    config:
+      fail-fast: true
+      retry:
+        max-attempts: 6
+        initial-interval: 1000
+        multiplier: 1.5</code></pre>
+      <p>Start the client first: it retries (watch the log), and if you start the server within those attempts, it continues normally; otherwise it stops with an error.</p></details>
+  </div>
+
+  <!-- ===================================================== 10. INTERVIEW -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What problem does Spring Cloud Config solve?</summary>
+    <p>Externalized, centralized configuration for distributed systems: one place (usually Git) holds the config for all services and environments, with versioning, auditing and the ability to change config without rebuilding artifacts and – with refresh – without restarting services.</p></details>
+  <details><summary>Q2. How does a client get its configuration?</summary>
+    <p>Via <code>spring-cloud-starter-config</code> and <code>spring.config.import=configserver:&lt;url&gt;</code>. Early in startup it calls <code>GET /{spring.application.name}/{active profiles}/{label}</code> on the server and adds the returned property sources to its Environment with higher precedence than its local application files.</p></details>
+  <details><summary>Q3. What is the order of precedence between the files?</summary>
+    <p>Profile-specific beats non-profile, application-specific beats shared: <code>{app}-{profile}.yml</code> &gt; <code>application-{profile}.yml</code> &gt; <code>{app}.yml</code> &gt; <code>application.yml</code>. Remote config beats the client's packaged config; command-line args and env vars can still override (depending on settings).</p></details>
+  <details><summary>Q4. How do you refresh configuration without restarting?</summary>
+    <p>Expose the actuator <code>refresh</code> endpoint and <code>POST /actuator/refresh</code>. The client re-fetches config, publishes an <code>EnvironmentChangeEvent</code>, re-binds <code>@ConfigurationProperties</code> beans and clears <code>@RefreshScope</code> beans so they are recreated lazily. For many instances, Spring Cloud Bus broadcasts the refresh via <code>/actuator/busrefresh</code>.</p></details>
+  <details><summary>Q5. What does @RefreshScope do internally?</summary>
+    <p>It's a custom scope: the bean is injected as a proxy, and the target is cached in the scope. On refresh, the cache is cleared; the next call through the proxy creates a new instance with freshly injected values. Costs: proxies, re-creation, and beans that hold resources need care.</p></details>
+  <details><summary>Q6. Native vs Git backend?</summary>
+    <p>Native reads from the local file system/classpath – simple, good for dev and tests, but no versioning and tied to one machine. Git gives history, code review, branches/tags as labels, rollback and audit; the server clones the repo and can refresh on each request. Vault, JDBC, S3 and composite backends also exist.</p></details>
+  <details><summary>Q7. How are secrets handled?</summary>
+    <p>Values can be stored encrypted as <code>{cipher}...</code>; the server decrypts them with a symmetric key (<code>encrypt.key</code>) or an RSA keystore before serving (or clients can decrypt themselves). Endpoints <code>/encrypt</code> and <code>/decrypt</code> help. The key must come from a secure source (env var), the server must be secured and use HTTPS. Many organisations prefer Vault/cloud secret managers for secrets.</p></details>
+  <details><summary>Q8. What happens if the Config Server is down when a service starts?</summary>
+    <p>With <code>optional:configserver:</code> the service starts with local config only (maybe wrong for production). Without <code>optional:</code> (or with <code>fail-fast=true</code>) startup fails, optionally after retries (spring-retry). Mitigations: run multiple Config Server instances behind discovery or a load balancer; clients keep the config they already loaded if the server dies later.</p></details>
+  <details><summary>Q9. bootstrap.yml vs spring.config.import?</summary>
+    <p><code>bootstrap.yml</code> was the old mechanism (a parent "bootstrap context" loaded first). Since Spring Boot 2.4 / Spring Cloud 2020, the Config Data API with <code>spring.config.import</code> is the standard; bootstrap needs the legacy <code>spring-cloud-starter-bootstrap</code> dependency.</p></details>
+  <details><summary>Q10. Config Server vs Kubernetes ConfigMaps?</summary>
+    <p>ConfigMaps/Secrets are the Kubernetes-native way: config is mounted as files or env vars; changes may require pod restarts (or Spring Cloud Kubernetes to reload). Config Server is platform-independent, Git-backed, supports profiles, labels, encryption and runtime refresh. On Kubernetes, teams often use ConfigMaps + an external secrets operator, or combine both.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../61-API-Gateway-With-Spring-Cloud-Gateway/lesson.html"><small>← Previous</small>61. API Gateway with Spring Cloud Gateway</a>
+    <a class="next" href="../63-Inter-Service-Communication-With-OpenFeign/lesson.html"><small>Next →</small>63. Inter-Service Communication with OpenFeign</a>
+  </nav>
+</main>
+</body>
+</html>

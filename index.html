@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Java + Spring Boot Course</title>
+  <link rel="stylesheet" href="assets/style.css">
+  <script src="assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Course Home · Zero to Enterprise</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <section class="hero">
+    <span class="tag java">71 topics</span><span class="tag">Java 17 · Spring Boot 3.5</span><span class="tag adv">Beginner → Enterprise</span>
+    <h1>Java + Spring Boot: From Zero to Enterprise Developer</h1>
+    <p class="subtitle">A step-by-step course where every topic builds on the one before it. You start with "what is a variable?" and finish by building a secured, tested, Dockerised e-commerce backend and a set of microservices.</p>
+    <p><span class="progress-box">📈 Your progress: <strong id="progress-count">0 / 71 topics done</strong> (tick topics below or on each lesson page; saved in this browser)</span></p>
+  </section>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#start">Where to start (read this first)</a></li>
+      <li><a href="#what">What are Java, Spring and Spring Boot?</a></li>
+      <li><a href="#pros-cons">Advantages and disadvantages</a></li>
+      <li><a href="#realworld">Where Spring Boot is used in the real world</a></li>
+      <li><a href="#roadmap">The roadmap at a glance</a></li>
+      <li><a href="#folder">How each topic folder works</a></li>
+      <li><a href="#setup">One-time setup</a></li>
+      <li><a href="#topics">All 71 topics</a></li>
+      <li><a href="#plan">Suggested study plan</a></li>
+      <li><a href="#projects">Real-time projects you build</a></li>
+      <li><a href="#habits">How to learn effectively</a></li>
+      <li><a href="#career">Skills, career and interview readiness</a></li>
+      <li><a href="#glossary">Mini glossary</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="start">1. Where to start (read this first)</h2>
+  <div class="callout tip">
+    <strong>👉 Your first click</strong>
+    Start with <a href="1-Introduction-And-Setup/lesson.html"><strong>Topic 1 · Introduction &amp; Setup</strong></a> and go in order. Every lesson assumes you have finished the ones before it, and nothing assumes knowledge from a later one.
+  </div>
+  <p>You told me you are starting from zero. Here is the honest truth from ten years of teaching: <strong>beginners usually struggle with Spring Boot because they skipped Core Java, not because Spring is hard.</strong> Spring is full of interfaces, annotations, generics, lambdas and collections. If those feel natural, Spring feels easy. That is why Part A (Core Java) is 21 topics long. Don't rush it.</p>
+  <div class="grid">
+    <div class="card"><strong>1️⃣ Read the lesson</strong><br>Open <code>lesson.html</code> in the topic folder. Read it top to bottom, including the analogy.</div>
+    <div class="card"><strong>2️⃣ Run the code</strong><br>Open the same folder in VS Code. Run every example and compare the output with the lesson.</div>
+    <div class="card"><strong>3️⃣ Break the code</strong><br>Change values, delete lines, cause errors on purpose. That is how real understanding happens.</div>
+    <div class="card"><strong>4️⃣ Practise</strong><br>Do the exercises <em>before</em> opening the solutions. Then answer the interview questions out loud.</div>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="what">2. What are Java, Spring and Spring Boot?</h2>
+  <div class="callout analogy">
+    <strong>🏠 Think of building a house</strong>
+    <ul>
+      <li><strong>Java</strong> is the bricks, cement and tools: the language you build with.</li>
+      <li><strong>Spring Framework</strong> is a set of ready-made building systems: plumbing, wiring and doors that fit together. You don't invent them yourself.</li>
+      <li><strong>Spring Boot</strong> is a builder who arrives with all of that already assembled and configured. You say "I want a web app with a database" and the foundation is ready in minutes.</li>
+    </ul>
+  </div>
+  <div class="flow">
+    <span class="box alt">Your code</span><span class="arrow">→</span>
+    <span class="box">Spring Boot<br><small>auto-config, starters, embedded server</small></span><span class="arrow">→</span>
+    <span class="box">Spring Framework<br><small>IoC, DI, MVC, Data, Security…</small></span><span class="arrow">→</span>
+    <span class="box alt">Java + JVM</span>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Java</th><th>Spring Framework</th><th>Spring Boot</th></tr>
+    <tr><td>What it is</td><td>A programming language plus the JVM runtime</td><td>A framework that manages your objects (beans) and gives you web, data and security modules</td><td>A layer on top of Spring that removes setup work</td></tr>
+    <tr><td>You write</td><td>Classes, methods, logic</td><td>Classes plus configuration</td><td>Mostly business logic. The configuration is automatic.</td></tr>
+    <tr><td>Runs as</td><td><code>java MyApp</code></td><td>Usually deployed into a server such as Tomcat</td><td>One runnable <code>.jar</code> with the server inside: <code>java -jar app.jar</code></td></tr>
+    <tr><td>Learned in</td><td>Topics 1–21</td><td>Topics 22–27</td><td>Topics 28–71</td></tr>
+  </table></div>
+
+  <!-- ===================================================== -->
+  <h2 id="pros-cons">3. Advantages and disadvantages</h2>
+  <h3>Why Java + Spring Boot? (Advantages)</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Advantage</th><th>What it means for you</th></tr>
+    <tr><td>🚀 Fast start</td><td>Auto-configuration and "starters" give you a working REST API in about 10 lines of code.</td></tr>
+    <tr><td>🏢 Enterprise standard</td><td>Banks, insurance, telecom, e-commerce and government systems run on it. Job demand is very high and steady.</td></tr>
+    <tr><td>🧩 Huge ecosystem</td><td>Spring Data, Security, Cloud, Batch, Kafka, GraphQL and more all work together with the same style.</td></tr>
+    <tr><td>📦 Embedded server</td><td>Tomcat is inside your jar, so there is no separate server to install. This is ideal for Docker and the cloud.</td></tr>
+    <tr><td>🧪 Testability</td><td>Dependency Injection makes it easy to swap real parts for fakes in tests. Excellent built-in test support.</td></tr>
+    <tr><td>🔒 Security built in</td><td>Spring Security is battle-tested for login, roles, JWT and OAuth2.</td></tr>
+    <tr><td>📊 Production-ready</td><td>Actuator gives health checks, metrics and monitoring for free.</td></tr>
+    <tr><td>☕ Java's strengths</td><td>Strong typing catches mistakes early, the JVM is very fast at scale, and backward compatibility is excellent.</td></tr>
+    <tr><td>👥 Community</td><td>Millions of developers, so almost every error message you hit has an answer online.</td></tr>
+  </table></div>
+  <h3>Honest disadvantages (and how this course handles them)</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Disadvantage</th><th>How we deal with it</th></tr>
+    <tr><td>🎩 "Magic": a lot happens automatically, which can confuse beginners</td><td>Topic 18 builds a <em>mini Spring</em> by hand, and topics 22–27 teach plain Spring <em>before</em> Boot, so the magic is understood rather than memorised.</td></tr>
+    <tr><td>📚 Big learning curve: many modules and annotations</td><td>One concept per topic, always in order, always with a runnable example.</td></tr>
+    <tr><td>🐢 Slower startup and higher memory than Go or Node.js</td><td>Fine for most business apps. We cover tuning, and GraalVM native images are mentioned as a next step.</td></tr>
+    <tr><td>✍️ Java is wordier than Python or Kotlin</td><td>Modern Java (records, <code>var</code>, lambdas, streams, topic 15) removes most boilerplate.</td></tr>
+    <tr><td>🧱 Easy to over-engineer, for example microservices too early</td><td>Topic 59 explains <em>when not to</em> use microservices. Topic 70 teaches clean, simple design.</td></tr>
+    <tr><td>🔄 Frequent versions (Boot 2 → 3 → 4)</td><td>We use Spring Boot 3.5 on Java 17, the most widely used setup in companies today. The concepts carry over directly to Boot 4.</td></tr>
+  </table></div>
+
+  <!-- ===================================================== -->
+  <h2 id="realworld">4. Where Spring Boot is used in the real world</h2>
+  <div class="grid">
+    <div class="card"><strong>🏦 Banking &amp; FinTech</strong><br>Account services, payments, money transfers with <em>transactions</em> (Topic 42) and strong <em>security</em> (47–50).</div>
+    <div class="card"><strong>🛒 E-commerce</strong><br>Product catalogues, carts and orders, with <em>caching</em> (51), <em>pagination</em> (41) and <em>Kafka events</em> (58). This is your capstone (71).</div>
+    <div class="card"><strong>🍔 Food delivery &amp; ride apps</strong><br>Microservices (59–65), real-time updates with <em>WebFlux/SSE</em> (55), notifications via <em>RabbitMQ</em> (57).</div>
+    <div class="card"><strong>🏥 Healthcare &amp; Insurance</strong><br>Validated forms (34), audit logs (30), scheduled jobs (52), file uploads (54).</div>
+    <div class="card"><strong>📺 Streaming &amp; Media</strong><br>Netflix popularised Spring Cloud tools such as Eureka, Gateway and resilience patterns (60–64).</div>
+    <div class="card"><strong>🏛️ Government &amp; Telecom</strong><br>Large, long-lived systems where Java's stability and Spring's structure matter most.</div>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="roadmap">5. The roadmap at a glance</h2>
+  <div class="flow">
+    <span class="box alt">A · Core Java<br><small>1–21</small></span><span class="arrow">→</span>
+    <span class="box">B · Spring Core<br><small>22–27</small></span><span class="arrow">→</span>
+    <span class="box">C · Spring Boot, REST, JPA<br><small>28–46</small></span><span class="arrow">→</span>
+    <span class="box">D · Security<br><small>47–50</small></span><span class="arrow">→</span>
+    <span class="box info">E · Advanced Boot<br><small>51–58</small></span><span class="arrow">→</span>
+    <span class="box info">F · Microservices &amp; DevOps<br><small>59–70</small></span><span class="arrow">→</span>
+    <span class="box alt">G · Capstone<br><small>71</small></span>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th>Part</th><th>You will be able to…</th></tr>
+    <tr><td><strong>A · Core Java</strong></td><td>Write any Java program: OOP, collections, streams, exceptions, threads, files, JDBC, Maven and tests.</td></tr>
+    <tr><td><strong>B · Spring Core</strong></td><td>Explain and use IoC, Dependency Injection, beans, scopes, profiles and AOP: the heart of everything Spring.</td></tr>
+    <tr><td><strong>C · Spring Boot</strong></td><td>Build complete REST APIs with validation, error handling, databases (H2, MySQL), JPA, transactions, docs and tests.</td></tr>
+    <tr><td><strong>D · Security</strong></td><td>Secure APIs with users, roles, BCrypt passwords, JWT tokens and OAuth2 / "Login with GitHub".</td></tr>
+    <tr><td><strong>E · Advanced</strong></td><td>Add caching (Redis), background jobs, monitoring, file upload and email, reactive apps, GraphQL, RabbitMQ and Kafka.</td></tr>
+    <tr><td><strong>F · Microservices &amp; DevOps</strong></td><td>Split systems into services with discovery, a gateway, config, Feign, circuit breakers and tracing. Ship them with Docker, CI/CD and Kubernetes.</td></tr>
+    <tr><td><strong>G · Capstone</strong></td><td>Build ShopEasy, an enterprise-grade e-commerce backend that combines everything.</td></tr>
+  </table></div>
+
+  <!-- ===================================================== -->
+  <h2 id="folder">6. How each topic folder works</h2>
+  <pre><code class="lang-none">D:\Java-SpringBoot\
+├── index.html                 ← you are here (course home)
+├── assets\                    ← shared look &amp; feel for all lessons
+├── 1-Introduction-And-Setup\
+│   ├── lesson.html            ← the full explanation: open in a browser
+│   ├── README.md              ← quick summary + how to run
+│   ├── Example01_HelloWorld.java
+│   └── ...
+├── 28-Spring-Boot-Introduction\
+│   ├── lesson.html
+│   ├── README.md
+│   ├── pom.xml                ← Maven project (Spring topics)
+│   ├── requests.http          ← sample API calls (REST Client extension)
+│   └── src\main\java\com\course\...
+└── 71-Capstone-Project-ECommerce-Backend\</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Topics</th><th>Code style</th><th>How to run</th></tr>
+    <tr><td>1–18</td><td>Single <code>.java</code> files numbered <code>Example01_…</code>, <code>Example02_…</code></td><td><code>java Example01_HelloWorld.java</code>, or click ▶ Run in VS Code</td></tr>
+    <tr><td>19–21</td><td>Small Maven projects (they need libraries)</td><td><code>mvn compile exec:java</code> / <code>mvn test</code></td></tr>
+    <tr><td>22–27</td><td>Plain Spring (no Boot yet) Maven projects</td><td><code>mvn compile exec:java</code></td></tr>
+    <tr><td>28–71</td><td>Spring Boot Maven projects (some topics have several services)</td><td><code>mvn spring-boot:run</code> (each README gives exact steps)</td></tr>
+  </table></div>
+  <p>Every <code>lesson.html</code> has the same 10 sections, so you always know where to look: <em>Why it matters → Analogy → Concepts → Code walkthrough → How to run → Common mistakes → Best practices → Key takeaways → Exercises → Interview questions</em>.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="setup">7. One-time setup</h2>
+  <p>Good news: your machine already has <strong>Java 17 (Temurin)</strong>, <strong>Maven 3.9</strong> and <strong>Docker</strong>. Topic 1 walks through verifying them. In VS Code, install these extensions:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Extension</th><th>Why</th></tr>
+    <tr><td>Extension Pack for Java (Microsoft)</td><td>Run and debug Java, IntelliSense, Maven support</td></tr>
+    <tr><td>Spring Boot Extension Pack (VMware/Broadcom)</td><td>Spring Initializr, Boot Dashboard, properties autocomplete</td></tr>
+    <tr><td>REST Client (Huachao Mao)</td><td>Run the <code>requests.http</code> files to call your APIs</td></tr>
+    <tr><td>Docker (Microsoft)</td><td>Manage containers for MySQL, Redis, Kafka and more (from topic 43)</td></tr>
+  </table></div>
+  <pre class="terminal"><code>java -version     # should print 17.x
+mvn -v            # should print Apache Maven 3.9.x
+docker --version  # needed from topic 43 onwards</code></pre>
+  <div class="callout info"><strong>ℹ️ Databases</strong>Until topic 42 every example uses <strong>H2</strong>, an in-memory database that needs no installation. Topic 43 shows how to switch to <strong>MySQL</strong> running in Docker. Kafka, RabbitMQ, Redis and Zipkin also run with one <code>docker compose up -d</code> command each.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="topics">8. All 71 topics</h2>
+  <p>Tick the box after finishing a topic. Your progress is saved in this browser.</p>
+
+  <h3 class="section-title">Part A · Foundations: Core Java <span class="tag java">1–21</span></h3>
+  <ul class="topic-list">
+    <li><a href="1-Introduction-And-Setup/lesson.html"><span class="num">1</span><span><strong>Introduction &amp; Setup</strong><span class="desc">What Java is, JDK/JRE/JVM, VS Code setup, your first program. Real-time: how your code becomes a running app.</span></span></a></li>
+    <li><a href="2-Variables-DataTypes-Operators/lesson.html"><span class="num">2</span><span><strong>Variables, Data Types &amp; Operators</strong><span class="desc">Storing and calculating data. Real-time: shopping bill and temperature converter.</span></span></a></li>
+    <li><a href="3-Control-Flow/lesson.html"><span class="num">3</span><span><strong>Control Flow: if, switch, loops</strong><span class="desc">Making decisions and repeating work. Real-time: ATM menu.</span></span></a></li>
+    <li><a href="4-Methods-And-Arrays/lesson.html"><span class="num">4</span><span><strong>Methods &amp; Arrays</strong><span class="desc">Reusable code blocks and lists of values. Real-time: student marks report.</span></span></a></li>
+    <li><a href="5-Strings/lesson.html"><span class="num">5</span><span><strong>Strings</strong><span class="desc">Working with text, the string pool, StringBuilder. Real-time: validating usernames, formatting receipts.</span></span></a></li>
+    <li><a href="6-OOP-Classes-And-Objects/lesson.html"><span class="num">6</span><span><strong>OOP: Classes &amp; Objects</strong><span class="desc">Blueprints and objects, constructors, memory. Real-time: BankAccount.</span></span></a></li>
+    <li><a href="7-OOP-Encapsulation-And-Inheritance/lesson.html"><span class="num">7</span><span><strong>Encapsulation &amp; Inheritance</strong><span class="desc">Protecting data, reusing code with <code>extends</code>. Real-time: Employee → Manager.</span></span></a></li>
+    <li><a href="8-OOP-Polymorphism-Abstraction-Interfaces/lesson.html"><span class="num">8</span><span><strong>Polymorphism, Abstraction &amp; Interfaces</strong><span class="desc">One interface, many implementations, the key idea behind Spring. Real-time: Card/UPI/PayPal payments.</span></span></a></li>
+    <li><a href="9-Packages-Access-Modifiers-Static-Final/lesson.html"><span class="num">9</span><span><strong>Packages, Access Modifiers, static &amp; final</strong><span class="desc">Organising code like a real project. Real-time: shop package structure, Singleton.</span></span></a></li>
+    <li><a href="10-Exception-Handling/lesson.html"><span class="num">10</span><span><strong>Exception Handling</strong><span class="desc">Handling errors gracefully. Real-time: InsufficientBalanceException.</span></span></a></li>
+    <li><a href="11-Collections-Framework/lesson.html"><span class="num">11</span><span><strong>Collections Framework</strong><span class="desc">List, Set, Map, Queue, and how HashMap works. Real-time: cart, unique tags, phone book.</span></span></a></li>
+    <li><a href="12-Generics/lesson.html"><span class="num">12</span><span><strong>Generics</strong><span class="desc">Type-safe reusable code. Real-time: a generic <code>Repository&lt;T, ID&gt;</code>, a preview of Spring Data.</span></span></a></li>
+    <li><a href="13-Lambdas-And-Functional-Interfaces/lesson.html"><span class="num">13</span><span><strong>Lambdas &amp; Functional Interfaces</strong><span class="desc">Passing behaviour as data. Real-time: sorting and filtering products.</span></span></a></li>
+    <li><a href="14-Streams-API-And-Optional/lesson.html"><span class="num">14</span><span><strong>Streams API &amp; Optional</strong><span class="desc">Data pipelines and null safety. Real-time: sales reports, grouping employees.</span></span></a></li>
+    <li><a href="15-Modern-Java-Features/lesson.html"><span class="num">15</span><span><strong>Modern Java (9–17)</strong><span class="desc">Records, enums, sealed types, switch expressions, text blocks. Real-time: DTOs.</span></span></a></li>
+    <li><a href="16-File-IO-And-Date-Time/lesson.html"><span class="num">16</span><span><strong>File I/O &amp; Date-Time</strong><span class="desc">Reading and writing files, java.time. Real-time: CSV import, due dates.</span></span></a></li>
+    <li><a href="17-Multithreading-And-Concurrency/lesson.html"><span class="num">17</span><span><strong>Multithreading &amp; Concurrency</strong><span class="desc">Doing many things at once safely. Real-time: how web servers handle requests.</span></span></a></li>
+    <li><a href="18-Annotations-And-Reflection/lesson.html"><span class="num">18</span><span><strong>Annotations &amp; Reflection</strong><span class="desc">How frameworks read your code. You build a mini Spring DI container.</span></span></a></li>
+    <li><a href="19-JDBC-Basics/lesson.html"><span class="num">19</span><span><strong>JDBC &amp; SQL Basics</strong><span class="desc">Talking to a database from Java, avoiding SQL injection. Real-time: Student DAO.</span></span></a></li>
+    <li><a href="20-Maven-Build-Tool/lesson.html"><span class="num">20</span><span><strong>Maven Build Tool</strong><span class="desc">pom.xml, dependencies, lifecycle. How every Spring project is built.</span></span></a></li>
+    <li><a href="21-Unit-Testing-With-JUnit5/lesson.html"><span class="num">21</span><span><strong>Unit Testing with JUnit 5 &amp; Mockito</strong><span class="desc">Proving your code works. Real-time: testing a bank service.</span></span></a></li>
+  </ul>
+
+  <h3 class="section-title">Part B · Spring Framework Core <span class="tag">22–27</span></h3>
+  <ul class="topic-list">
+    <li><a href="22-Why-Spring-IoC-And-DI-Concepts/lesson.html"><span class="num">22</span><span><strong>Why Spring? IoC &amp; DI Concepts</strong><span class="desc">The tight-coupling problem and how Spring solves it. Real-time: Email/SMS notifications.</span></span></a></li>
+    <li><a href="23-Spring-IoC-Container-And-Beans/lesson.html"><span class="num">23</span><span><strong>IoC Container &amp; Beans</strong><span class="desc">@Component, @Service, @Bean, component scanning.</span></span></a></li>
+    <li><a href="24-Dependency-Injection-Deep-Dive/lesson.html"><span class="num">24</span><span><strong>Dependency Injection Deep Dive</strong><span class="desc">Constructor injection, @Qualifier, @Primary, @Value.</span></span></a></li>
+    <li><a href="25-Bean-Scopes-And-Lifecycle/lesson.html"><span class="num">25</span><span><strong>Bean Scopes &amp; Lifecycle</strong><span class="desc">Singleton vs prototype, @PostConstruct, BeanPostProcessor.</span></span></a></li>
+    <li><a href="26-Spring-Configuration-Profiles-And-Environment/lesson.html"><span class="num">26</span><span><strong>Configuration, Profiles &amp; Environment</strong><span class="desc">dev/prod beans, @Conditional: the secret behind Boot's auto-configuration.</span></span></a></li>
+    <li><a href="27-Spring-AOP/lesson.html"><span class="num">27</span><span><strong>Spring AOP</strong><span class="desc">Logging, timing and security across many classes. Real-time: @LogExecutionTime.</span></span></a></li>
+  </ul>
+
+  <h3 class="section-title">Part C · Spring Boot Essentials, REST &amp; Data <span class="tag">28–46</span></h3>
+  <ul class="topic-list">
+    <li><a href="28-Spring-Boot-Introduction/lesson.html"><span class="num">28</span><span><strong>Spring Boot Introduction</strong><span class="desc">Starters, auto-configuration, embedded Tomcat, your first Boot app.</span></span></a></li>
+    <li><a href="29-Configuration-Properties-And-Profiles/lesson.html"><span class="num">29</span><span><strong>Configuration Properties &amp; Profiles</strong><span class="desc">application.yml, @ConfigurationProperties, dev/prod settings.</span></span></a></li>
+    <li><a href="30-Logging-In-Spring-Boot/lesson.html"><span class="num">30</span><span><strong>Logging</strong><span class="desc">SLF4J and Logback, log levels, files, request IDs.</span></span></a></li>
+    <li><a href="31-Spring-MVC-And-REST-Fundamentals/lesson.html"><span class="num">31</span><span><strong>Spring MVC &amp; REST Fundamentals</strong><span class="desc">HTTP, REST, DispatcherServlet, your first JSON API. Real-time: Book API.</span></span></a></li>
+    <li><a href="32-Request-Handling-And-Responses/lesson.html"><span class="num">32</span><span><strong>Request Handling &amp; Responses</strong><span class="desc">@PathVariable, @RequestBody, ResponseEntity, full CRUD, CORS.</span></span></a></li>
+    <li><a href="33-Layered-Architecture-And-DTOs/lesson.html"><span class="num">33</span><span><strong>Layered Architecture &amp; DTOs</strong><span class="desc">Controller → Service → Repository, how enterprise apps are organised.</span></span></a></li>
+    <li><a href="34-Validation/lesson.html"><span class="num">34</span><span><strong>Validation</strong><span class="desc">@NotBlank, @Email, custom validators. Real-time: registration forms.</span></span></a></li>
+    <li><a href="35-Global-Exception-Handling/lesson.html"><span class="num">35</span><span><strong>Global Exception Handling</strong><span class="desc">@RestControllerAdvice, ProblemDetail, clean error responses.</span></span></a></li>
+    <li><a href="36-Thymeleaf-Server-Side-Web-Apps/lesson.html"><span class="num">36</span><span><strong>Thymeleaf Web Apps</strong><span class="desc">Server-rendered HTML pages and forms. Real-time: Todo app.</span></span></a></li>
+    <li><a href="37-Spring-JDBC-With-JdbcTemplate/lesson.html"><span class="num">37</span><span><strong>Spring JDBC (JdbcTemplate, JdbcClient)</strong><span class="desc">SQL without the boilerplate.</span></span></a></li>
+    <li><a href="38-Spring-Data-JPA-Fundamentals/lesson.html"><span class="num">38</span><span><strong>Spring Data JPA Fundamentals</strong><span class="desc">Entities, repositories, Hibernate. Real-time: Product CRUD API with a database.</span></span></a></li>
+    <li><a href="39-JPA-Queries-Derived-JPQL-Native/lesson.html"><span class="num">39</span><span><strong>JPA Queries</strong><span class="desc">Derived methods, JPQL, native SQL, projections. Real-time: library search.</span></span></a></li>
+    <li><a href="40-JPA-Relationships/lesson.html"><span class="num">40</span><span><strong>JPA Relationships</strong><span class="desc">One-to-many, many-to-many, lazy loading, the N+1 problem. Real-time: Customer → Orders.</span></span></a></li>
+    <li><a href="41-Pagination-And-Sorting/lesson.html"><span class="num">41</span><span><strong>Pagination &amp; Sorting</strong><span class="desc">Page 1 of 500 results, like every shopping site.</span></span></a></li>
+    <li><a href="42-Transactions/lesson.html"><span class="num">42</span><span><strong>Transactions</strong><span class="desc">@Transactional, rollback, propagation, locking. Real-time: bank money transfer.</span></span></a></li>
+    <li><a href="43-MySQL-And-Database-Migrations-Flyway/lesson.html"><span class="num">43</span><span><strong>MySQL &amp; Flyway Migrations</strong><span class="desc">A real database in Docker, versioned schema changes.</span></span></a></li>
+    <li><a href="44-REST-API-Best-Practices-And-OpenAPI/lesson.html"><span class="num">44</span><span><strong>REST Best Practices &amp; OpenAPI/Swagger</strong><span class="desc">Professional API design and interactive docs.</span></span></a></li>
+    <li><a href="45-Consuming-External-APIs-RestClient-WebClient/lesson.html"><span class="num">45</span><span><strong>Calling Other APIs</strong><span class="desc">RestClient, WebClient, HTTP interfaces. Real-time: calling a weather or payment API.</span></span></a></li>
+    <li><a href="46-Testing-Spring-Boot-Applications/lesson.html"><span class="num">46</span><span><strong>Testing Spring Boot Apps</strong><span class="desc">Mockito, MockMvc, @DataJpaTest, @SpringBootTest, coverage.</span></span></a></li>
+  </ul>
+
+  <h3 class="section-title">Part D · Security <span class="tag">47–50</span></h3>
+  <ul class="topic-list">
+    <li><a href="47-Spring-Security-Fundamentals/lesson.html"><span class="num">47</span><span><strong>Spring Security Fundamentals</strong><span class="desc">Authentication vs authorization, the filter chain, BCrypt, CSRF, CORS.</span></span></a></li>
+    <li><a href="48-Spring-Security-With-Database-Users-And-Roles/lesson.html"><span class="num">48</span><span><strong>Database Users &amp; Roles</strong><span class="desc">Registration, roles, @PreAuthorize. Real-time: admin vs customer.</span></span></a></li>
+    <li><a href="49-JWT-Authentication/lesson.html"><span class="num">49</span><span><strong>JWT Authentication</strong><span class="desc">Stateless token login, as used by mobile apps and SPAs.</span></span></a></li>
+    <li><a href="50-OAuth2-And-OpenID-Connect/lesson.html"><span class="num">50</span><span><strong>OAuth2 &amp; OpenID Connect</strong><span class="desc">"Login with GitHub/Google", resource servers.</span></span></a></li>
+  </ul>
+
+  <h3 class="section-title">Part E · Advanced Spring Boot <span class="tag adv">51–58</span></h3>
+  <ul class="topic-list">
+    <li><a href="51-Caching-With-Redis/lesson.html"><span class="num">51</span><span><strong>Caching with Redis</strong><span class="desc">Make slow calls instant. Real-time: product catalogue cache.</span></span></a></li>
+    <li><a href="52-Scheduling-Async-And-Events/lesson.html"><span class="num">52</span><span><strong>Scheduling, Async &amp; Events</strong><span class="desc">Nightly jobs, background tasks. Real-time: welcome emails.</span></span></a></li>
+    <li><a href="53-Actuator-Monitoring-And-Observability/lesson.html"><span class="num">53</span><span><strong>Actuator &amp; Monitoring</strong><span class="desc">Health checks, metrics, Prometheus and Grafana.</span></span></a></li>
+    <li><a href="54-File-Upload-Download-And-Emails/lesson.html"><span class="num">54</span><span><strong>File Upload/Download &amp; Emails</strong><span class="desc">Profile pictures, invoices, email attachments.</span></span></a></li>
+    <li><a href="55-Reactive-Programming-With-WebFlux/lesson.html"><span class="num">55</span><span><strong>Reactive Programming with WebFlux</strong><span class="desc">Mono, Flux, non-blocking APIs, live streams. Real-time: stock price ticker.</span></span></a></li>
+    <li><a href="56-GraphQL-With-Spring/lesson.html"><span class="num">56</span><span><strong>GraphQL</strong><span class="desc">Clients ask for exactly the data they need.</span></span></a></li>
+    <li><a href="57-Messaging-With-RabbitMQ/lesson.html"><span class="num">57</span><span><strong>Messaging with RabbitMQ</strong><span class="desc">Asynchronous communication. Real-time: order → notification.</span></span></a></li>
+    <li><a href="58-Event-Streaming-With-Apache-Kafka/lesson.html"><span class="num">58</span><span><strong>Event Streaming with Kafka</strong><span class="desc">High-volume event pipelines, as at Uber and LinkedIn.</span></span></a></li>
+  </ul>
+
+  <h3 class="section-title">Part F · Microservices, Cloud &amp; DevOps <span class="tag adv">59–70</span></h3>
+  <ul class="topic-list">
+    <li><a href="59-Microservices-Architecture-Introduction/lesson.html"><span class="num">59</span><span><strong>Microservices Architecture</strong><span class="desc">Monolith vs microservices, and when not to split.</span></span></a></li>
+    <li><a href="60-Service-Discovery-With-Eureka/lesson.html"><span class="num">60</span><span><strong>Service Discovery (Eureka)</strong><span class="desc">Services find each other automatically.</span></span></a></li>
+    <li><a href="61-API-Gateway-With-Spring-Cloud-Gateway/lesson.html"><span class="num">61</span><span><strong>API Gateway</strong><span class="desc">A single front door for all services.</span></span></a></li>
+    <li><a href="62-Centralized-Configuration-With-Config-Server/lesson.html"><span class="num">62</span><span><strong>Config Server</strong><span class="desc">All configuration in one place.</span></span></a></li>
+    <li><a href="63-Inter-Service-Communication-With-OpenFeign/lesson.html"><span class="num">63</span><span><strong>OpenFeign</strong><span class="desc">Calling another service like a Java method.</span></span></a></li>
+    <li><a href="64-Resilience-With-Resilience4j/lesson.html"><span class="num">64</span><span><strong>Resilience4j</strong><span class="desc">Circuit breakers and retries, so one failure doesn't bring everything down.</span></span></a></li>
+    <li><a href="65-Distributed-Tracing-And-Centralized-Logging/lesson.html"><span class="num">65</span><span><strong>Distributed Tracing &amp; Logging</strong><span class="desc">Follow one request across many services with Zipkin.</span></span></a></li>
+    <li><a href="66-Docker-For-Spring-Boot/lesson.html"><span class="num">66</span><span><strong>Docker for Spring Boot</strong><span class="desc">Package your app so it runs anywhere.</span></span></a></li>
+    <li><a href="67-Docker-Compose-Multi-Container-Apps/lesson.html"><span class="num">67</span><span><strong>Docker Compose</strong><span class="desc">Run the app, database and cache with one command.</span></span></a></li>
+    <li><a href="68-CI-CD-With-GitHub-Actions/lesson.html"><span class="num">68</span><span><strong>CI/CD with GitHub Actions</strong><span class="desc">Automatic build, test and Docker image on every push.</span></span></a></li>
+    <li><a href="69-Deployment-And-Kubernetes-Basics/lesson.html"><span class="num">69</span><span><strong>Deployment &amp; Kubernetes Basics</strong><span class="desc">Going to production: cloud options, a production checklist, k8s.</span></span></a></li>
+    <li><a href="70-Design-Patterns-Clean-Code-And-Best-Practices/lesson.html"><span class="num">70</span><span><strong>Design Patterns, SOLID &amp; Clean Code</strong><span class="desc">Write code senior engineers respect.</span></span></a></li>
+  </ul>
+
+  <h3 class="section-title">Part G · Capstone <span class="tag adv">71</span></h3>
+  <ul class="topic-list">
+    <li><a href="71-Capstone-Project-ECommerce-Backend/lesson.html"><span class="num">71</span><span><strong>Capstone: ShopEasy E-Commerce Backend</strong><span class="desc">JWT security, JPA, Flyway, caching, transactions, Swagger, tests, Docker, CI. Everything you learned in one enterprise project.</span></span></a></li>
+  </ul>
+
+  <h3>✅ Progress checklist</h3>
+  <div class="card" id="checklist"></div>
+
+  <!-- ===================================================== -->
+  <h2 id="plan">9. Suggested study plan</h2>
+  <p>At about <strong>1.5–2 hours a day</strong>, here is a realistic pace. Going slower is fine. Skipping topics is not.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Weeks</th><th>Topics</th><th>Milestone</th></tr>
+    <tr><td>1–2</td><td>1–5</td><td>You can write small programs with logic, loops, methods and strings.</td></tr>
+    <tr><td>3–4</td><td>6–10</td><td>You think in objects: OOP and exceptions.</td></tr>
+    <tr><td>5–6</td><td>11–16</td><td>You use collections, streams and modern Java confidently.</td></tr>
+    <tr><td>7</td><td>17–21</td><td>Threads, reflection, JDBC, Maven and testing. You are ready for Spring.</td></tr>
+    <tr><td>8–9</td><td>22–30</td><td>You understand <em>how</em> Spring works and can configure Boot apps.</td></tr>
+    <tr><td>10–12</td><td>31–42</td><td>You build full REST APIs with databases. <strong>Junior-job ready.</strong></td></tr>
+    <tr><td>13–14</td><td>43–50</td><td>Production database, docs, tests and security.</td></tr>
+    <tr><td>15–16</td><td>51–58</td><td>Advanced features used in high-scale systems.</td></tr>
+    <tr><td>17–19</td><td>59–70</td><td>Microservices, Docker, CI/CD, Kubernetes and design.</td></tr>
+    <tr><td>20–21</td><td>71</td><td>Capstone done. Put it on GitHub and your résumé.</td></tr>
+  </table></div>
+
+  <!-- ===================================================== -->
+  <h2 id="projects">10. Real-time projects you build along the way</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Project / example</th><th>Topic(s)</th><th>Real-world skill</th></tr>
+    <tr><td>ATM menu, marks report, bill calculator</td><td>3–4</td><td>Logic and problem solving</td></tr>
+    <tr><td>Bank account with custom exceptions</td><td>6–10</td><td>OOP modelling, error handling</td></tr>
+    <tr><td>Payment system (Card / UPI / PayPal)</td><td>8</td><td>Interfaces and loose coupling</td></tr>
+    <tr><td>Mini dependency-injection container</td><td>18</td><td>Understanding how Spring works inside</td></tr>
+    <tr><td>Student DAO with JDBC</td><td>19</td><td>Databases and SQL injection safety</td></tr>
+    <tr><td>Book / Product / Employee REST APIs</td><td>31–35</td><td>Building and structuring APIs</td></tr>
+    <tr><td>Thymeleaf Todo web app</td><td>36</td><td>Server-rendered web pages</td></tr>
+    <tr><td>Library search, Customer–Orders data model</td><td>38–41</td><td>JPA, relationships, pagination</td></tr>
+    <tr><td>Bank transfer with rollback</td><td>42</td><td>Transactions and data integrity</td></tr>
+    <tr><td>Secured API with JWT and roles</td><td>47–49</td><td>Authentication and authorisation</td></tr>
+    <tr><td>Order → notification via RabbitMQ and Kafka</td><td>57–58</td><td>Event-driven architecture</td></tr>
+    <tr><td>Product + Order microservices with Eureka, Gateway, Feign and circuit breaker</td><td>59–65</td><td>Distributed systems</td></tr>
+    <tr><td>Dockerised app + MySQL, CI pipeline, k8s manifests</td><td>66–69</td><td>DevOps and deployment</td></tr>
+    <tr><td><strong>ShopEasy e-commerce backend</strong></td><td>71</td><td>Everything together, at portfolio quality</td></tr>
+  </table></div>
+
+  <!-- ===================================================== -->
+  <h2 id="habits">11. How to learn effectively</h2>
+  <div class="grid">
+    <div class="card"><strong>⌨️ Type, don't copy</strong><br>Retype the examples yourself. Your fingers learn syntax faster than your eyes.</div>
+    <div class="card"><strong>🐞 Love errors</strong><br>Read the whole error message, especially the first "Caused by" line. Most answers are there.</div>
+    <div class="card"><strong>🔁 Revise</strong><br>Every weekend, re-read the "Key takeaways" of the week's topics and answer the interview questions.</div>
+    <div class="card"><strong>🧠 Explain it</strong><br>If you can explain a topic to a friend in two minutes, you have learned it.</div>
+    <div class="card"><strong>🛠️ Build a side project</strong><br>After topic 42, start your own small app, such as a library or expense tracker, and grow it with each topic.</div>
+    <div class="card"><strong>📁 Use Git</strong><br>Commit your exercise solutions to GitHub. Topic 68 covers Git basics. Recruiters look at GitHub.</div>
+  </div>
+  <div class="callout warn"><strong>⚠️ The #1 beginner trap</strong>Watching or reading without coding. Every lesson has runnable code and exercises. If you didn't run it, you didn't learn it.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="career">12. Skills, career and interview readiness</h2>
+  <div class="table-wrap"><table>
+    <tr><th>After topic…</th><th>Typical level</th><th>What interviewers expect, and where you learned it</th></tr>
+    <tr><td>21</td><td>Strong Java fundamentals</td><td>OOP, collections, HashMap internals, streams, exceptions, multithreading basics (6–17)</td></tr>
+    <tr><td>46</td><td>Junior backend developer</td><td>IoC/DI, bean scopes, REST, layers, validation, exception handling, JPA, transactions, testing (22–46)</td></tr>
+    <tr><td>58</td><td>Mid-level backend developer</td><td>Security/JWT, caching, async, messaging, monitoring (47–58)</td></tr>
+    <tr><td>71</td><td>Strong mid-level, heading to senior</td><td>Microservices patterns, Docker/K8s, CI/CD, SOLID and design patterns, an end-to-end project (59–71)</td></tr>
+  </table></div>
+  <p>Every lesson ends with interview questions and answers. Together they form a complete Java + Spring Boot interview bank of 500+ questions.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="glossary">13. Mini glossary</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Term</th><th>Simple meaning</th><th>Topic</th></tr>
+    <tr><td>JVM</td><td>The engine that runs Java bytecode on any operating system</td><td>1</td></tr>
+    <tr><td>Class / Object</td><td>A blueprint, and a thing built from it</td><td>6</td></tr>
+    <tr><td>Interface</td><td>A contract: "anything that implements me can do X"</td><td>8</td></tr>
+    <tr><td>Annotation</td><td>A label on code (<code>@Something</code>) that tools and frameworks read</td><td>18</td></tr>
+    <tr><td>Maven / pom.xml</td><td>The build tool and its recipe file listing libraries</td><td>20</td></tr>
+    <tr><td>IoC</td><td>Inversion of Control: the framework creates and connects your objects, not you</td><td>22</td></tr>
+    <tr><td>DI</td><td>Dependency Injection: objects receive what they need instead of creating it</td><td>22–24</td></tr>
+    <tr><td>Bean</td><td>An object created and managed by Spring</td><td>23</td></tr>
+    <tr><td>AOP</td><td>Adding behaviour (logging, transactions) around methods without editing them</td><td>27</td></tr>
+    <tr><td>Starter</td><td>A Spring Boot dependency bundle, e.g. <code>spring-boot-starter-web</code></td><td>28</td></tr>
+    <tr><td>Auto-configuration</td><td>Boot sets things up based on what is on your classpath</td><td>28</td></tr>
+    <tr><td>REST API</td><td>A way for programs to talk over HTTP using URLs and JSON</td><td>31</td></tr>
+    <tr><td>DTO</td><td>Data Transfer Object: the shape of data sent to or received from clients</td><td>33</td></tr>
+    <tr><td>Entity / JPA / Hibernate</td><td>A Java class mapped to a database table, the standard for doing it, and the library that implements it</td><td>38</td></tr>
+    <tr><td>Transaction</td><td>All-or-nothing database work</td><td>42</td></tr>
+    <tr><td>JWT</td><td>A signed token that proves who you are on each request</td><td>49</td></tr>
+    <tr><td>Microservice</td><td>A small, independently deployable service that owns one business area</td><td>59</td></tr>
+    <tr><td>Circuit breaker</td><td>Stops calling a failing service for a while, like a fuse at home</td><td>64</td></tr>
+    <tr><td>Container / Docker</td><td>A packaged app plus everything it needs, running the same everywhere</td><td>66</td></tr>
+    <tr><td>CI/CD</td><td>Automatic build, test and release on every code change</td><td>68</td></tr>
+  </table></div>
+
+  <div class="callout tip" style="margin-top:40px">
+    <strong>🚀 Ready?</strong>
+    Open <a href="1-Introduction-And-Setup/lesson.html"><strong>Topic 1 · Introduction &amp; Setup</strong></a>. You are about 20 weeks of steady practice away from building enterprise Java applications.
+  </div>
+</main>
+
+<script>
+  // Build the progress checklist (same keys as the "Mark this topic as done" box on each lesson page)
+  (function () {
+    var box = document.getElementById("checklist");
+    var links = document.querySelectorAll(".topic-list a");
+    var html = '<div class="grid">';
+    links.forEach(function (a) {
+      var folder = a.getAttribute("href").split("/")[0];
+      var title = a.querySelector("strong").textContent;
+      var num = a.querySelector(".num").textContent;
+      html += '<label class="progress-box"><input type="checkbox" class="done-check" data-topic="' + folder + '"> ' + num + '. ' + title + '</label>';
+    });
+    box.innerHTML = html + "</div>";
+  })();
+</script>
+</body>
+</html>

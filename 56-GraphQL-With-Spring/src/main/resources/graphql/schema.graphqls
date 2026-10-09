@@ -1,0 +1,50 @@
+# ------------------------------------------------------------------
+# Topic 56 - The GraphQL SCHEMA (the contract between client and server)
+#
+#  - "type"   = an object the API can return (like a DTO)
+#  - Query    = the read operations   (like GET in REST)
+#  - Mutation = the write operations  (like POST/PUT/DELETE in REST)
+#  - input    = an object the client SENDS (arguments for mutations)
+#  - "!"      = non-null (always has a value)
+#  - [Book!]! = a non-null list of non-null books
+# ------------------------------------------------------------------
+
+type Query {
+    "All books in the library"
+    books: [Book!]!
+    "One book, or null if it does not exist"
+    bookById(id: ID!): Book
+    "Books whose title contains the given text (case-insensitive)"
+    searchBooks(title: String!): [Book!]!
+    authors: [Author!]!
+    authorById(id: ID!): Author
+}
+
+type Mutation {
+    "Add a new book and return it"
+    addBook(input: BookInput!): Book!
+    "Delete a book. Returns true when it was deleted."
+    deleteBook(id: ID!): Boolean!
+}
+
+type Book {
+    id: ID!
+    title: String!
+    pages: Int!
+    "Resolved by a @BatchMapping in BookController (avoids the N+1 problem)"
+    author: Author!
+}
+
+type Author {
+    id: ID!
+    name: String!
+    country: String
+    "Resolved by a @SchemaMapping in BookController"
+    books: [Book!]!
+}
+
+input BookInput {
+    title: String!
+    pages: Int!
+    authorId: ID!
+}

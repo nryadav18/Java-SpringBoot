@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Topic 30 - logback-spring.xml
+  ==============================
+  Spring Boot finds this file automatically in src/main/resources.
+  The "-spring" in the name lets us use Spring extras like <springProfile> and <springProperty>.
+
+  Building blocks:
+    appender = WHERE logs go (console, file, ...)
+    encoder  = HOW one line looks (the pattern)
+    logger   = WHICH package logs at WHICH level
+    root     = the default logger for everything
+-->
+<configuration>
+
+    <!-- Re-use Spring Boot's defaults (colour converters, default patterns, etc.) -->
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!-- Read a value from application.properties into this file -->
+    <springProperty scope="context" name="APP_NAME" source="spring.application.name" defaultValue="app"/>
+
+    <property name="LOG_DIR" value="logs"/>
+
+    <!--
+      Our pattern. %X{requestId} prints the MDC value put there by RequestIdFilter.
+      %d = date/time, %thread = thread name, %-5level = level padded to 5 chars,
+      %logger{36} = logger name shortened to 36 chars, %msg = message, %n = new line.
+    -->
+    <property name="LINE_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [req:%X{requestId:-none}] %logger{36} - %msg%n"/>
+
+    <!-- 1) CONSOLE appender (with colours) -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %clr(%-5level) [%thread] [req:%X{requestId:-none}] %clr(%logger{36}){cyan} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- 2) ROLLING FILE appender:
+           - writes to logs/food-delivery.log
+           - starts a NEW file every day OR when the file reaches 10MB
+           - keeps 7 days of history and at most 100MB in total (old files are deleted) -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/${APP_NAME}.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/${APP_NAME}-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>10MB</maxFileSize>
+            <maxHistory>7</maxHistory>
+            <totalSizeCap>100MB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LINE_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Profile-specific settings. Activate with -Dspring-boot.run.profiles=prod -->
+    <springProfile name="prod">
+        <!-- In production: our code at INFO only -->
+        <logger name="com.course.loggingdemo" level="INFO"/>
+    </springProfile>
+
+    <!-- Everything not configured elsewhere: INFO, to console and file.
+         Levels from application.properties (logging.level.*) are still applied on top. -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+</configuration>

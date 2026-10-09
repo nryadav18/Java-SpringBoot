@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>34 · Validation</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 34</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>34. Validation</h1>
+  <p class="subtitle">Stop bad data at the front door: add a few annotations to your DTOs and Spring rejects invalid requests with a clear 400 Bad Request before your code even runs.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="34-Validation"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Why input must be validated at the <b>API boundary</b> — and why "the front-end already checks it" is not enough.</li>
+      <li>What <b>Jakarta Bean Validation</b> and <b>Hibernate Validator</b> are, and how <code>spring-boot-starter-validation</code> adds them.</li>
+      <li>The most useful constraint annotations: <code>@NotNull</code>, <code>@NotBlank</code>, <code>@Size</code>, <code>@Email</code>, <code>@Min</code>, <code>@Max</code>, <code>@Positive</code>, <code>@Pattern</code>, <code>@Past</code>, <code>@Future</code> and friends.</li>
+      <li>Triggering validation with <code>@Valid</code> on <code>@RequestBody</code>.</li>
+      <li>Validating <code>@PathVariable</code> and <code>@RequestParam</code> values (and the <code>@Validated</code> story).</li>
+      <li><b>Nested</b> validation and validating <b>list elements</b>.</li>
+      <li>Writing your own annotations: <code>@StrongPassword</code> and <code>@ValidPhoneNumber</code>.</li>
+      <li><b>Validation groups</b> (create vs update) — briefly.</li>
+      <li>What Spring's <b>default</b> error response looks like (we make it beautiful in topic 35).</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../33-Layered-Architecture-And-DTOs/lesson.html">Topic 33 · Layered Architecture &amp; DTOs</a> and <a href="../18-Annotations-And-Reflection/lesson.html">Topic 18 · Annotations</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Your API is a door to the outside world. Anyone can knock: your own web page, a mobile app, a partner company, a curious student with <code>curl</code>, or an attacker. Some of them will send nonsense:</p>
+  <ul>
+    <li>An empty name, an email like <code>"abc"</code>, an age of <code>-5</code>.</li>
+    <li>A booking for a date in 1990, or for 5,000 seats.</li>
+    <li>A 10 MB string in the "first name" field.</li>
+  </ul>
+  <p>If bad data gets inside, it spreads: wrong reports, crashes deep in the code (<code>NullPointerException</code>), corrupted database rows, or security holes. The cheapest place to stop it is <b>right at the entrance</b> — the API boundary — before any business logic runs.</p>
+  <div class="callout warn"><strong>⚠️ "But the front-end already validates!"</strong> Front-end checks are for user <i>comfort</i> (instant feedback). They are <b>not security</b>. Anyone can skip your web page and call the API directly with curl or Postman. The <b>server must always validate</b>.</div>
+  <p>Writing <code>if (name == null || name.isBlank()) ...</code> for every field in every endpoint is long, repetitive and easy to forget. Bean Validation lets you write the rule <b>once</b>, as an annotation, right next to the field.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🛂 Think of the security check at an airport</strong>
+    Before you reach the plane (your business logic), staff at the entrance check your documents: <i>Is there a name on the ticket? Is the passport valid (not expired — a date in the future)? Is your bag under 7 kg (a maximum)?</i>
+    <ul>
+      <li>The <b>rules</b> are printed on a board (the annotations on your DTO).</li>
+      <li>The <b>officer</b> who checks them is always the same, no matter which flight (Hibernate Validator).</li>
+      <li>If something is wrong you are stopped <b>immediately</b>, told <b>exactly what</b> is wrong ("bag too heavy"), and you never reach the plane (HTTP 400 — your controller method is never called).</li>
+      <li>Some airports have special rules — e.g. "liquids in a clear bag" (custom validators).</li>
+    </ul>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Jakarta Bean Validation, Hibernate Validator, and the starter</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Name</th><th>What it is</th></tr>
+    <tr><td><b>Jakarta Bean Validation</b> (package <code>jakarta.validation</code>)</td><td>A <b>specification</b> — a standard list of annotations (<code>@NotBlank</code>, <code>@Email</code>…) and interfaces. It used to be called <i>javax.validation</i> before Spring Boot 3.</td></tr>
+    <tr><td><b>Hibernate Validator</b></td><td>The <b>implementation</b> — the engine that actually checks the annotations. (Same company as Hibernate ORM, but a separate library; you don't need a database.)</td></tr>
+    <tr><td><b><code>spring-boot-starter-validation</code></b></td><td>The Spring Boot starter that brings both, and plugs them into Spring MVC automatically.</td></tr>
+  </table></div>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-validation&lt;/artifactId&gt;
+&lt;/dependency&gt;</code></pre>
+  <div class="callout danger"><strong>🛑 Very common trap</strong> <code>spring-boot-starter-web</code> does <b>not</b> include validation any more (since Spring Boot 2.3). Without the validation starter, your code still <b>compiles</b> if the annotations are on the classpath, but every <code>@NotBlank</code> is <b>silently ignored</b>. If validation "does nothing", check this dependency first.</div>
+
+  <h3>3.2 The flow: where validation happens</h3>
+  <div class="flow">
+    <span class="box">JSON request</span><span class="arrow">→</span>
+    <span class="box alt">Jackson creates the DTO</span><span class="arrow">→</span>
+    <span class="box info">@Valid? → Validator checks every rule</span><span class="arrow">→</span>
+    <span class="box">✅ all OK → controller method runs</span>
+  </div>
+  <div class="flow">
+    <span class="box info">Validator finds problems</span><span class="arrow">→</span>
+    <span class="box alt">MethodArgumentNotValidException</span><span class="arrow">→</span>
+    <span class="box">HTTP 400 Bad Request<br><small>controller never called</small></span>
+  </div>
+  <p>The great news: if your controller method is running, the input is <b>guaranteed</b> to be valid. No <code>if</code> checks needed.</p>
+
+  <h3>3.3 Constraint annotations — the cheat sheet</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Annotation</th><th>Rule</th><th>Typical use</th><th>Example</th></tr>
+    <tr><td><code>@NotNull</code></td><td>Value is not <code>null</code> (empty string <code>""</code> is OK!)</td><td>Objects, numbers, dates, nested DTOs</td><td><code>@NotNull Integer age</code></td></tr>
+    <tr><td><code>@NotEmpty</code></td><td>Not null AND length/size &gt; 0 (<code>" "</code> is OK)</td><td>Collections, arrays</td><td><code>@NotEmpty List&lt;String&gt; tags</code></td></tr>
+    <tr><td><code>@NotBlank</code></td><td>Not null AND at least one non-space character</td><td><b>Strings</b> (the one you want 95% of the time)</td><td><code>@NotBlank String name</code></td></tr>
+    <tr><td><code>@Size(min, max)</code></td><td>Length of a String / size of a collection</td><td>Names, passwords, lists</td><td><code>@Size(min = 2, max = 50)</code></td></tr>
+    <tr><td><code>@Email</code></td><td>Looks like an email address</td><td>Email fields</td><td><code>@Email String email</code></td></tr>
+    <tr><td><code>@Min(value)</code> / <code>@Max(value)</code></td><td>Whole number ≥ / ≤ value</td><td>Age, quantity</td><td><code>@Min(18) @Max(120)</code></td></tr>
+    <tr><td><code>@DecimalMin</code> / <code>@DecimalMax</code></td><td>Like Min/Max, value given as text, works with decimals</td><td><code>BigDecimal</code> prices</td><td><code>@DecimalMin("0.01")</code></td></tr>
+    <tr><td><code>@Positive</code> / <code>@PositiveOrZero</code></td><td>&gt; 0 / ≥ 0</td><td>Quantities, prices, discounts</td><td><code>@Positive Integer seats</code></td></tr>
+    <tr><td><code>@Negative</code> / <code>@NegativeOrZero</code></td><td>&lt; 0 / ≤ 0</td><td>Rare (debits, offsets)</td><td></td></tr>
+    <tr><td><code>@Pattern(regexp)</code></td><td>String matches a regular expression</td><td>PIN codes, product codes</td><td><code>@Pattern(regexp = "\\d{6}")</code></td></tr>
+    <tr><td><code>@Past</code> / <code>@PastOrPresent</code></td><td>Date/time before now (or now)</td><td>Date of birth</td><td><code>@Past LocalDate dateOfBirth</code></td></tr>
+    <tr><td><code>@Future</code> / <code>@FutureOrPresent</code></td><td>Date/time after now (or now)</td><td>Bookings, expiry dates</td><td><code>@Future LocalDate eventDate</code></td></tr>
+    <tr><td><code>@AssertTrue</code> / <code>@AssertFalse</code></td><td>Boolean must be true / false</td><td>"I accept the terms"</td><td><code>@AssertTrue boolean termsAccepted</code></td></tr>
+    <tr><td><code>@Digits(integer, fraction)</code></td><td>Max digits before/after the decimal point</td><td>Money</td><td><code>@Digits(integer = 8, fraction = 2)</code></td></tr>
+    <tr><td><code>@Null</code></td><td>Must be <code>null</code></td><td>"Client must not send an id" (groups)</td><td><code>@Null Long id</code></td></tr>
+    <tr><td><code>@Valid</code></td><td>"Go inside this object and validate it too"</td><td>Nested DTOs, lists of DTOs</td><td><code>@Valid AddressRequest address</code></td></tr>
+  </table></div>
+
+  <h4>@NotNull vs @NotEmpty vs @NotBlank — the classic interview question</h4>
+  <div class="table-wrap"><table>
+    <tr><th>Value</th><th><code>@NotNull</code></th><th><code>@NotEmpty</code></th><th><code>@NotBlank</code></th></tr>
+    <tr><td><code>null</code></td><td>❌</td><td>❌</td><td>❌</td></tr>
+    <tr><td><code>""</code></td><td>✅</td><td>❌</td><td>❌</td></tr>
+    <tr><td><code>"   "</code></td><td>✅</td><td>✅</td><td>❌</td></tr>
+    <tr><td><code>"Asha"</code></td><td>✅</td><td>✅</td><td>✅</td></tr>
+  </table></div>
+
+  <h4>Important rule: most constraints accept <code>null</code></h4>
+  <p><code>@Size</code>, <code>@Email</code>, <code>@Min</code>, <code>@Pattern</code>, <code>@Past</code>, … all treat <code>null</code> as <b>valid</b>. That sounds strange, but it is smart: each annotation checks <b>one</b> thing. "Is it present?" is the job of <code>@NotNull</code>/<code>@NotBlank</code>. So:</p>
+  <pre><code class="lang-java">@Email String email;               // null is OK, "abc" is not  -&gt; an OPTIONAL email
+@NotBlank @Email String email;     // must exist AND look valid  -&gt; a REQUIRED email</code></pre>
+
+  <h4>Custom messages and placeholders</h4>
+  <p>Every annotation has a <code>message</code> attribute. Inside it you can use the annotation's own attributes as <code>{placeholders}</code>:</p>
+  <pre><code class="lang-java">@Size(min = 2, max = 50, message = "Name must be between {min} and {max} characters")
+@Min(value = 18, message = "You must be at least {value} years old")</code></pre>
+  <p>Without a <code>message</code>, you get a default English text such as <i>"must not be blank"</i> or <i>"size must be between 2 and 50"</i>.</p>
+  <div class="callout info"><strong>ℹ️ Messages from a file</strong> Real apps often keep messages in <code>src/main/resources/ValidationMessages.properties</code> (e.g. <code>user.name.size=Name must be between {min} and {max} characters</code>) and write <code>message = "{user.name.size}"</code>. This allows translations such as <code>ValidationMessages_hi.properties</code>.</div>
+
+  <h3>3.4 Annotations on records</h3>
+  <p>Our DTOs are records (topic 33). Put the annotations directly on the record components:</p>
+  <pre><code class="lang-java">public record RegisterUserRequest(
+        @NotBlank(message = "Name is required")
+        @Size(min = 2, max = 50)
+        String name,
+
+        @NotNull @Min(18) @Max(120)
+        Integer age                     // Integer, not int!
+) { }</code></pre>
+  <div class="callout tip"><strong>💡 Use wrapper types (<code>Integer</code>, <code>Long</code>, <code>Boolean</code>) in request DTOs</strong> If the client forgets <code>"age"</code>, an <code>int</code> silently becomes <code>0</code> and you cannot tell "missing" from "zero". An <code>Integer</code> becomes <code>null</code>, and <code>@NotNull</code> catches it.</div>
+
+  <h3>3.5 Triggering validation: <code>@Valid</code> on <code>@RequestBody</code></h3>
+  <p>Annotations on the DTO are only <i>rules</i>. Something must say "check them now!". That is <code>@Valid</code> on the controller parameter:</p>
+  <pre><code class="lang-java">@PostMapping
+public ResponseEntity&lt;UserResponse&gt; register(@Valid @RequestBody RegisterUserRequest request) {
+    // reaching this line means: request is valid
+}</code></pre>
+  <p>Forget <code>@Valid</code> and nothing is checked. On failure Spring throws <code>MethodArgumentNotValidException</code>, which Spring turns into <b>400 Bad Request</b>. <b>All</b> errors are collected (not only the first), so the client can fix everything in one go.</p>
+  <p><code>@Validated</code> (Spring's own annotation, from <code>org.springframework.validation.annotation</code>) works here too, and it can also choose <b>validation groups</b> — see 3.9.</p>
+
+  <h3>3.6 Validating <code>@PathVariable</code> and <code>@RequestParam</code></h3>
+  <p>Simple parameters are not objects, so there is nothing to put <code>@Valid</code> on. Instead you put the constraint <b>directly on the parameter</b>:</p>
+  <pre><code class="lang-java">@GetMapping("/{id}")
+public ResponseEntity&lt;UserResponse&gt; getById(@PathVariable @Min(1) Long id) { ... }
+
+@GetMapping("/search")
+public List&lt;UserResponse&gt; search(@RequestParam @NotBlank @Size(min = 2, max = 30) String name) { ... }</code></pre>
+  <p>This is called <b>method validation</b> (validating a method's parameters). There are two ways it can be switched on — you will meet both in real projects:</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Modern way (Spring 6.1+ / Boot 3.2+) — used in this project</th><th>Classic way — <code>@Validated</code> on the class</th></tr>
+    <tr><td>How</td><td>Just put the constraint on the parameter. Spring MVC sees it and validates <b>built-in</b>.</td><td>Add <code>@Validated</code> on the controller class. Spring wraps the controller in an AOP proxy (topic 27) that validates.</td></tr>
+    <tr><td>Exception</td><td><code>HandlerMethodValidationException</code></td><td><code>ConstraintViolationException</code></td></tr>
+    <tr><td>Default status</td><td><b>400</b> Bad Request ✅</td><td><b>500</b> Internal Server Error ❌ (until you handle it — topic 35)</td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Don't mix them</strong> If the class has <code>@Validated</code>, Spring MVC skips its built-in method validation and lets the AOP proxy do it — so you suddenly get 500 instead of 400. In Spring Boot 3.2+ projects, <b>leave <code>@Validated</code> off the controller class</b> unless you really need the classic behaviour. (In older Spring Boot versions, <code>@Validated</code> on the class was <i>required</i> for parameter validation — that's why old tutorials show it everywhere.)</div>
+  <p>Method validation is not only for controllers. You can validate the parameters of any Spring bean, e.g. a service, by putting <code>@Validated</code> on that class:</p>
+  <pre><code class="lang-java">@Service
+@Validated                                        // AOP proxy validates parameters
+public class ReportService {
+    public Report monthly(@Min(1) @Max(12) int month) { ... }   // ConstraintViolationException if invalid
+}</code></pre>
+
+  <h3>3.7 Nested validation</h3>
+  <p>A user has an address, and the address has its own rules. By default the validator does <b>not</b> look inside nested objects. You must say "go inside" with <code>@Valid</code> on the field:</p>
+  <pre><code class="lang-java">public record RegisterUserRequest(
+        ...
+        @NotNull(message = "Address is required")   // the address must exist
+        @Valid                                       // ...and its own fields must be valid
+        AddressRequest address
+) { }
+
+public record AddressRequest(
+        @NotBlank String street,
+        @NotBlank String city,
+        @NotBlank @Pattern(regexp = "\\d{6}") String pinCode
+) { }</code></pre>
+  <p>Error field names show the path: <code>address.street</code>, <code>address.pinCode</code>. The same works for lists of DTOs: <code>List&lt;@Valid OrderItemRequest&gt; items</code>.</p>
+  <h4>Validating list elements</h4>
+  <p>Constraints can go <i>inside</i> the generic type, so every element is checked:</p>
+  <pre><code class="lang-java">@Size(max = 5)                              // the list: at most 5 items
+List&lt;@NotBlank String&gt; interests             // every item: not blank</code></pre>
+  <p>An empty item gives an error on field <code>interests[0]</code>.</p>
+
+  <h3>3.8 Custom constraints: <code>@StrongPassword</code></h3>
+  <p>Built-in annotations can't express everything. "A password needs 8+ characters, an uppercase letter, a lowercase letter, a digit and a special character" — we write our own annotation. It needs <b>two pieces</b>:</p>
+  <div class="flow">
+    <span class="box alt">@StrongPassword<br><small>the annotation (the rule's name)</small></span><span class="arrow">→ @Constraint(validatedBy = …) →</span>
+    <span class="box info">StrongPasswordValidator<br><small>the class with the check</small></span>
+  </div>
+  <pre><span class="file">validation/StrongPassword.java</span><code class="lang-java">@Documented
+@Constraint(validatedBy = StrongPasswordValidator.class)         // who checks it
+@Target({ElementType.FIELD, ElementType.PARAMETER, ElementType.RECORD_COMPONENT,
+        ElementType.METHOD, ElementType.TYPE_USE})              // where it may be placed
+@Retention(RetentionPolicy.RUNTIME)                              // visible at runtime (topic 18)
+public @interface StrongPassword {
+
+    String message() default "Password must be at least {minLength} characters and contain "
+            + "an uppercase letter, a lowercase letter, a digit and a special character";
+
+    int minLength() default 8;                                   // our own attribute
+
+    Class&lt;?&gt;[] groups() default {};                              // REQUIRED by the spec
+    Class&lt;? extends Payload&gt;[] payload() default {};             // REQUIRED by the spec
+}</code></pre>
+  <pre><span class="file">validation/StrongPasswordValidator.java</span><code class="lang-java">public class StrongPasswordValidator implements ConstraintValidator&lt;StrongPassword, String&gt; {
+
+    private int minLength;
+
+    @Override
+    public void initialize(StrongPassword annotation) {
+        this.minLength = annotation.minLength();     // read the annotation's settings once
+    }
+
+    @Override
+    public boolean isValid(String password, ConstraintValidatorContext context) {
+        if (password == null) {
+            return true;                              // presence is @NotBlank's job
+        }
+        boolean longEnough = password.length() &gt;= minLength;
+        boolean hasUpper   = password.chars().anyMatch(Character::isUpperCase);
+        boolean hasLower   = password.chars().anyMatch(Character::isLowerCase);
+        boolean hasDigit   = password.chars().anyMatch(Character::isDigit);
+        boolean hasSpecial = password.chars().anyMatch(ch -&gt; !Character.isLetterOrDigit(ch));
+        return longEnough &amp;&amp; hasUpper &amp;&amp; hasLower &amp;&amp; hasDigit &amp;&amp; hasSpecial;
+    }
+}</code></pre>
+  <p>Use it like any built-in one: <code>@NotBlank @StrongPassword String password</code>.</p>
+  <ul>
+    <li><code>ConstraintValidator&lt;StrongPassword, String&gt;</code> — "I validate <code>@StrongPassword</code> on <code>String</code> values".</li>
+    <li>The three attributes <code>message</code>, <code>groups</code>, <code>payload</code> are <b>mandatory</b>; forget one and you get a <code>ConstraintDefinitionException</code> at runtime.</li>
+    <li>Validator classes are created by Spring, so you may even inject beans into them (e.g. a repository to check "username not taken") — but keep database checks in the service when possible.</li>
+  </ul>
+  <p>The project also contains <code>@ValidPhoneNumber</code> (Indian mobile numbers: 10 digits starting 6–9, optional <code>+91</code>), built the same way with a precompiled regex.</p>
+  <div class="callout info"><strong>ℹ️ Cross-field rules</strong> "checkOut must be after checkIn" or "password and confirmPassword must match" involve <b>two</b> fields. Put a custom annotation on the <b>class</b> (<code>@Target(ElementType.TYPE)</code>) and let the validator receive the whole object. See exercise 5.</div>
+
+  <h3>3.9 Validation groups (brief)</h3>
+  <p>Sometimes one DTO needs different rules in different situations. Example: when <b>creating</b> a product the client must <b>not</b> send an <code>id</code>; when <b>updating</b>, the <code>id</code> is <b>required</b>.</p>
+  <pre><code class="lang-java">public final class ValidationGroups {
+    public interface OnCreate extends Default { }    // empty "label" interfaces
+    public interface OnUpdate extends Default { }
+}
+
+public record ProductRequest(
+        @Null(groups = OnCreate.class)  @NotNull(groups = OnUpdate.class) Long id,
+        @NotBlank String name,                        // no groups -&gt; Default group
+        @NotNull @Positive BigDecimal price
+) { }
+
+@PostMapping  public ... create(@Validated(OnCreate.class) @RequestBody ProductRequest r)
+@PutMapping   public ... update(@Validated(OnUpdate.class) @RequestBody ProductRequest r)</code></pre>
+  <ul>
+    <li><code>@Valid</code> can't pick a group; Spring's <code>@Validated(Group.class)</code> can.</li>
+    <li>Why <code>extends Default</code>? Constraints without <code>groups</code> belong to the <code>Default</code> group. If <code>OnCreate</code> did not extend <code>Default</code>, <code>@Validated(OnCreate.class)</code> would skip <code>@NotBlank name</code>!</li>
+    <li>Honest advice: two small DTOs (<code>CreateProductRequest</code>, <code>UpdateProductRequest</code>) are often clearer than groups. Use groups when a team already does.</li>
+  </ul>
+
+  <h3>3.10 The default error response</h3>
+  <p>When validation fails, what does the client receive? Out of the box, Spring Boot sends only:</p>
+  <pre><code class="lang-json">{
+  "timestamp": "2026-10-09T04:36:56.754+00:00",
+  "status": 400,
+  "error": "Bad Request",
+  "path": "/api/users"
+}</code></pre>
+  <p>Correct status — but the client has <b>no idea which field</b> was wrong. Spring Boot hides details by default (it is safer). For learning, we switched two properties on in <code>application.properties</code>:</p>
+  <pre><span class="file">application.properties</span><code class="lang-properties">server.error.include-message=always
+server.error.include-binding-errors=always</code></pre>
+  <p>Now the error contains a <code>message</code> and an <code>errors</code> array. It works, but each error looks like this — long and technical:</p>
+  <pre><code class="lang-json">{"objectName":"registerUserRequest","field":"age","rejectedValue":15,
+ "codes":["Min.registerUserRequest.age","Min.age","Min.java.lang.Integer","Min"],
+ "arguments":[...],"defaultMessage":"You must be at least 18 years old",
+ "bindingFailure":false,"code":"Min"}</code></pre>
+  <p>A front-end developer wants something like <code>{"field":"age","message":"You must be at least 18 years old"}</code>. In <a href="../35-Global-Exception-Handling/lesson.html">topic 35</a> we catch <code>MethodArgumentNotValidException</code> ourselves and return exactly that.</p>
+
+  <h3>3.11 Format validation vs business validation</h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Format (input) validation</th><th>Business validation</th></tr>
+    <tr><td>Question</td><td>"Is this data well-formed?"</td><td>"Is this allowed right now?"</td></tr>
+    <tr><td>Examples</td><td>Not blank, valid email, age ≥ 18, date in future</td><td>Email not already registered, product in stock, account has enough balance</td></tr>
+    <tr><td>Needs the database?</td><td>No</td><td>Usually yes</td></tr>
+    <tr><td>Where</td><td>Annotations on DTOs (this topic)</td><td>Service layer code, throwing exceptions (topics 33 &amp; 35)</td></tr>
+  </table></div>
+  <p>Also keep <b>database constraints</b> (<code>NOT NULL</code>, <code>UNIQUE</code>, column lengths) as the last safety net. Validation in three places sounds like a lot, but each has a different job.</p>
+
+  <h3>3.12 Programmatic validation (good to know)</h3>
+  <p>Sometimes data doesn't come through a controller — e.g. rows from a CSV file. You can inject the <code>Validator</code> and call it yourself:</p>
+  <pre><code class="lang-java">@Service
+public class CsvImportService {
+    private final jakarta.validation.Validator validator;   // auto-configured by Spring Boot
+    public CsvImportService(jakarta.validation.Validator validator) { this.validator = validator; }
+
+    public void importRow(RegisterUserRequest row) {
+        Set&lt;ConstraintViolation&lt;RegisterUserRequest&gt;&gt; violations = validator.validate(row);
+        if (!violations.isEmpty()) {
+            throw new ConstraintViolationException(violations);
+        }
+        // ...save
+    }
+}</code></pre>
+  <p>Our unit test <code>RegisterUserRequestValidationTest</code> does exactly this, without Spring.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder (Java code under <code>src/main/java/com/course/validation/</code>):</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>ValidationApplication.java</code></td><td>Entry point; lists all endpoints in its comment.</td></tr>
+    <tr><td><code>dto/RegisterUserRequest.java</code></td><td>Built-in constraints, two custom constraints, nested <code>@Valid</code>, list element constraints.</td></tr>
+    <tr><td><code>dto/AddressRequest.java</code></td><td>Nested DTO with <code>@Pattern</code> for a 6-digit PIN code.</td></tr>
+    <tr><td><code>dto/BookingRequest.java</code></td><td><code>@Future</code>, <code>@Positive</code>, <code>@PositiveOrZero</code>, <code>@Max</code>, <code>@DecimalMin</code>.</td></tr>
+    <tr><td><code>dto/ProductRequest.java</code></td><td>Validation groups on the <code>id</code>.</td></tr>
+    <tr><td><code>dto/UserResponse.java</code>, <code>BookingResponse.java</code></td><td>Response DTOs (no password echoed back!).</td></tr>
+    <tr><td><code>validation/StrongPassword.java</code> + <code>StrongPasswordValidator.java</code></td><td>Custom constraint with its own attribute (<code>minLength</code>).</td></tr>
+    <tr><td><code>validation/ValidPhoneNumber.java</code> + <code>ValidPhoneNumberValidator.java</code></td><td>Custom regex-based constraint for optional phone numbers.</td></tr>
+    <tr><td><code>validation/ValidationGroups.java</code></td><td><code>OnCreate</code> / <code>OnUpdate</code> marker interfaces.</td></tr>
+    <tr><td><code>controller/UserController.java</code></td><td><code>@Valid @RequestBody</code>; constraints on <code>@PathVariable</code> and <code>@RequestParam</code>.</td></tr>
+    <tr><td><code>controller/BookingController.java</code></td><td>Date and number validation.</td></tr>
+    <tr><td><code>controller/ProductController.java</code></td><td><code>@Validated(OnCreate.class)</code> vs <code>@Validated(OnUpdate.class)</code>.</td></tr>
+    <tr><td><code>service/UserService.java</code></td><td>In-memory service — format rules are already checked when it is called.</td></tr>
+    <tr><td><code>resources/application.properties</code></td><td>Shows extra details in the default error JSON.</td></tr>
+    <tr><td><code>src/test/.../RegisterUserRequestValidationTest.java</code></td><td>Tests constraints directly with a <code>Validator</code> (parameterized tests).</td></tr>
+    <tr><td><code>src/test/.../UserControllerValidationTest.java</code></td><td>MockMvc tests: invalid input → 400.</td></tr>
+    <tr><td><code>requests.http</code></td><td>13 valid and invalid requests.</td></tr>
+  </table></div>
+
+  <h3>4.1 The main DTO</h3>
+  <pre><span class="file">dto/RegisterUserRequest.java</span><code class="lang-java">public record RegisterUserRequest(
+
+        @NotBlank(message = "Name is required")
+        @Size(min = 2, max = 50, message = "Name must be between {min} and {max} characters")
+        String name,
+
+        @NotBlank(message = "Email is required")
+        @Email(message = "Email must be a valid email address")
+        String email,
+
+        @NotBlank(message = "Password is required")
+        @StrongPassword                                   // custom
+        String password,
+
+        @ValidPhoneNumber                                 // custom, optional field
+        String phone,
+
+        @NotNull(message = "Age is required")
+        @Min(value = 18, message = "You must be at least {value} years old")
+        @Max(value = 120, message = "Age must be at most {value}")
+        Integer age,
+
+        @Past(message = "Date of birth must be in the past")
+        LocalDate dateOfBirth,                            // JSON "2000-05-21"
+
+        @NotNull(message = "Address is required")
+        @Valid                                            // nested validation
+        AddressRequest address,
+
+        @Size(max = 5, message = "You can choose at most {max} interests")
+        List&lt;@NotBlank(message = "Interest must not be blank") String&gt; interests
+) { }</code></pre>
+  <p>Read it top to bottom — it is almost a plain-English specification of what a valid registration is. That is a big win for readability: the rules are <b>documentation</b>.</p>
+
+  <h3>4.2 The controller</h3>
+  <pre><span class="file">controller/UserController.java</span><code class="lang-java">@RestController
+@RequestMapping("/api/users")
+public class UserController {                                     // NOTE: no @Validated here
+
+    @PostMapping
+    public ResponseEntity&lt;UserResponse&gt; register(@Valid @RequestBody RegisterUserRequest request) {
+        UserResponse created = userService.register(request);   // guaranteed valid
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity&lt;UserResponse&gt; getById(
+            @PathVariable @Min(value = 1, message = "Id must be 1 or more") Long id) { ... }
+
+    @GetMapping("/search")
+    public List&lt;UserResponse&gt; search(
+            @RequestParam @NotBlank
+            @Size(min = 2, max = 30, message = "Search text must be {min}-{max} characters") String name) { ... }
+}</code></pre>
+
+  <h3>4.3 Booking: numbers and dates</h3>
+  <pre><span class="file">dto/BookingRequest.java (part)</span><code class="lang-java">@NotNull @Future(message = "Event date must be in the future")
+LocalDate eventDate,
+
+@NotNull @Positive(message = "Seats must be at least 1")
+@Max(value = 10, message = "You can book at most {value} seats at once")
+Integer seats,
+
+@PositiveOrZero @Max(50)
+Integer discountPercent,          // optional: null allowed
+
+@NotNull @DecimalMin(value = "0.01")
+BigDecimal pricePerSeat</code></pre>
+
+  <h3>4.4 Testing constraints without Spring</h3>
+  <pre><span class="file">src/test/java/.../RegisterUserRequestValidationTest.java (part)</span><code class="lang-java">validator = Validation.buildDefaultValidatorFactory().getValidator();
+
+@ParameterizedTest
+@ValueSource(strings = {"short1!", "alllowercase1!", "ALLUPPERCASE1!", "NoDigits!!", "NoSpecial123"})
+void weakPasswordsAreRejected(String weakPassword) {
+    Set&lt;String&gt; fields = invalidFields(validRequest(weakPassword, null));
+    assertThat(fields).containsExactly("password");
+}</code></pre>
+  <p>One test method, five weak passwords — <code>@ParameterizedTest</code> from topic 21 is perfect for validators.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="run">5. How to run</h2>
+  <h3>In VS Code</h3>
+  <ol>
+    <li>Open the folder <code>D:\Java-SpringBoot\34-Validation</code>.</li>
+    <li>Run <code>ValidationApplication.java</code> (Run link above <code>main</code>, or the Spring Boot Dashboard).</li>
+    <li>Open <code>requests.http</code> and send the requests one by one. Compare the valid and invalid ones.</li>
+  </ol>
+  <h3>From the terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\34-Validation"
+mvn spring-boot:run</code></pre>
+  <h3>Valid registration (Git Bash / Linux style quoting)</h3>
+  <pre class="terminal"><code>curl -i -X POST http://localhost:8080/api/users -H "Content-Type: application/json" -d '{"name":"Asha Rao","email":"asha@example.com","password":"Secret@123","phone":"+91 98765 43210","age":25,"dateOfBirth":"2000-05-21","address":{"street":"MG Road 1","city":"Bengaluru","pinCode":"560001"},"interests":["java","music"]}'</code></pre>
+  <pre class="terminal"><code>HTTP/1.1 201
+{"id":1,"name":"Asha Rao","email":"asha@example.com","city":"Bengaluru"}</code></pre>
+  <div class="callout tip"><strong>💡 PowerShell users</strong> Quoting JSON in PowerShell is painful. Use the <code>requests.http</code> file, or Git Bash, or put the JSON in a file and run <code>curl.exe -X POST URL -H "Content-Type: application/json" --data "@user.json"</code>.</div>
+  <h3>Invalid registration</h3>
+  <pre class="terminal"><code>curl -X POST http://localhost:8080/api/users -H "Content-Type: application/json" -d '{"name":"A","email":"not-an-email","password":"weak","phone":"12345","age":15,"dateOfBirth":"2090-01-01","address":{"street":"","city":"Pune","pinCode":"12"},"interests":["","x"]}'</code></pre>
+  <p>Result (shortened — the real output lists each error with many technical fields):</p>
+  <pre class="terminal"><code>{"status":400,"error":"Bad Request",
+ "message":"Validation failed for object='registerUserRequest'. Error count: 9",
+ "errors":[
+   {"field":"age","defaultMessage":"You must be at least 18 years old", ...},
+   {"field":"name","defaultMessage":"Name must be between 2 and 50 characters", ...},
+   {"field":"email","defaultMessage":"Email must be a valid email address", ...},
+   {"field":"interests[0]","defaultMessage":"Interest must not be blank", ...},
+   {"field":"phone","defaultMessage":"Phone number must be a valid 10-digit mobile number ...", ...},
+   {"field":"address.street","defaultMessage":"Street is required", ...},
+   {"field":"dateOfBirth","defaultMessage":"Date of birth must be in the past", ...},
+   {"field":"address.pinCode","defaultMessage":"PIN code must be exactly 6 digits", ...},
+   {"field":"password","defaultMessage":"Password must be at least 8 characters and contain ...", ...}
+ ],
+ "path":"/api/users"}</code></pre>
+  <p>All 9 problems are reported at once (their order can change between runs). Notice <code>{min}</code>, <code>{max}</code>, <code>{value}</code> and our own <code>{minLength}</code> were replaced by real numbers.</p>
+  <h3>Path and query parameters</h3>
+  <pre class="terminal"><code>curl http://localhost:8080/api/users/0
+curl "http://localhost:8080/api/users/search?name=a"</code></pre>
+  <pre class="terminal"><code>{"status":400,"error":"Bad Request","message":"Validation failed for method='...getById(java.lang.Long)'. Error count: 1",
+ "errors":[{..."defaultMessage":"Id must be 1 or more"}],"path":"/api/users/0"}
+{"status":400,...,"errors":[{..."defaultMessage":"Search text must be 2-30 characters"}],"path":"/api/users/search"}</code></pre>
+  <h3>Booking and groups</h3>
+  <pre class="terminal"><code>curl -X POST http://localhost:8080/api/bookings -H "Content-Type: application/json" -d '{"eventName":"Spring Conf","eventDate":"2030-01-15","seats":2,"discountPercent":10,"pricePerSeat":499.00}'
+{"bookingCode":"BK-5421FC1D","eventName":"Spring Conf","eventDate":"2030-01-15","seats":2,"totalPrice":898.20}
+
+curl -X POST http://localhost:8080/api/products -H "Content-Type: application/json" -d '{"id":5,"name":"Pen","price":10}'
+{"status":400,...,"defaultMessage":"Id must NOT be sent when creating a product",...}
+
+curl -X PUT http://localhost:8080/api/products -H "Content-Type: application/json" -d '{"id":5,"name":"Pen","price":10}'
+{"message":"Product updated","id":5,"name":"Pen"}</code></pre>
+  <h3>See the real default</h3>
+  <p>Put a <code>#</code> in front of both <code>server.error.*</code> lines in <code>application.properties</code>, restart, and send the invalid registration again. You will get only <code>timestamp</code>, <code>status</code>, <code>error</code> and <code>path</code>.</p>
+  <h3>Run the tests</h3>
+  <pre class="terminal"><code>mvn test</code></pre>
+  <pre class="terminal"><code>[INFO] Tests run: 15, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS</code></pre>
+
+  <!-- ============================================================ -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>🛑 Mistake: missing <code>spring-boot-starter-validation</code></strong> Annotations compile but nothing is validated — invalid data goes straight through.<br><strong>Fix:</strong> Add the starter. Quick test: send <code>{}</code> to your endpoint; you must get 400.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting <code>@Valid</code> on the <code>@RequestBody</code></strong> The DTO has rules but nobody checks them.<br><strong>Fix:</strong> <code>@Valid @RequestBody MyRequest request</code> — every time.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting <code>@Valid</code> on a nested object</strong> <code>@NotNull AddressRequest address</code> only checks that an address exists — an address with a blank city passes.<br><strong>Fix:</strong> <code>@NotNull @Valid AddressRequest address</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>@NotNull</code> on a String</strong> <code>""</code> and <code>"   "</code> pass.<br><strong>Fix:</strong> Use <code>@NotBlank</code> for strings, <code>@NotEmpty</code> for collections, <code>@NotNull</code> for everything else.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>@Size</code> or <code>@Min</code> on a primitive / thinking they block null</strong> <code>@Min(18) int age</code> — a missing age becomes 0 and the message says "at least 18", confusing the user. And <code>@Size(min=2) String name</code> accepts <code>null</code>.<br><strong>Fix:</strong> Use wrapper types and combine with <code>@NotNull</code>/<code>@NotBlank</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>@Validated</code> on the controller class in Boot 3.2+</strong> Parameter validation then throws <code>ConstraintViolationException</code> → 500 instead of 400.<br><strong>Fix:</strong> Remove the class-level <code>@Validated</code> (built-in method validation gives 400), or handle <code>ConstraintViolationException</code> in a global handler (topic 35).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: custom annotation missing <code>groups()</code> / <code>payload()</code> or <code>RUNTIME</code> retention</strong> Startup/validation fails with <code>ConstraintDefinitionException</code>, or the annotation is never seen.<br><strong>Fix:</strong> Copy the full template: <code>message</code>, <code>groups</code>, <code>payload</code>, <code>@Retention(RUNTIME)</code>, <code>@Constraint(validatedBy=…)</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: validation groups without <code>extends Default</code></strong> <code>@Validated(OnCreate.class)</code> silently skips all your normal constraints.<br><strong>Fix:</strong> <code>interface OnCreate extends Default {}</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: importing <code>javax.validation</code></strong> Old tutorials use <code>javax.validation.constraints.NotBlank</code>. In Spring Boot 3 these are ignored or don't compile.<br><strong>Fix:</strong> Always <code>jakarta.validation...</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: a too-strict email regex</strong> Writing your own email regex rejects valid addresses like <code>first.last+tag@sub.example.co.in</code>.<br><strong>Fix:</strong> Use <code>@Email</code>. The only real proof an email exists is sending a confirmation mail.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><b>Validate at the boundary</b> (request DTOs), every time, even if the front-end validates too.</li>
+    <li><b>Put constraints on DTOs, not on entities</b> (entities may still have database constraints). Different APIs may need different rules for the same entity.</li>
+    <li><b>Write human-friendly messages</b> — the end user may see them. Say what is expected: "PIN code must be exactly 6 digits", not "invalid".</li>
+    <li><b>Always set a maximum length</b> on strings (<code>@Size(max = ...)</code>) and sizes on lists — it protects memory, the database column, and against abuse.</li>
+    <li><b>Wrapper types</b> (<code>Integer</code>, <code>Boolean</code>) in request DTOs so "missing" is detectable.</li>
+    <li><b>One rule per annotation</b>, and custom validators return <code>true</code> for <code>null</code>.</li>
+    <li><b>Keep business rules in the service</b> (uniqueness, stock, balance), not in annotations that secretly hit the database.</li>
+    <li><b>Test your custom validators</b> with plain unit tests and <code>@ParameterizedTest</code>.</li>
+    <li><b>Return a clean, consistent error format</b> — handled centrally (next topic). Don't expose the raw default details in production.</li>
+    <li>For many messages or multiple languages, keep them in <code>ValidationMessages.properties</code>.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Never trust input: the server must validate even if the client does.</li>
+    <li>Add <code>spring-boot-starter-validation</code> (Jakarta Bean Validation + Hibernate Validator).</li>
+    <li>Put constraint annotations on DTO fields; trigger them with <code>@Valid</code> on <code>@RequestBody</code>.</li>
+    <li>Invalid body → <code>MethodArgumentNotValidException</code> → 400, controller never runs, all errors reported.</li>
+    <li>Put constraints directly on <code>@PathVariable</code>/<code>@RequestParam</code>; Boot 3.2+ validates them built-in (400). Class-level <code>@Validated</code> is the older AOP way (500 unless handled).</li>
+    <li><code>@NotBlank</code> for strings; most other constraints accept <code>null</code>.</li>
+    <li>Nested objects need <code>@Valid</code>; list elements can be constrained with <code>List&lt;@NotBlank String&gt;</code>.</li>
+    <li>Custom constraint = annotation (<code>@Constraint</code>) + <code>ConstraintValidator</code> class.</li>
+    <li>Validation groups choose rule sets with <code>@Validated(Group.class)</code>; groups should extend <code>Default</code>.</li>
+    <li>Default error JSON hides details; topic 35 builds a clean error response.</li>
+  </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Terms and conditions.</b> Add <code>Boolean termsAccepted</code> to <code>RegisterUserRequest</code> so registration fails unless it is <code>true</code>.</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-java">@NotNull(message = "You must accept the terms")
+@AssertTrue(message = "You must accept the terms")
+Boolean termsAccepted</code></pre>
+      <p><code>@AssertTrue</code> alone accepts <code>null</code>, so add <code>@NotNull</code> too. Remember to update the valid request in <code>requests.http</code> and the tests.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Predict the result.</b> Which of these values pass <code>@Size(min = 3) String code</code>? <code>null</code>, <code>""</code>, <code>"ab"</code>, <code>"abc"</code>, <code>"   "</code>.</p>
+    <details><summary>Hint / solution</summary>
+      <p><code>null</code> ✅ (null is valid for @Size), <code>""</code> ❌, <code>"ab"</code> ❌, <code>"abc"</code> ✅, <code>"   "</code> ✅ (three spaces have length 3!). To reject the last two cases add <code>@NotBlank</code>.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Order with items.</b> Create <code>OrderRequest(String customerEmail, List&lt;OrderItemRequest&gt; items)</code> where each item has <code>productCode</code> (pattern <code>PRD-\d{4}</code>) and <code>quantity</code> (1–100). An order needs 1–20 items. Add <code>POST /api/orders</code>.</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-java">public record OrderItemRequest(
+        @NotBlank @Pattern(regexp = "PRD-\\d{4}", message = "Product code must look like PRD-1234")
+        String productCode,
+        @NotNull @Min(1) @Max(100) Integer quantity) { }
+
+public record OrderRequest(
+        @NotBlank @Email String customerEmail,
+        @NotEmpty(message = "Order must have at least one item")
+        @Size(max = 20)
+        List&lt;@Valid OrderItemRequest&gt; items) { }
+
+@PostMapping("/api/orders")
+@ResponseStatus(HttpStatus.CREATED)
+public OrderRequest place(@Valid @RequestBody OrderRequest order) { return order; }</code></pre>
+      <p>Errors appear as <code>items[1].quantity</code> etc.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Custom annotation <code>@NoProfanity</code>.</b> Reject a text if it contains any word from a small "bad words" list (case-insensitive). Use it on <code>name</code>.</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-java">@Documented
+@Constraint(validatedBy = NoProfanityValidator.class)
+@Target({ElementType.FIELD, ElementType.PARAMETER, ElementType.RECORD_COMPONENT})
+@Retention(RetentionPolicy.RUNTIME)
+public @interface NoProfanity {
+    String message() default "Please use polite words";
+    Class&lt;?&gt;[] groups() default {};
+    Class&lt;? extends Payload&gt;[] payload() default {};
+}
+
+public class NoProfanityValidator implements ConstraintValidator&lt;NoProfanity, String&gt; {
+    private static final Set&lt;String&gt; BAD = Set.of("stupid", "idiot");
+    @Override
+    public boolean isValid(String value, ConstraintValidatorContext ctx) {
+        if (value == null) return true;
+        String lower = value.toLowerCase();
+        return BAD.stream().noneMatch(lower::contains);
+    }
+}</code></pre>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>Cross-field validation.</b> Hotel booking: <code>HotelBookingRequest(LocalDate checkIn, LocalDate checkOut)</code>. Create a class-level annotation <code>@ValidStayDates</code> that fails if <code>checkOut</code> is not after <code>checkIn</code>, and report the error on the <code>checkOut</code> field.</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-java">@Documented
+@Constraint(validatedBy = ValidStayDatesValidator.class)
+@Target(ElementType.TYPE)                         // on the CLASS / record
+@Retention(RetentionPolicy.RUNTIME)
+public @interface ValidStayDates {
+    String message() default "Check-out must be after check-in";
+    Class&lt;?&gt;[] groups() default {};
+    Class&lt;? extends Payload&gt;[] payload() default {};
+}
+
+public class ValidStayDatesValidator implements ConstraintValidator&lt;ValidStayDates, HotelBookingRequest&gt; {
+    @Override
+    public boolean isValid(HotelBookingRequest r, ConstraintValidatorContext ctx) {
+        if (r == null || r.checkIn() == null || r.checkOut() == null) return true;
+        if (r.checkOut().isAfter(r.checkIn())) return true;
+        // attach the error to the checkOut field instead of the whole object
+        ctx.disableDefaultConstraintViolation();
+        ctx.buildConstraintViolationWithTemplate(ctx.getDefaultConstraintMessageTemplate())
+           .addPropertyNode("checkOut").addConstraintViolation();
+        return false;
+    }
+}
+
+@ValidStayDates
+public record HotelBookingRequest(@NotNull @FutureOrPresent LocalDate checkIn,
+                                  @NotNull LocalDate checkOut) { }</code></pre>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>See the 500 gotcha yourself.</b> Add <code>@Validated</code> on the <code>UserController</code> class, restart and call <code>GET /api/users/0</code>. What status do you get, and which exception appears in the log? Then remove it again.</p>
+    <details><summary>Hint / solution</summary>
+      <p>You get <b>500</b> and the log shows <code>jakarta.validation.ConstraintViolationException: getById.id: Id must be 1 or more</code>. With the class-level annotation, an AOP proxy validates the method (topic 27) and throws an exception Spring MVC doesn't map to 400 by default. Without it, Spring MVC's built-in method validation throws <code>HandlerMethodValidationException</code> → 400. In topic 35 you will learn to handle both.</p>
+    </details>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between @NotNull, @NotEmpty and @NotBlank?</summary><p><code>@NotNull</code> only rejects <code>null</code>. <code>@NotEmpty</code> rejects null and empty (length/size 0) — for strings, collections, maps, arrays. <code>@NotBlank</code> (strings only) rejects null, empty and whitespace-only strings. For text input <code>@NotBlank</code> is usually right.</p></details>
+  <details><summary>Q2. What is the difference between @Valid and @Validated?</summary><p><code>@Valid</code> is the standard Jakarta annotation: it triggers validation of a parameter and cascades into nested objects (on fields). <code>@Validated</code> is Spring's annotation: on a parameter it also triggers validation but can specify validation groups; on a class it enables AOP-based method validation of that bean's parameters and return values. <code>@Validated</code> cannot be used for cascading on fields — use <code>@Valid</code> there.</p></details>
+  <details><summary>Q3. What happens when @Valid fails on a @RequestBody?</summary><p>Spring throws <code>MethodArgumentNotValidException</code> (a <code>BindException</code>) containing all field errors in a <code>BindingResult</code>. The controller method is not executed. By default Spring Boot returns 400 Bad Request; you usually handle the exception in a <code>@RestControllerAdvice</code> to return a friendly list of field errors.</p></details>
+  <details><summary>Q4. How do you validate path variables and request params?</summary><p>Put constraint annotations directly on the parameters, e.g. <code>@PathVariable @Min(1) Long id</code>. Since Spring Framework 6.1 Spring MVC applies method validation built-in and throws <code>HandlerMethodValidationException</code> (400). In older versions, or when the controller class is annotated <code>@Validated</code>, the AOP-based <code>MethodValidationPostProcessor</code> validates and throws <code>ConstraintViolationException</code>, which you must map to 400 yourself.</p></details>
+  <details><summary>Q5. How do you create a custom validation annotation?</summary><p>Create an annotation with <code>@Constraint(validatedBy = MyValidator.class)</code>, <code>@Retention(RUNTIME)</code>, a suitable <code>@Target</code>, and the mandatory attributes <code>message()</code>, <code>groups()</code> and <code>payload()</code>. Then implement <code>ConstraintValidator&lt;MyAnnotation, TargetType&gt;</code> with the logic in <code>isValid</code> (optionally reading attributes in <code>initialize</code>). By convention return <code>true</code> for null values.</p></details>
+  <details><summary>Q6. How do you validate nested objects and collections?</summary><p>Mark the nested field with <code>@Valid</code> so validation cascades into it. For collections either annotate the field <code>@Valid List&lt;Item&gt;</code> or use a type-argument constraint <code>List&lt;@Valid Item&gt;</code>; simple elements can be constrained like <code>List&lt;@NotBlank String&gt;</code>. Error paths look like <code>items[2].quantity</code>.</p></details>
+  <details><summary>Q7. What are validation groups and when would you use them?</summary><p>Groups are marker interfaces that let you apply different subsets of constraints in different situations — e.g. <code>id</code> must be null on create but not null on update. You assign constraints with <code>groups = OnCreate.class</code> and activate with <code>@Validated(OnCreate.class)</code>. Make the groups extend <code>Default</code> so ungrouped constraints still run. Many teams prefer separate DTOs for clarity.</p></details>
+  <details><summary>Q8. Where should validation happen — controller, service or database?</summary><p>All three, with different jobs: format/input validation on DTOs at the controller boundary (Bean Validation); business rules that need state (uniqueness, stock, balance) in the service; and database constraints (NOT NULL, UNIQUE, FK, lengths) as the final safety net for data integrity and race conditions.</p></details>
+  <details><summary>Q9. Why is client-side validation not enough?</summary><p>Clients can be bypassed — anyone can call the API directly with curl/Postman or a modified app. Client-side validation improves user experience; server-side validation protects data integrity and security.</p></details>
+  <details><summary>Q10. Why does @Min(18) on an int field not detect a missing value?</summary><p>A missing JSON property leaves a primitive <code>int</code> at its default 0, so the validator sees 0 (and reports "must be ≥ 18", which is misleading). Use <code>Integer</code> with <code>@NotNull</code> so a missing value becomes <code>null</code> and is reported correctly.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../33-Layered-Architecture-And-DTOs/lesson.html"><small>← Previous</small>33. Layered Architecture &amp; DTOs</a>
+    <a class="next" href="../35-Global-Exception-Handling/lesson.html"><small>Next →</small>35. Global Exception Handling</a>
+  </nav>
+</main>
+</body>
+</html>

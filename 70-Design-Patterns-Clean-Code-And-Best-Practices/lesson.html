@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>70 · Design Patterns, Clean Code &amp; Best Practices</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part F · Microservices &amp; Spring Cloud › Topic 70</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag adv">Part F · Microservices &amp; Cloud</span>
+  <span class="tag">⏱ ~4 hours</span>
+  <h1>70. Design Patterns, Clean Code &amp; Best Practices</h1>
+  <p class="subtitle">Connect everything you've learned: write code that is easy to read, change and test — and recognise the classic patterns Spring itself is built on.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="70-Design-Patterns-Clean-Code-And-Best-Practices"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>The five <strong>SOLID</strong> principles, each with a "bad vs good" Java example and its link to Spring.</li>
+      <li>Helpful extra principles: DRY, KISS, YAGNI, composition over inheritance, fail fast.</li>
+      <li>The design patterns used <em>inside</em> Spring — Singleton, Factory, Builder, Adapter, Strategy, Observer, Template Method, Proxy — with runnable code, plus Decorator, Facade, Chain of Responsibility and Front Controller in brief.</li>
+      <li>Clean code rules: naming, small methods, no magic numbers, guard clauses, good comments — with a before/after refactoring.</li>
+      <li>A recommended Spring Boot project structure for enterprise apps.</li>
+      <li>Three checklists to keep: code review, security (OWASP Top 10 in simple words), performance.</li>
+      <li>What to learn next after this course.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — this is a "capstone of knowledge" lesson, so it links back to many topics. Most important:
+    <a href="../8-OOP-Polymorphism-Abstraction-Interfaces/lesson.html">8 · Interfaces</a>,
+    <a href="../22-Why-Spring-IoC-And-DI-Concepts/lesson.html">22 · IoC &amp; DI</a>,
+    <a href="../27-Spring-AOP/lesson.html">27 · AOP &amp; proxies</a>,
+    <a href="../33-Layered-Architecture-And-DTOs/lesson.html">33 · Layers &amp; DTOs</a>,
+    <a href="../52-Scheduling-Async-And-Events/lesson.html">52 · Events</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Code is written once but <strong>read and changed hundreds of times</strong> — by your teammates, by future-you in six months, by the new joiner. In real companies, most of the cost of software is not writing it, it's <em>changing</em> it: new features, bug fixes, new rules from the business.</p>
+  <p>Two projects can do exactly the same thing today. In one, adding "student discount" takes 10 minutes and one new class. In the other, it takes 3 days, touches 15 files, and breaks payments in production. The difference is <strong>design</strong>: principles, patterns and clean code.</p>
+  <p>Where you will see it at work:</p>
+  <ul>
+    <li><strong>Code reviews</strong>: "This class does too much (SRP)", "Use a strategy instead of this switch", "Magic number — extract a constant".</li>
+    <li><strong>Interviews</strong>: "Explain SOLID with examples", "Which design patterns does Spring use?", "How does <code>@Transactional</code> work?" (answer: Proxy!). These are among the most common Java interview questions.</li>
+    <li><strong>Reading Spring itself</strong>: once you know Template Method, Proxy and Strategy, Spring stops being "magic" — it's just well-known patterns.</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ You've already been using all of this</strong>
+    Interfaces (topic 8), constructor injection (24), layered architecture (33), events (52), AOP proxies (27), JdbcTemplate (37), builders like <code>RestClient.builder()</code> (45)… This lesson gives those ideas their official names and shows how they fit together.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏗️ Building codes, standard designs, and a tidy workshop</strong>
+    <ul>
+      <li><strong>SOLID principles</strong> are like <em>building codes</em>: "every room needs its own exit", "electrical wiring must not run through the water pipes". They don't tell you what house to build; they keep any house safe to live in and easy to renovate.</li>
+      <li><strong>Design patterns</strong> are like <em>standard architectural solutions</em>: a staircase, a load-bearing arch, a two-way light switch. Nobody re-invents the staircase; you say "put a spiral staircase here" and every builder knows what you mean. Patterns give developers a <strong>shared vocabulary</strong>: "use a Strategy" is one sentence instead of a 20-minute explanation.</li>
+      <li><strong>Clean code</strong> is the <em>tidy workshop</em>: tools labelled, each in its place. You can work fast because you don't search for anything.</li>
+    </ul>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Principles vs patterns vs clean code</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Idea</th><th>What it is</th><th>Example</th></tr>
+    <tr><td><strong>Principle</strong></td><td>A general rule of thumb for good design.</td><td>"Depend on interfaces, not on concrete classes" (DIP).</td></tr>
+    <tr><td><strong>Design pattern</strong></td><td>A named, reusable solution to a recurring design problem.</td><td>Strategy: swap algorithms behind one interface.</td></tr>
+    <tr><td><strong>Clean code</strong></td><td>Line-level habits that make code readable.</td><td><code>EXPRESS_DELIVERY_FEE</code> instead of <code>40</code>.</td></tr>
+  </table></div>
+  <p>The classic book is <em>"Design Patterns: Elements of Reusable Object-Oriented Software"</em> (1994) by four authors — the "<strong>Gang of Four</strong>" (GoF). It describes 23 patterns in three groups:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Group</th><th>Question it answers</th><th>Patterns in this lesson</th></tr>
+    <tr><td><strong>Creational</strong></td><td>How are objects created?</td><td>Singleton, Factory (Method), Builder</td></tr>
+    <tr><td><strong>Structural</strong></td><td>How are objects combined / wrapped?</td><td>Adapter, Proxy, Decorator, Facade</td></tr>
+    <tr><td><strong>Behavioural</strong></td><td>How do objects share work and communicate?</td><td>Strategy, Observer, Template Method, Chain of Responsibility</td></tr>
+  </table></div>
+
+  <h3>3.2 SOLID at a glance</h3>
+  <p>SOLID is an acronym collected by Robert C. Martin ("Uncle Bob"):</p>
+  <div class="table-wrap"><table>
+    <tr><th>Letter</th><th>Principle</th><th>In one simple sentence</th><th>Spring connection</th></tr>
+    <tr><td><strong>S</strong></td><td>Single Responsibility</td><td>A class should have one reason to change.</td><td>Controller / Service / Repository layers.</td></tr>
+    <tr><td><strong>O</strong></td><td>Open/Closed</td><td>Add behaviour by adding code, not by editing working code.</td><td>New <code>@Component</code> implementations, auto-configuration.</td></tr>
+    <tr><td><strong>L</strong></td><td>Liskov Substitution</td><td>A child class must work everywhere the parent works.</td><td>Any <code>PasswordEncoder</code> / <code>DataSource</code> can replace another.</td></tr>
+    <tr><td><strong>I</strong></td><td>Interface Segregation</td><td>Many small interfaces beat one fat interface.</td><td><code>CrudRepository</code>, <code>ListCrudRepository</code>, <code>PagingAndSortingRepository</code>.</td></tr>
+    <tr><td><strong>D</strong></td><td>Dependency Inversion</td><td>Depend on abstractions; let someone else plug in the details.</td><td>The whole IoC container and constructor injection.</td></tr>
+  </table></div>
+
+  <h3>3.3 S — Single Responsibility Principle</h3>
+  <p>"One reason to change" means: <em>one group of people</em> would ask you to change it. The tax rule changes (finance team), the invoice layout changes (design team), the storage changes (ops team) — three reasons, so three classes.</p>
+  <pre><span class="file">solid/srp/SrpDemo.java — BAD</span><code class="lang-java">class InvoiceManager {
+    String createAndSave(String customer, List&lt;BigDecimal&gt; prices) {
+        BigDecimal total = ...;                      // job 1: calculate (+ tax rule)
+        String text = "INVOICE for " + customer ...; // job 2: format
+        // job 3: save to a file
+    }
+}</code></pre>
+  <pre><span class="file">solid/srp/SrpDemo.java — GOOD</span><code class="lang-java">class InvoiceCalculator {
+    private static final BigDecimal TAX_MULTIPLIER = new BigDecimal("1.18");
+    BigDecimal totalWithTax(List&lt;BigDecimal&gt; prices) {
+        BigDecimal net = prices.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        return net.multiply(TAX_MULTIPLIER).setScale(2);
+    }
+}
+class InvoiceFormatter { String format(String customer, BigDecimal total) { ... } }
+class InvoiceStore     { void save(String invoiceText) { ... } }</code></pre>
+  <p><strong>Spring link:</strong> layered architecture (topic 33) is SRP at the architecture level: the controller handles HTTP, the service handles business rules, the repository handles the database. A 900-line <code>OrderService</code> that sends emails, builds PDFs and calls the payment API is the most common SRP violation in real projects.</p>
+  <div class="callout tip"><strong>💡 Quick SRP test</strong> Try to describe the class in one sentence <em>without</em> the word "and". "It calculates invoice totals" ✅. "It calculates totals <em>and</em> prints <em>and</em> saves" ❌.</div>
+
+  <h3>3.4 O — Open/Closed Principle</h3>
+  <pre><span class="file">solid/ocp/OcpDemo.java — BAD</span><code class="lang-java">static BigDecimal priceBad(String customerType, BigDecimal amount) {
+    if (customerType.equals("REGULAR")) {
+        return amount;
+    } else if (customerType.equals("PREMIUM")) {
+        return amount.multiply(new BigDecimal("0.90"));
+    }
+    // next month: else if ("STUDENT") ... and again ... and again
+    return amount;
+}</code></pre>
+  <pre><span class="file">solid/ocp/OcpDemo.java — GOOD</span><code class="lang-java">interface Discount {
+    String name();
+    BigDecimal apply(BigDecimal amount);
+}
+class PremiumDiscount implements Discount { ... 0.90 ... }
+class StudentDiscount implements Discount { ... 0.85 ... }   // NEW class, nothing else edited
+
+class Checkout {                         // closed for modification
+    BigDecimal total(BigDecimal amount, Discount discount) {
+        return discount.apply(amount).setScale(2, RoundingMode.HALF_UP);
+    }
+}</code></pre>
+  <p><strong>Spring link:</strong> Spring Boot itself is "open for extension": add a <code>@Bean</code> of your own and auto-configuration backs off (<code>@ConditionalOnMissingBean</code>, topic 26). Add a new <code>HandlerInterceptor</code>, a new <code>HealthIndicator</code>, a new <code>@EventListener</code> — without editing Spring. Our <code>DemoRunner</code> is OCP too: a new demo class appears automatically in the <code>List&lt;PatternDemo&gt;</code>.</p>
+
+  <h3>3.5 L — Liskov Substitution Principle</h3>
+  <p>Named after Barbara Liskov. If <code>Penguin extends Bird</code> and <code>Bird</code> promises <code>fly()</code>, then a penguin must be able to fly — or the inheritance is wrong.</p>
+  <pre><span class="file">solid/lsp/LspDemo.java — BAD</span><code class="lang-java">class BadBird { String fly() { return "... is flying"; } }
+
+class BadPenguin extends BadBird {
+    @Override
+    String fly() {
+        throw new UnsupportedOperationException("Penguins cannot fly!");   // surprise!
+    }
+}
+// code written for BadBird now crashes for some birds</code></pre>
+  <pre><span class="file">solid/lsp/LspDemo.java — GOOD</span><code class="lang-java">interface Bird { String name(); }
+interface FlyingBird extends Bird {
+    default String fly() { return name() + " is flying"; }
+}
+record Sparrow() implements FlyingBird { public String name() { return "Sparrow"; } }
+record Penguin() implements Bird { ... String swim() { ... } }
+
+List&lt;FlyingBird&gt; flyers = List.of(new Sparrow(), new Eagle());   // the compiler keeps penguins out</code></pre>
+  <p>Warning signs of an LSP violation: overriding methods that throw <code>UnsupportedOperationException</code>, empty overrides "because it doesn't apply", or <code>if (x instanceof Penguin)</code> checks in calling code. The famous textbook example is <code>Square extends Rectangle</code> (setting the width of a square also changes its height, surprising callers).</p>
+  <p><strong>Spring link:</strong> you can swap HikariCP for another <code>DataSource</code>, or BCrypt for Argon2 as <code>PasswordEncoder</code>, and Spring's code keeps working — because those implementations honour the interface's contract.</p>
+
+  <h3>3.6 I — Interface Segregation Principle</h3>
+  <pre><span class="file">solid/isp/IspDemo.java — BAD</span><code class="lang-java">interface MultiFunctionMachine {
+    String print(String doc);
+    String scan(String doc);
+    String fax(String number);
+}
+class CheapPrinterBad implements MultiFunctionMachine {
+    public String print(String doc) { return "Printing '" + doc + "'"; }
+    public String scan(String doc)  { throw new UnsupportedOperationException("cannot scan"); }
+    public String fax(String number){ throw new UnsupportedOperationException("cannot fax"); }
+}</code></pre>
+  <pre><span class="file">solid/isp/IspDemo.java — GOOD</span><code class="lang-java">interface Printer         { String print(String doc); }
+interface DocumentScanner { String scan(String doc); }
+interface FaxMachine      { String fax(String number); }
+
+class CheapPrinter  implements Printer { ... }
+class OfficeMachine implements Printer, DocumentScanner, FaxMachine { ... }</code></pre>
+  <p><strong>Spring link:</strong> Spring Data splits repository abilities into small interfaces (<code>Repository</code>, <code>CrudRepository</code>, <code>ListCrudRepository</code>, <code>PagingAndSortingRepository</code>) so you only expose what you need. Spring's callbacks are tiny too: <code>InitializingBean</code>, <code>DisposableBean</code>, <code>ApplicationListener</code> — one method each. Notice that ISP and LSP often go together: the bad printer above violates both.</p>
+
+  <h3>3.7 D — Dependency Inversion Principle</h3>
+  <pre><span class="file">solid/dip/DipDemo.java — BAD</span><code class="lang-java">class OrderServiceBad {
+    private final MySqlOrderDatabase database = new MySqlOrderDatabase();   // hard-wired detail
+}</code></pre>
+  <pre><span class="file">solid/dip/DipDemo.java — GOOD</span><code class="lang-java">interface OrderRepository {
+    void save(String orderId);
+    List&lt;String&gt; findAll();
+}
+class OrderService {
+    private final OrderRepository repository;
+    OrderService(OrderRepository repository) {   // the detail is plugged in from outside
+        this.repository = repository;
+    }
+}
+new OrderService(new InMemoryOrderRepository());   // tests
+new OrderService(new JpaOrderRepository(...));     // production (Spring does this for you)</code></pre>
+  <div class="flow">
+    <span class="box">OrderService<br><small>high-level policy</small></span><span class="arrow">→ depends on →</span>
+    <span class="box info">OrderRepository<br><small>interface</small></span><span class="arrow">← implements ←</span>
+    <span class="box alt">JpaOrderRepository<br><small>low-level detail</small></span>
+  </div>
+  <p>The arrow from the detail points <em>up</em> to the abstraction — the dependency is "inverted". <strong>DIP</strong> is the principle, <strong>Dependency Injection</strong> is the technique (pass dependencies in), <strong>Spring IoC</strong> is the tool that does the injecting (topics 22–24).</p>
+
+  <h3>3.8 Other principles worth knowing</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Principle</th><th>Meaning</th><th>Example</th></tr>
+    <tr><td><strong>DRY</strong> — Don't Repeat Yourself</td><td>Every piece of knowledge has one home.</td><td>The tax rate lives in ONE constant, not in 7 places.</td></tr>
+    <tr><td><strong>KISS</strong> — Keep It Simple</td><td>The simplest solution that works is usually best.</td><td>A plain <code>if</code> beats a 4-class pattern for 2 cases.</td></tr>
+    <tr><td><strong>YAGNI</strong> — You Aren't Gonna Need It</td><td>Don't build for imaginary future needs.</td><td>No "plugin system" until a second plugin exists.</td></tr>
+    <tr><td><strong>Composition over inheritance</strong></td><td>Prefer HAS-A (fields) to IS-A (extends) for reuse (topic 7).</td><td>Service <em>has</em> a repository; doesn't <em>extend</em> it.</td></tr>
+    <tr><td><strong>Fail fast</strong></td><td>Detect bad input early and loudly.</td><td>Validation at the API boundary (topic 34), guard clauses.</td></tr>
+    <tr><td><strong>Law of Demeter</strong></td><td>"Talk to friends, not strangers."</td><td>Avoid <code>order.getCustomer().getAddress().getCity().getName()</code>.</td></tr>
+    <tr><td><strong>Separation of concerns</strong></td><td>Different concerns in different places.</td><td>Logging/security/transactions in aspects and filters, not in every method.</td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ DRY has limits</strong> Two pieces of code that <em>look</em> the same but change for different reasons are not duplication. Merging them creates coupling. "A little copying is better than the wrong abstraction."</div>
+
+  <h3>3.9 Design patterns inside Spring — the map</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Pattern</th><th>Problem it solves</th><th>Where Spring uses it</th></tr>
+    <tr><td><strong>Singleton</strong></td><td>One shared instance</td><td>Default bean scope</td></tr>
+    <tr><td><strong>Factory</strong></td><td>Hide which class gets created</td><td><code>BeanFactory</code>, <code>@Bean</code> methods, <code>FactoryBean</code></td></tr>
+    <tr><td><strong>Builder</strong></td><td>Readable creation of complex objects</td><td><code>RestClient.builder()</code>, <code>ResponseEntity.status().body()</code>, <code>UriComponentsBuilder</code>, <code>MockMvcRequestBuilders</code></td></tr>
+    <tr><td><strong>Adapter</strong></td><td>Make incompatible interfaces work together</td><td><code>HandlerAdapter</code>, <code>JpaVendorAdapter</code>, <code>MessageListenerAdapter</code></td></tr>
+    <tr><td><strong>Proxy</strong></td><td>Add behaviour around calls transparently</td><td>AOP, <code>@Transactional</code>, <code>@Cacheable</code>, <code>@Async</code>, <code>@PreAuthorize</code>, Spring Data repository interfaces, Feign clients</td></tr>
+    <tr><td><strong>Decorator</strong></td><td>Wrap an object to add responsibilities</td><td><code>BeanPostProcessor</code> wrapping beans, <code>HttpServletRequestWrapper</code>, <code>TransactionAwareDataSourceProxy</code></td></tr>
+    <tr><td><strong>Facade</strong></td><td>Simple front for a complex subsystem</td><td><code>JdbcTemplate</code> over JDBC, <code>RestClient</code> over HTTP libraries, your own service layer</td></tr>
+    <tr><td><strong>Strategy</strong></td><td>Interchangeable algorithms</td><td><code>PasswordEncoder</code>, <code>CacheManager</code>, <code>HttpMessageConverter</code>, <code>ResourceLoader</code></td></tr>
+    <tr><td><strong>Observer</strong></td><td>Notify many listeners of an event</td><td><code>ApplicationEventPublisher</code> + <code>@EventListener</code></td></tr>
+    <tr><td><strong>Template Method</strong></td><td>Fixed algorithm, variable steps</td><td><code>JdbcTemplate</code>, <code>RestTemplate</code>, <code>KafkaTemplate</code>, <code>TransactionTemplate</code>, <code>AbstractController</code>-style base classes</td></tr>
+    <tr><td><strong>Chain of Responsibility</strong></td><td>Pass a request along a chain of handlers</td><td>Servlet filters, Spring Security <code>SecurityFilterChain</code>, <code>HandlerInterceptor</code>s</td></tr>
+    <tr><td><strong>Front Controller</strong></td><td>One entry point for all requests</td><td><code>DispatcherServlet</code> (topic 31)</td></tr>
+    <tr><td><strong>Dependency Injection / IoC</strong></td><td>Objects don't create their dependencies</td><td>The whole container</td></tr>
+  </table></div>
+
+  <h3>3.10 Singleton</h3>
+  <p><strong>Intent:</strong> exactly one instance with a global access point. The simplest thread-safe version in plain Java is an <code>enum</code>:</p>
+  <pre><span class="file">patterns/singleton/SingletonDemo.java</span><code class="lang-java">enum AppSettings {
+    INSTANCE;
+    private final Map&lt;String, String&gt; values = new ConcurrentHashMap&lt;&gt;(Map.of("currency", "INR"));
+    String get(String key) { return values.get(key); }
+}
+AppSettings.INSTANCE.get("currency");</code></pre>
+  <p><strong>In Spring</strong> every bean is a singleton by default — <em>one per container</em>. Spring's version is better than the classic one: it's still <em>injected</em> (so tests can pass a fake), and there are no <code>static getInstance()</code> calls hiding dependencies. Our demo shows <code>context.getBean(SingletonDemo.class) == this</code> is <code>true</code>.</p>
+  <div class="callout danger"><strong>🚫 Singleton + mutable state = bug</strong> One singleton bean serves <em>all</em> requests on many threads at once (topic 17). Never store per-request data in a field of a <code>@Service</code> (<code>private User currentUser;</code> ❌). Keep beans stateless, or use thread-safe structures.</div>
+
+  <h3>3.11 Factory</h3>
+  <p><strong>Intent:</strong> put the "which class do I create?" decision in one place. Callers depend only on the interface.</p>
+  <pre><span class="file">patterns/factory/FactoryDemo.java</span><code class="lang-java">interface Notification { String send(String to, String message); }
+
+final class NotificationFactory {
+    static Notification create(String channel) {
+        return switch (channel.toLowerCase()) {
+            case "email" -&gt; new EmailNotification();
+            case "sms"   -&gt; new SmsNotification();
+            case "push"  -&gt; new PushNotification();
+            default -&gt; throw new IllegalArgumentException("Unknown notification channel: " + channel);
+        };
+    }
+}
+Notification n = NotificationFactory.create("email");</code></pre>
+  <p><strong>In Spring</strong> the container <em>is</em> the factory (<code>BeanFactory</code>), and every <code>@Bean</code> method is a factory method:</p>
+  <pre><code class="lang-java">@Configuration
+class ClockConfig {
+    @Bean                       // a factory method: Spring calls it to create the bean
+    Clock clock() {
+        return Clock.systemUTC();
+    }
+}</code></pre>
+  <p>JDK examples: <code>List.of(...)</code>, <code>LocalDate.of(...)</code>, <code>Executors.newFixedThreadPool(...)</code> — static factory methods.</p>
+
+  <h3>3.12 Builder</h3>
+  <p><strong>Intent:</strong> create a complex (often immutable) object step by step, readably, with validation at the end. Compare:</p>
+  <pre><code class="lang-java">new Pizza("LARGE", true, true, false, List.of("mushroom"));   // which boolean is which??
+
+Pizza.builder("LARGE").thinCrust().extraCheese().topping("mushroom").build();   // reads like English</code></pre>
+  <pre><span class="file">patterns/builder/Pizza.java (core)</span><code class="lang-java">public final class Pizza {
+    private final String size;
+    private final List&lt;String&gt; toppings;
+    ...
+    private Pizza(Builder builder) { ... }                 // only the builder can create it
+
+    public static Builder builder(String size) { return new Builder(size); }
+
+    public static final class Builder {
+        private final String size;                         // required
+        private boolean thinCrust;                         // optional
+        private final List&lt;String&gt; toppings = new ArrayList&lt;&gt;();
+
+        public Builder thinCrust() { this.thinCrust = true; return this; }   // "return this" = chaining
+        public Builder topping(String t) { toppings.add(t); return this; }
+
+        public Pizza build() {
+            if (!List.of("SMALL", "MEDIUM", "LARGE").contains(size)) {
+                throw new IllegalStateException("Unknown size: " + size);
+            }
+            return new Pizza(this);
+        }
+    }
+}</code></pre>
+  <p><strong>In Spring</strong>: <code>RestClient.builder().baseUrl(...).build()</code>, <code>ResponseEntity.status(201).header(...).body(dto)</code>, <code>MockMvcRequestBuilders.get(...).param(...)</code>, <code>new SpringApplicationBuilder(...)</code>. Lombok's <code>@Builder</code> generates this code for you (topic 33). For small objects, a <strong>record</strong> with 2–3 fields doesn't need a builder.</p>
+
+  <h3>3.13 Adapter</h3>
+  <p><strong>Intent:</strong> make an existing class with the wrong interface fit the interface your code expects — like a travel plug adapter.</p>
+  <pre><span class="file">patterns/adapter/AdapterDemo.java</span><code class="lang-java">interface PaymentGateway {                       // what OUR code wants
+    PaymentResult pay(String account, BigDecimal amount);
+}
+
+class LegacyBankSdk {                             // what the old library offers (can't change it)
+    int doTransfer(String accountNumber, long amountInCents) { ... }   // 0 = OK
+}
+
+class LegacyBankAdapter implements PaymentGateway {
+    private final LegacyBankSdk sdk;
+    LegacyBankAdapter(LegacyBankSdk sdk) { this.sdk = sdk; }
+
+    public PaymentResult pay(String account, BigDecimal amount) {
+        long cents = amount.movePointRight(2).longValueExact();     // translate units
+        int code = sdk.doTransfer(account, cents);                    // call old API
+        return code == 0 ? new PaymentResult(true, "LEGACY-" + cents)
+                         : new PaymentResult(false, "ERROR-" + code); // translate result
+    }
+}</code></pre>
+  <p><strong>In Spring</strong>: <code>DispatcherServlet</code> can call very different kinds of handlers (annotated controllers, functional routes, old <code>HttpRequestHandler</code>s) because a <code>HandlerAdapter</code> adapts each to one common call. In your own projects, adapters are how you wrap third-party SDKs (payment, SMS, storage) so that the rest of your code depends on <em>your</em> interface — also great for DIP and testing.</p>
+
+  <h3>3.14 Strategy</h3>
+  <p><strong>Intent:</strong> a family of interchangeable algorithms behind one interface; choose one at runtime. The Spring way is beautiful: every strategy is a bean, and Spring can inject them <em>all</em> as a <code>Map</code> keyed by bean name.</p>
+  <pre><span class="file">patterns/strategy/*.java</span><code class="lang-java">public interface PaymentStrategy { String pay(BigDecimal amount); }
+
+@Component("upi")    public class UpiPayment    implements PaymentStrategy { ... }
+@Component("card")   public class CardPayment   implements PaymentStrategy { ... 2% fee ... }
+@Component("wallet") public class WalletPayment implements PaymentStrategy { ... }
+
+@Service
+public class PaymentService {
+    private final Map&lt;String, PaymentStrategy&gt; strategies;   // {"upi"=..., "card"=..., "wallet"=...}
+
+    public PaymentService(Map&lt;String, PaymentStrategy&gt; strategies) {
+        this.strategies = strategies;
+    }
+
+    public String checkout(String method, BigDecimal amount) {
+        PaymentStrategy strategy = strategies.get(method);
+        if (strategy == null) {
+            throw new IllegalArgumentException("Unsupported payment method: " + method);
+        }
+        return strategy.pay(amount);
+    }
+}</code></pre>
+  <p>No <code>switch</code>, no <code>if/else</code>. Adding "netbanking" = one new <code>@Component("netbanking")</code> class. That's Strategy + Open/Closed + DIP working together. <strong>In Spring</strong>: <code>PasswordEncoder</code> (BCrypt/Argon2/…), <code>CacheManager</code> (simple/Redis/Caffeine), <code>HttpMessageConverter</code> (JSON/XML chosen per request). In Java: <code>Comparator</code> is a strategy for sorting (topic 11)!</p>
+
+  <h3>3.15 Observer</h3>
+  <p><strong>Intent:</strong> when something happens in one object, all interested objects are notified — without the publisher knowing who they are. (A YouTube channel and its subscribers.)</p>
+  <pre><span class="file">patterns/observer/*.java</span><code class="lang-java">public record OrderPlacedEvent(String orderId, String customerEmail, BigDecimal total) { }
+
+@Service
+public class OrderPlacementService {
+    private final ApplicationEventPublisher publisher;
+    ...
+    public void placeOrder(String orderId, String email, BigDecimal total) {
+        // save the order ...
+        publisher.publishEvent(new OrderPlacedEvent(orderId, email, total));   // announce
+    }
+}
+
+@Component
+public class EmailListener {
+    @EventListener
+    public void onOrderPlaced(OrderPlacedEvent event) { ... send confirmation ... }
+}
+
+@Component
+public class InventoryListener {
+    @EventListener
+    public void onOrderPlaced(OrderPlacedEvent event) { ... reserve stock ... }
+}</code></pre>
+  <p>The order service doesn't depend on email or inventory code. Add an <code>AnalyticsListener</code> tomorrow — zero changes elsewhere. Plain Java version: a subject keeps a <code>List&lt;Listener&gt;</code> and calls each one. Across microservices, the same idea becomes messaging with RabbitMQ/Kafka (topics 57–58). Spring extras: <code>@Async</code> listeners and <code>@TransactionalEventListener</code> (run only after the DB commit — topic 52).</p>
+
+  <h3>3.16 Template Method</h3>
+  <p><strong>Intent:</strong> a base class fixes the steps of an algorithm (the "template"); subclasses fill in some steps.</p>
+  <pre><span class="file">patterns/templatemethod/TemplateMethodDemo.java</span><code class="lang-java">abstract static class ReportGenerator {
+    final String generate(List&lt;Sale&gt; sales) {          // final: the order of steps is fixed
+        StringBuilder out = new StringBuilder();
+        out.append(header()).append('\n');
+        for (Sale sale : sales) {
+            out.append(row(sale)).append('\n');
+        }
+        out.append(footer(sales.size()));
+        return out.toString();
+    }
+    protected abstract String header();                // subclasses MUST fill these
+    protected abstract String row(Sale sale);
+    protected String footer(int rowCount) {            // a "hook": optional override
+        return "# " + rowCount + " rows";
+    }
+}
+class CsvReport extends ReportGenerator {
+    protected String header() { return "product,qty"; }
+    protected String row(Sale s) { return s.product() + "," + s.quantity(); }
+}</code></pre>
+  <p><strong>In Spring</strong> — <code>JdbcTemplate</code> is the star example (topic 37). The fixed steps (get connection → create statement → execute → loop over results → translate <code>SQLException</code> → close everything) are in the template. You supply only the variable part — the SQL and a callback:</p>
+  <pre><code class="lang-java">List&lt;Student&gt; students = jdbcTemplate.query(
+        "SELECT id, name FROM students",
+        (rs, rowNum) -&gt; new Student(rs.getLong("id"), rs.getString("name")));   // your "step"</code></pre>
+  <p>Spring uses <em>callbacks</em> (lambdas) instead of subclasses — a modern twist on the same idea. Same for <code>RestTemplate</code>, <code>JmsTemplate</code>, <code>KafkaTemplate</code>, <code>TransactionTemplate</code>.</p>
+
+  <h3>3.17 Proxy — the key to Spring's "magic"</h3>
+  <p><strong>Intent:</strong> a stand-in object with the same interface as the real one, which adds behaviour before/after forwarding the call.</p>
+  <div class="flow">
+    <span class="box">Your controller</span><span class="arrow">→</span>
+    <span class="box info">Proxy<br><small>begin transaction</small></span><span class="arrow">→</span>
+    <span class="box alt">Real OrderService.placeOrder()</span><span class="arrow">→</span>
+    <span class="box info">Proxy<br><small>commit / rollback</small></span>
+  </div>
+  <pre><span class="file">patterns/proxy/ProxyDemo.java — part 1: JDK dynamic proxy</span><code class="lang-java">InvocationHandler timing = (proxy, method, args) -&gt; {
+    long start = System.nanoTime();
+    Object result = method.invoke(real, args);                 // forward to the real object
+    System.out.println(method.getName() + " took " + (System.nanoTime() - start) / 1_000_000 + " ms");
+    return result;
+};
+PriceCatalog timed = (PriceCatalog) Proxy.newProxyInstance(
+        PriceCatalog.class.getClassLoader(), new Class&lt;?&gt;[] {PriceCatalog.class}, timing);</code></pre>
+  <pre><span class="file">patterns/proxy/ProxyDemo.java — part 2: Spring ProxyFactory (a mini @Cacheable)</span><code class="lang-java">MethodInterceptor caching = invocation -&gt; {
+    Object key = invocation.getArguments()[0];
+    if (cache.containsKey(key)) {
+        return cache.get(key);                 // HIT: the real object is not even called
+    }
+    Object value = invocation.proceed();       // MISS: call the real method
+    cache.put(key, value);
+    return value;
+};
+ProxyFactory factory = new ProxyFactory(real);
+factory.addAdvice(caching);
+PriceCatalog cached = (PriceCatalog) factory.getProxy();</code></pre>
+  <p>This is exactly how <code>@Transactional</code>, <code>@Cacheable</code>, <code>@Async</code>, <code>@PreAuthorize</code>, <code>@Retry</code> and every aspect (topic 27) work: at startup Spring wraps your bean in a proxy, and other beans receive the proxy. Spring Data repositories and Feign clients are proxies too — you write only an interface, the proxy does the work.</p>
+  <div class="callout warn"><strong>⚠️ The self-invocation trap (explained by Proxy)</strong>
+    Inside <code>OrderService</code>, <code>this.placeOrder()</code> calls the <em>real</em> object directly — not the proxy — so <code>@Transactional</code> on <code>placeOrder</code> is silently ignored. Fix: call it from another bean, or move the method to a separate service (topics 27 and 42).
+  </div>
+
+  <h3>3.18 Three more patterns in one minute</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Pattern</th><th>Idea</th><th>Tiny example</th></tr>
+    <tr><td><strong>Decorator</strong></td><td>Wrap an object with the same interface to add a feature; wrappers can be stacked.</td><td><code>new BufferedReader(new FileReader(file))</code> — Java I/O is decorators all the way down.</td></tr>
+    <tr><td><strong>Facade</strong></td><td>One simple class hiding a complicated subsystem.</td><td><code>jdbcTemplate.update(sql, args)</code> hides 20 lines of JDBC; your <code>CheckoutService</code> hides cart + stock + payment + email.</td></tr>
+    <tr><td><strong>Chain of Responsibility</strong></td><td>A request passes through a chain; each handler may act and pass it on — or stop it.</td><td>Spring Security filters: CORS → CSRF → JWT auth → authorization (topic 47); servlet filters; interceptors.</td></tr>
+  </table></div>
+  <p>Proxy vs Decorator: same shape (wrap an object with the same interface). <em>Proxy</em> controls access (lazy loading, security, transactions); <em>Decorator</em> adds features, often stacked by the caller.</p>
+
+  <h3>3.19 Anti-patterns and pattern overuse</h3>
+  <ul>
+    <li><strong>God class</strong> — one class that knows and does everything (<code>Utils</code>, <code>Manager</code>, 2,000 lines).</li>
+    <li><strong>Magic numbers / strings</strong> — <code>if (status == 3)</code>. What is 3?</li>
+    <li><strong>Copy-paste programming</strong> — the same bug fixed in 4 places (and forgotten in the 5th).</li>
+    <li><strong>Anemic everything / smart nothing</strong> — logic scattered in controllers instead of services/domain.</li>
+    <li><strong>Pattern-itis</strong> — <code>AbstractPaymentStrategyFactoryProvider</code> for two cases. Patterns are tools, not goals. Apply one when it solves a <em>real</em> problem you have now (YAGNI, KISS).</li>
+  </ul>
+
+  <h3>3.20 Clean code rules</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Rule</th><th>❌ Instead of</th><th>✅ Write</th></tr>
+    <tr><td>Intention-revealing names</td><td><code>int d; List&lt;User&gt; list1;</code></td><td><code>int daysSinceLastLogin; List&lt;User&gt; activeUsers;</code></td></tr>
+    <tr><td>Classes = nouns, methods = verbs</td><td><code>class ProcessOrder</code>, <code>void data()</code></td><td><code>class OrderProcessor</code>, <code>void calculateTotal()</code></td></tr>
+    <tr><td>Booleans read as questions</td><td><code>boolean flag</code></td><td><code>boolean isActive</code>, <code>hasStock()</code>, <code>canCancel()</code></td></tr>
+    <tr><td>No magic numbers</td><td><code>price * 1.18</code></td><td><code>price.multiply(GST_MULTIPLIER)</code></td></tr>
+    <tr><td>Small methods doing one thing</td><td>a 120-line method</td><td>5 methods of 5–20 lines with good names</td></tr>
+    <tr><td>Few parameters (≤ 3)</td><td><code>create(a, b, c, d, e, f)</code></td><td>a record / request object, or a builder</td></tr>
+    <tr><td>Guard clauses instead of deep nesting</td><td><code>if (...) { if (...) { if (...) {</code></td><td><code>if (amount == null) throw ...;</code> then the happy path</td></tr>
+    <tr><td>Enums instead of int/String codes</td><td><code>int type = 2</code></td><td><code>CustomerTier.GOLD</code></td></tr>
+    <tr><td>No boolean "mode" parameters</td><td><code>price(1000, true)</code> — true what?</td><td><code>price(1000, Delivery.EXPRESS)</code></td></tr>
+    <tr><td>Comments explain WHY, not WHAT</td><td><code>i++; // increment i</code></td><td><code>// Bank API rejects amounts with more than 2 decimals</code></td></tr>
+    <tr><td>Don't return <code>null</code> collections</td><td><code>return null;</code></td><td><code>return List.of();</code> or <code>Optional</code> for single values</td></tr>
+    <tr><td>Immutability by default</td><td>setters everywhere</td><td><code>final</code> fields, records, <code>List.copyOf</code></td></tr>
+    <tr><td>Don't swallow exceptions</td><td><code>catch (Exception e) { }</code></td><td>log with context and rethrow / handle meaningfully (topic 10)</td></tr>
+    <tr><td>Money as <code>BigDecimal</code></td><td><code>double price</code></td><td><code>BigDecimal price</code> (topic 2)</td></tr>
+    <tr><td>Remove dead code</td><td>commented-out blocks "just in case"</td><td>delete it — Git remembers</td></tr>
+  </table></div>
+  <p>Our <code>CleanCodeDemo</code> shows a refactoring. Before:</p>
+  <pre><span class="file">cleancode/CleanCodeDemo.java — BEFORE</span><code class="lang-java">static double calc(int t, double a, boolean f) {
+    double r = 0;
+    if (a &gt; 0) {
+        if (t == 1) {
+            r = a * 0.9;
+        } else {
+            if (t == 2) {
+                r = a * 0.8;
+            } else {
+                r = a;
+            }
+        }
+        if (f) {
+            r = r + 40;
+        }
+    }
+    return r;
+}</code></pre>
+  <p>After:</p>
+  <pre><span class="file">cleancode/CleanCodeDemo.java — AFTER</span><code class="lang-java">enum CustomerTier {
+    REGULAR("0"), SILVER("10"), GOLD("20");
+    private final BigDecimal discountPercent;
+    CustomerTier(String discountPercent) { this.discountPercent = new BigDecimal(discountPercent); }
+}
+enum Delivery { STANDARD, EXPRESS }
+
+private static final BigDecimal EXPRESS_DELIVERY_FEE = new BigDecimal("40");
+private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
+
+static BigDecimal finalPrice(BigDecimal orderAmount, CustomerTier tier, Delivery delivery) {
+    requirePositive(orderAmount);                                   // guard clause
+    BigDecimal discounted = applyTierDiscount(orderAmount, tier);
+    return addDeliveryFee(discounted, delivery).setScale(2, RoundingMode.HALF_UP);
+}
+
+private static void requirePositive(BigDecimal amount) {
+    if (amount == null || amount.signum() &lt;= 0) {
+        throw new IllegalArgumentException("Order amount must be positive, but was " + amount);
+    }
+}
+
+private static BigDecimal applyTierDiscount(BigDecimal amount, CustomerTier tier) {
+    BigDecimal discount = amount.multiply(tier.discountPercent).divide(ONE_HUNDRED);
+    return amount.subtract(discount);
+}
+
+private static BigDecimal addDeliveryFee(BigDecimal amount, Delivery delivery) {
+    return delivery == Delivery.EXPRESS ? amount.add(EXPRESS_DELIVERY_FEE) : amount;
+}</code></pre>
+  <p>The call site went from <code>calc(2, 1000.0, true)</code> to <code>finalPrice(amount, GOLD, EXPRESS)</code> — you can read it aloud. Notice one more improvement: the old version silently returned <code>0</code> for a negative amount; the new one fails fast. <code>CleanCodeTest</code> proves both versions agree for valid inputs — <strong>refactor only with tests as a safety net</strong>.</p>
+
+  <h3>3.21 Recommended Spring Boot project structure</h3>
+  <p>In topic 33 you met <em>package-by-layer</em> (<code>controller/</code>, <code>service/</code>, <code>repository/</code>). For bigger, enterprise apps most teams prefer <strong>package-by-feature</strong>: everything about "orders" lives together, so a change to orders touches one folder, and features can later be split into microservices.</p>
+  <pre><code>com.shopeasy
+├── ShopEasyApplication.java
+├── common/                     ← shared, feature-independent code
+│   ├── exception/              ← GlobalExceptionHandler, ResourceNotFoundException
+│   ├── config/                 ← OpenApiConfig, JacksonConfig, CacheConfig
+│   ├── security/               ← SecurityConfig, JwtService, JwtAuthFilter
+│   └── audit/                  ← BaseEntity with createdAt/updatedAt
+├── product/
+│   ├── ProductController.java
+│   ├── ProductService.java
+│   ├── ProductRepository.java
+│   ├── Product.java            ← entity (package-private where possible)
+│   └── dto/  ProductRequest.java, ProductResponse.java, ProductMapper.java
+├── order/
+│   ├── OrderController.java, OrderService.java, OrderRepository.java, Order.java, OrderItem.java
+│   ├── event/  OrderPlacedEvent.java
+│   └── dto/ ...
+├── cart/ ...
+└── user/ ...
+src/main/resources
+├── application.yml, application-dev.yml, application-prod.yml
+└── db/migration/  V1__init.sql, V2__add_orders.sql
+src/test/java/com/shopeasy/   ← same packages as main: unit, @WebMvcTest, @DataJpaTest, integration</code></pre>
+  <p>Rules of thumb: features talk to each other through <strong>services or events</strong>, not by reaching into each other's repositories; DTOs at the API boundary; entities never leave the service layer; configuration in <code>common/config</code>. You will build exactly this structure in the capstone (topic 71). Tools like <strong>ArchUnit</strong> or <strong>Spring Modulith</strong> can even enforce these rules in tests.</p>
+
+  <h3>3.22 Code review checklist</h3>
+  <div class="card">
+    <strong>✅ Before you open (or approve) a pull request</strong>
+    <ul>
+      <li><strong>Correctness</strong>: does it do what the ticket asks? Edge cases (empty list, null, zero, negative, very large)?</li>
+      <li><strong>Tests</strong>: new logic has unit tests; bug fixes have a test that failed before; CI is green.</li>
+      <li><strong>Readability</strong>: clear names, small methods, no magic numbers, no commented-out code.</li>
+      <li><strong>Design</strong>: right layer (no business logic in controllers, no HTTP in repositories); SRP; no duplication.</li>
+      <li><strong>API</strong>: correct HTTP methods and status codes, DTOs not entities, validation on input, consistent error format.</li>
+      <li><strong>Database</strong>: migration included, indexes for new queries, no N+1, transactions where needed.</li>
+      <li><strong>Security</strong>: authorization checked, no secrets in code, no sensitive data in logs or responses.</li>
+      <li><strong>Errors &amp; logging</strong>: exceptions not swallowed; useful log messages at the right level.</li>
+      <li><strong>Performance</strong>: pagination for lists; no heavy work inside loops; caching considered.</li>
+      <li><strong>Config &amp; docs</strong>: new properties documented and with safe defaults; OpenAPI/README updated.</li>
+      <li><strong>Size</strong>: the PR is small enough to review in 15–30 minutes.</li>
+    </ul>
+  </div>
+  <p>And be kind: review the code, not the person. Suggest, explain why, and praise good things too.</p>
+
+  <h3>3.23 Security checklist — OWASP Top 10 in simple words</h3>
+  <p><strong>OWASP</strong> (Open Worldwide Application Security Project) publishes the ten most critical web risks. The 2021 list, explained simply, with the Spring answer:</p>
+  <div class="table-wrap"><table>
+    <tr><th>#</th><th>Risk</th><th>In simple words</th><th>What you do in Spring Boot</th></tr>
+    <tr><td>A01</td><td>Broken Access Control</td><td>Users can see or change things that aren't theirs (<code>GET /orders/123</code> of someone else).</td><td>Check ownership, <code>@PreAuthorize</code>, deny by default, test with <code>@WithMockUser</code> (topic 48).</td></tr>
+    <tr><td>A02</td><td>Cryptographic Failures</td><td>Sensitive data not protected.</td><td>HTTPS everywhere, BCrypt for passwords, never store card numbers yourself.</td></tr>
+    <tr><td>A03</td><td>Injection</td><td>User input runs as code (SQL injection, etc.).</td><td>Spring Data / <code>PreparedStatement</code> parameters, never string-concatenate SQL (topic 19).</td></tr>
+    <tr><td>A04</td><td>Insecure Design</td><td>The design itself has no protection (e.g. unlimited password guesses).</td><td>Threat-model features, rate limiting, account lockout.</td></tr>
+    <tr><td>A05</td><td>Security Misconfiguration</td><td>Default passwords, open actuator, stack traces in responses.</td><td>Expose only needed actuator endpoints, <code>include-stacktrace=never</code>, secure headers (default in Spring Security).</td></tr>
+    <tr><td>A06</td><td>Vulnerable &amp; Outdated Components</td><td>Old libraries with known holes.</td><td>Dependabot, OWASP Dependency-Check, keep Spring Boot updated (topic 68).</td></tr>
+    <tr><td>A07</td><td>Identification &amp; Authentication Failures</td><td>Weak login, broken session/token handling.</td><td>Spring Security, short-lived JWTs, strong password rules, MFA (topics 47–50).</td></tr>
+    <tr><td>A08</td><td>Software &amp; Data Integrity Failures</td><td>Untrusted updates, insecure deserialisation, tampered pipelines.</td><td>Pinned CI actions, signed artifacts, JSON instead of Java serialisation.</td></tr>
+    <tr><td>A09</td><td>Security Logging &amp; Monitoring Failures</td><td>Attacks happen and nobody notices.</td><td>Log logins/failures/access-denied (without secrets), alerts, tracing (topics 30, 53, 65).</td></tr>
+    <tr><td>A10</td><td>Server-Side Request Forgery (SSRF)</td><td>Your server is tricked into calling internal URLs.</td><td>Never fetch arbitrary user-given URLs; allow-list hosts.</td></tr>
+  </table></div>
+  <p>Plus always: validate all input (topic 34), configure CORS narrowly, keep secrets out of Git (topics 67–69), and never log passwords, tokens or full card numbers.</p>
+
+  <h3>3.24 Performance tips</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Problem</th><th>Symptom</th><th>Fix</th></tr>
+    <tr><td><strong>N+1 queries</strong></td><td>1 query for orders + 1 per order for items; 100 orders → 101 queries.</td><td><code>JOIN FETCH</code>, <code>@EntityGraph</code>, <code>@BatchSize</code>; check with <code>show-sql</code> (topic 40).</td></tr>
+    <tr><td><strong>Missing indexes</strong></td><td>Queries slow as tables grow.</td><td>Index columns used in <code>WHERE</code>, <code>JOIN</code>, <code>ORDER BY</code> (via a Flyway migration); check with <code>EXPLAIN</code>.</td></tr>
+    <tr><td><strong>No pagination</strong></td><td>Returning 1 million rows, out of memory.</td><td><code>Pageable</code>, max page size (topic 41).</td></tr>
+    <tr><td><strong>Repeated expensive work</strong></td><td>Same product catalog loaded 1,000 times a minute.</td><td><code>@Cacheable</code> + sensible TTL and eviction (topic 51).</td></tr>
+    <tr><td><strong>Connection pool exhausted</strong></td><td>Requests wait for "connection is not available".</td><td>Tune HikariCP <code>maximum-pool-size</code>, keep transactions short, no remote calls inside transactions.</td></tr>
+    <tr><td><strong>Fetching too much</strong></td><td>Loading whole entities to show 2 fields.</td><td>Projections / DTO queries (topic 39); <code>FetchType.LAZY</code>.</td></tr>
+    <tr><td><strong>Slow downstream calls</strong></td><td>Threads stuck waiting for another service.</td><td>Timeouts, circuit breakers (topic 64), async where it fits.</td></tr>
+    <tr><td><strong>Chatty logging</strong></td><td>DEBUG logs in production, string building in loops.</td><td>INFO in prod, parameterised logs <code>log.debug("x={}", x)</code>.</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Measure first</strong> "Premature optimization is the root of all evil" (Donald Knuth). Use Actuator metrics, tracing and a profiler to find the real bottleneck before optimising.</div>
+
+  <h3>3.25 What to learn next</h3>
+  <ul>
+    <li><strong>Build the capstone</strong> (topic 71) — then build your <em>own</em> project end-to-end and put it on GitHub with CI.</li>
+    <li><strong>Testing deeper</strong>: Testcontainers (real MySQL/Kafka in tests), contract testing, ArchUnit.</li>
+    <li><strong>Databases</strong>: SQL performance, PostgreSQL, indexing, transactions in depth.</li>
+    <li><strong>Architecture</strong>: Domain-Driven Design, hexagonal/clean architecture, Spring Modulith, event-driven systems.</li>
+    <li><strong>Cloud</strong>: one cloud provider (AWS/Azure/GCP) fundamentals, Kubernetes deeper, Helm, Argo CD, Terraform.</li>
+    <li><strong>Modern Java</strong>: Java 21 LTS (virtual threads, record patterns, sequenced collections), and Spring Boot's newer versions.</li>
+    <li><strong>Books</strong>: <em>Clean Code</em> (R. C. Martin), <em>Effective Java</em> (J. Bloch), <em>Head First Design Patterns</em>, <em>Refactoring</em> (M. Fowler), <em>Designing Data-Intensive Applications</em> (M. Kleppmann).</li>
+    <li><strong>Practice</strong>: refactor old code from this course using this lesson's checklists; review others' code on GitHub.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder (all under <code>src/main/java/com/course/patterns/</code> unless noted):</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>PatternsApplication.java</code></td><td>Main class; package map in the comment.</td></tr>
+    <tr><td><code>demo/PatternDemo.java</code>, <code>demo/DemoRunner.java</code></td><td>Each demo is a bean; the runner gets a sorted <code>List&lt;PatternDemo&gt;</code>.</td></tr>
+    <tr><td><code>solid/srp/SrpDemo.java</code> … <code>solid/dip/DipDemo.java</code></td><td>Five SOLID principles, each with nested BAD and GOOD classes.</td></tr>
+    <tr><td><code>patterns/singleton/SingletonDemo.java</code></td><td>Enum singleton; Spring <code>getBean</code> identity check.</td></tr>
+    <tr><td><code>patterns/factory/FactoryDemo.java</code></td><td><code>NotificationFactory</code> with a switch expression.</td></tr>
+    <tr><td><code>patterns/builder/Pizza.java</code>, <code>BuilderDemo.java</code></td><td>Immutable object + fluent builder + validation.</td></tr>
+    <tr><td><code>patterns/adapter/AdapterDemo.java</code></td><td>Legacy SDK adapted to <code>PaymentGateway</code>.</td></tr>
+    <tr><td><code>patterns/strategy/PaymentStrategy.java</code>, <code>UpiPayment</code>, <code>CardPayment</code>, <code>WalletPayment</code>, <code>PaymentService</code>, <code>StrategyDemo</code></td><td>Strategy as Spring beans, picked from a <code>Map</code>.</td></tr>
+    <tr><td><code>patterns/observer/OrderPlacedEvent</code>, <code>OrderPlacementService</code>, <code>OrderListeners</code>, <code>ObserverDemo</code></td><td>Spring events.</td></tr>
+    <tr><td><code>patterns/templatemethod/TemplateMethodDemo.java</code></td><td>Report template with a hook.</td></tr>
+    <tr><td><code>patterns/proxy/ProxyDemo.java</code></td><td>JDK dynamic proxy + Spring <code>ProxyFactory</code> caching.</td></tr>
+    <tr><td><code>cleancode/CleanCodeDemo.java</code></td><td>Before/after refactoring.</td></tr>
+    <tr><td><code>src/test/.../PizzaTest</code>, <code>CleanCodeTest</code>, <code>PatternsSpringTest</code></td><td>12 tests: builder rules, refactoring safety net, strategy wiring.</td></tr>
+    <tr><td><code>src/main/resources/application.properties</code></td><td>Console app: no web server, no banner, quiet logs.</td></tr>
+  </table></div>
+
+  <h3>4.1 The runner: OCP + DI + Strategy in 20 lines</h3>
+  <pre><span class="file">demo/DemoRunner.java</span><code class="lang-java">@Component
+@ConditionalOnProperty(name = "demo.runner.enabled", havingValue = "true", matchIfMissing = true)
+public class DemoRunner implements CommandLineRunner {
+
+    private final List&lt;PatternDemo&gt; demos;      // ALL PatternDemo beans, sorted by @Order
+
+    public DemoRunner(List&lt;PatternDemo&gt; demos) {
+        this.demos = demos;
+    }
+
+    @Override
+    public void run(String... args) {
+        int number = 1;
+        for (PatternDemo demo : demos) {
+            System.out.println("=== " + number++ + ". " + demo.title() + " ===");
+            demo.run();
+        }
+    }
+}</code></pre>
+  <p>Each demo class has <code>@Component</code> and <code>@Order(n)</code>. Spring injects a <code>List</code> sorted by that order. The runner never changes when a demo is added (Open/Closed). <code>@ConditionalOnProperty</code> lets the tests start the context without printing everything (<code>demo.runner.enabled=false</code>).</p>
+  <p>Each SOLID demo keeps BAD and GOOD versions as <strong>nested classes in one file</strong>, so you can compare them side by side. In real code each of those classes would get its own file.</p>
+
+  <h3>4.2 Test as a safety net for refactoring</h3>
+  <pre><span class="file">src/test/java/com/course/patterns/cleancode/CleanCodeTest.java</span><code class="lang-java">@ParameterizedTest
+@CsvSource({
+        "1000, 0, REGULAR, false",
+        "1000, 1, SILVER,  true",
+        "1000, 2, GOLD,    true",
+        "250,  2, GOLD,    false",
+        "99.5, 1, SILVER,  false"
+})
+void refactoringKeepsBehaviour(String amount, int oldType, CustomerTier tier, boolean express) {
+    double before = Before.calc(oldType, Double.parseDouble(amount), express);
+    BigDecimal after = After.finalPrice(new BigDecimal(amount), tier,
+            express ? Delivery.EXPRESS : Delivery.STANDARD);
+    assertThat(after).isEqualByComparingTo(BigDecimal.valueOf(before).setScale(2, RoundingMode.HALF_UP));
+}</code></pre>
+  <p>JUnit converts the text <code>"GOLD"</code> into the enum automatically.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="run">5. How to run</h2>
+  <p>In VS Code: open the folder, open <code>PatternsApplication.java</code> and click <strong>Run</strong> above <code>main</code>. Or in a terminal:</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\70-Design-Patterns-Clean-Code-And-Best-Practices"
+mvn spring-boot:run</code></pre>
+  <p>Expected output (shortened):</p>
+  <pre class="terminal"><code>Running 14 demos...
+
+=== 1. S - Single Responsibility Principle ===
+[bad ] INVOICE for Asha - total 1180.00 (saved to file)
+[good] INVOICE for Asha - total 1180.00
+[good] stored invoices: 1
+
+=== 2. O - Open/Closed Principle ===
+[bad ] PREMIUM pays 900.00
+[good] Regular pays 1000.00
+[good] Premium pays 900.00
+[good] Student pays 850.00
+
+=== 3. L - Liskov Substitution Principle ===
+[bad ] Sparrow is flying
+[bad ] CRASH: Penguins cannot fly!
+[good] Sparrow is flying
+[good] Eagle is flying
+[good] Penguin is swimming (it is a Bird, but never asked to fly)
+...
+=== 6. Singleton - one instance (enum + Spring singleton scope) ===
+[java  ] same enum instance? true  - currency = INR
+[spring] getBean twice -&gt; same object? true
+[spring] the bean Spring injected into DemoRunner is this very object? true
+...
+=== 10. Strategy - interchangeable algorithms (Spring injects a Map of beans) ===
+Available methods: [card, upi, wallet]
+upi    -&gt; UPI payment of 1000.00 (no fee)
+card   -&gt; Card payment of 1000.00 + fee 20.00
+wallet -&gt; Wallet payment of 1000.00 (cashback 1%)
+cash   -&gt; Unsupported payment method: cash. Available: [card, upi, wallet]
+
+=== 11. Observer - publish an event, many listeners react (Spring events) ===
+OrderPlacementService: order ORD-77 saved, publishing event...
+  EmailListener    : sending confirmation to ravi@example.com
+  InventoryListener: reserving stock for order ORD-77
+...
+=== 13. Proxy - same interface, extra behaviour (how @Transactional/@Cacheable work) ===
+[jdk proxy] -&gt; priceFor(Biryani)
+[jdk proxy] &lt;- priceFor took 50 ms
+Price: 250.00
+[spring proxy] cache MISS for Dosa
+Price: 120.00
+[spring proxy] cache HIT  for Dosa
+Price: 120.00
+Real object was called 2 times in total (1 + 1), the cache saved one call.
+
+=== 14. Clean code - before and after ===
+[before] calc(2, 1000.0, true) = 840.0
+[after ] finalPrice(1000, GOLD, EXPRESS) = 840.00
+
+All demos finished.</code></pre>
+  <p>(The Strategy map order may differ on your machine; that's why the code sorts the names with a <code>TreeSet</code> for display.) Run the tests:</p>
+  <pre class="terminal"><code>mvn test
+[INFO] Tests run: 12, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS</code></pre>
+
+  <!-- ============================================================ -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: using patterns everywhere</strong>
+    Interfaces with one implementation "just in case", factories for objects created once, 5 layers for a CRUD endpoint.<br><strong>Fix:</strong> start simple (KISS, YAGNI). Introduce a pattern when a second variant or a real pain appears. Refactoring later is cheap when you have tests.</div>
+  <div class="callout danger"><strong>🚫 Mistake: mutable state in singleton beans</strong>
+    <code>@Service class CartService { private List&lt;Item&gt; items; }</code> — all users share one cart!<br><strong>Fix:</strong> keep beans stateless; store per-user data in the database, the session, or method variables.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "my @Transactional/@Cacheable does nothing"</strong>
+    Calling the annotated method from the same class (self-invocation), or making it <code>private</code>/<code>final</code>, so the proxy is bypassed.<br><strong>Fix:</strong> call it through another bean; keep such methods <code>public</code> (now you know why — Proxy!).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: inheritance for code reuse</strong>
+    <code>class OrderService extends BaseService extends AbstractCrudService ...</code> deep hierarchies that are hard to change, often breaking LSP.<br><strong>Fix:</strong> composition — inject helper beans.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: field injection and <code>new</code> inside services</strong>
+    <code>@Autowired private PaymentClient client;</code> or <code>new SmtpMailer()</code> inside a service — hidden dependencies, hard to test (violates DIP).<br><strong>Fix:</strong> constructor injection of interfaces (topic 24).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: refactoring without tests</strong>
+    "I just cleaned it up" — and broke the discount for GOLD customers.<br><strong>Fix:</strong> write characterisation tests first (like <code>CleanCodeTest</code>), then refactor in small steps, running tests each time.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: the giant "Utils" / "Helper" / "Manager" class</strong>
+    A dumping ground that violates SRP and grows forever.<br><strong>Fix:</strong> move each method to the class that owns the data or the concept.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: comments that lie</strong>
+    Code changed, comment didn't.<br><strong>Fix:</strong> make code self-explanatory with names; keep comments for <em>why</em> and update them with the code.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Program to interfaces</strong> at boundaries (repositories, external clients, strategies) — not for every class.</li>
+    <li><strong>Constructor injection</strong>, <code>final</code> fields, stateless beans.</li>
+    <li><strong>Small, focused classes and methods</strong>; one level of abstraction per method.</li>
+    <li><strong>Records for DTOs and value objects</strong>; immutability by default.</li>
+    <li><strong>Package-by-feature</strong> for growing apps; clear layer responsibilities inside each feature.</li>
+    <li><strong>Prefer Spring's built-in patterns</strong> (events, <code>Map</code> of strategies, AOP) over hand-made infrastructure.</li>
+    <li><strong>Boy Scout rule</strong>: leave the code a little cleaner than you found it — in small, tested steps.</li>
+    <li><strong>Automate quality</strong>: formatters, static analysis (SonarQube), ArchUnit rules, CI gates (topic 68).</li>
+    <li><strong>Security and performance are part of "done"</strong>: run through the checklists in 3.22–3.24 for every feature.</li>
+    <li><strong>Write for the reader</strong>: the next developer is busy and tired — make their life easy.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>SOLID: one reason to change (S), extend without editing (O), subtypes must be substitutable (L), small interfaces (I), depend on abstractions (D).</li>
+    <li>DIP is the principle, DI the technique, Spring IoC the tool.</li>
+    <li>Spring is built from classic patterns: Singleton beans, Factory (<code>BeanFactory</code>, <code>@Bean</code>), Builder, Adapter, Proxy (AOP, <code>@Transactional</code>), Strategy, Observer (events), Template Method (<code>JdbcTemplate</code>), Chain of Responsibility (filters), Front Controller (<code>DispatcherServlet</code>).</li>
+    <li>Proxy explains the self-invocation trap and why annotated methods must be public.</li>
+    <li>Strategy + a <code>Map&lt;String, Interface&gt;</code> of beans removes <code>switch</code> statements and follows Open/Closed.</li>
+    <li>Clean code: meaningful names, small methods, no magic numbers, guard clauses, enums over codes, comments for "why".</li>
+    <li>Refactor only with tests; don't over-engineer (KISS, YAGNI).</li>
+    <li>Use the code-review, OWASP security and performance checklists on every feature.</li>
+  </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. New payment method.</strong> Add "netbanking" with a flat fee of 5.00 — without changing <code>PaymentService</code>. Which SOLID principle did you just follow?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Component("netbanking")
+public class NetBankingPayment implements PaymentStrategy {
+    private static final BigDecimal FLAT_FEE = new BigDecimal("5.00");
+
+    @Override
+    public String pay(BigDecimal amount) {
+        return "Net banking payment of " + amount + " + fee " + FLAT_FEE;
+    }
+}</code></pre><p>Open/Closed (plus Strategy and DIP). Run the app: "netbanking" appears in "Available methods". Update <code>PatternsSpringTest</code>'s expected list.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Spot the smells.</strong> List every clean-code problem in this method and rewrite it.</p>
+    <pre><code class="lang-java">public boolean chk(User u) {
+    if (u != null) {
+        if (u.getAge() &gt;= 18) {
+            if (u.getStatus() == 1) {
+                return true;
+            }
+        }
+    }
+    return false;
+}</code></pre>
+    <details><summary>Hint / solution</summary><p>Problems: cryptic names (<code>chk</code>, <code>u</code>), magic numbers (<code>18</code>, <code>1</code>), deep nesting, int status code, verbose boolean return.</p><pre><code class="lang-java">private static final int ADULT_AGE = 18;
+
+public boolean canPlaceOrder(User user) {
+    if (user == null) {
+        return false;
+    }
+    return user.getAge() &gt;= ADULT_AGE &amp;&amp; user.getStatus() == UserStatus.ACTIVE;
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Decorator.</strong> Write a <code>LoggingNotification</code> decorator that wraps any <code>Notification</code> from <code>FactoryDemo</code>, prints "sending..." before and "sent" after, and can be stacked with a <code>RetryNotification</code> decorator.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">class LoggingNotification implements Notification {
+    private final Notification inner;
+    LoggingNotification(Notification inner) { this.inner = inner; }
+
+    public String send(String to, String message) {
+        System.out.println("sending to " + to + "...");
+        String result = inner.send(to, message);
+        System.out.println("sent");
+        return result;
+    }
+}
+
+class RetryNotification implements Notification {
+    private static final int MAX_ATTEMPTS = 3;
+    private final Notification inner;
+    RetryNotification(Notification inner) { this.inner = inner; }
+
+    public String send(String to, String message) {
+        RuntimeException last = null;
+        for (int attempt = 1; attempt &lt;= MAX_ATTEMPTS; attempt++) {
+            try {
+                return inner.send(to, message);
+            } catch (RuntimeException e) {
+                last = e;
+            }
+        }
+        throw last;
+    }
+}
+
+Notification n = new LoggingNotification(new RetryNotification(NotificationFactory.create("sms")));</code></pre><p>Same interface, wrapped and stacked — that's Decorator. (Compare: <code>new BufferedReader(new FileReader(f))</code>.)</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Add an observer.</strong> Add an <code>AnalyticsListener</code> that counts placed orders, and make it run <em>asynchronously</em>. What do you need to enable?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Component
+public class AnalyticsListener {
+    private final AtomicInteger ordersPlaced = new AtomicInteger();   // thread-safe: listener runs on another thread
+
+    @Async
+    @EventListener
+    public void onOrderPlaced(OrderPlacedEvent event) {
+        System.out.println("  AnalyticsListener: total orders = " + ordersPlaced.incrementAndGet()
+                + " (thread " + Thread.currentThread().getName() + ")");
+    }
+}</code></pre><p>Add <code>@EnableAsync</code> to a configuration class (topic 52). <code>@Async</code> works through a Proxy too! Note that the output may now appear after the next demo, because it runs on another thread.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Chain of Responsibility.</strong> Build an order-validation chain: <code>StockCheck</code> → <code>FraudCheck</code> → <code>CreditLimitCheck</code>. Each check is a Spring bean with <code>@Order</code>; a <code>OrderValidator</code> runs them in order and stops at the first failure.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public interface OrderCheck {
+    Optional&lt;String&gt; check(Order order);        // empty = OK, otherwise the error message
+}
+
+@Component @Order(1) class StockCheck implements OrderCheck { ... }
+@Component @Order(2) class FraudCheck implements OrderCheck { ... }
+@Component @Order(3) class CreditLimitCheck implements OrderCheck { ... }
+
+@Service
+public class OrderValidator {
+    private final List&lt;OrderCheck&gt; checks;     // sorted by @Order
+    public OrderValidator(List&lt;OrderCheck&gt; checks) { this.checks = checks; }
+
+    public void validate(Order order) {
+        for (OrderCheck check : checks) {
+            check.check(order).ifPresent(error -&gt; {
+                throw new IllegalStateException(error);   // stop the chain
+            });
+        }
+    }
+}</code></pre><p>This is a simplified version of how Spring Security's filter chain works.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Review an old topic.</strong> Pick your code from topic 38 or 49 and run it through the code-review, security and performance checklists in 3.22–3.24. Write down at least 5 improvements and implement two of them.</p>
+    <details><summary>Hint / solution</summary><p>Typical findings: missing pagination on "find all" endpoints; entities returned directly instead of DTOs; magic numbers (token expiry) not in properties; missing index for a search column; a <code>catch (Exception e)</code> that swallows errors; missing test for the "not found" case; actuator exposing too many endpoints; secrets with real-looking defaults in <code>application.properties</code>. Fix two, add tests, and commit with a clear message — exactly what a real PR looks like.</p></details>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. Explain SOLID with an example for each letter.</summary><p><strong>S</strong>: split an <code>InvoiceManager</code> into calculator, formatter, store. <strong>O</strong>: a <code>Discount</code> interface so new discounts are new classes, not new <code>if</code>s. <strong>L</strong>: a <code>Penguin</code> must not extend a <code>Bird</code> that promises <code>fly()</code>; split into <code>Bird</code>/<code>FlyingBird</code>. <strong>I</strong>: separate <code>Printer</code>, <code>Scanner</code>, <code>Fax</code> interfaces instead of one fat interface. <strong>D</strong>: <code>OrderService</code> depends on an <code>OrderRepository</code> interface injected via constructor, not on <code>new MySqlOrderDatabase()</code>.</p></details>
+  <details><summary>Q2. Which design patterns are used in the Spring Framework?</summary><p>Singleton (default bean scope), Factory (<code>BeanFactory</code>, <code>@Bean</code>, <code>FactoryBean</code>), Proxy (AOP, <code>@Transactional</code>, <code>@Cacheable</code>, Spring Data repositories), Template Method (<code>JdbcTemplate</code>, <code>RestTemplate</code>), Strategy (<code>PasswordEncoder</code>, <code>HttpMessageConverter</code>), Observer (application events), Adapter (<code>HandlerAdapter</code>), Front Controller (<code>DispatcherServlet</code>), Chain of Responsibility (filter chains), Builder (<code>RestClient.builder()</code>), Decorator (bean wrapping), and of course Dependency Injection/IoC.</p></details>
+  <details><summary>Q3. How does <code>@Transactional</code> work internally, and when does it NOT work?</summary><p>Spring creates a proxy (JDK dynamic proxy for interfaces or CGLIB subclass) around the bean. Calls go through the proxy, which starts a transaction, calls the real method, and commits or rolls back (on unchecked exceptions by default). It doesn't apply on self-invocation (calling the method from the same class bypasses the proxy), on <code>private</code>/<code>final</code> methods (CGLIB can't override them), or on objects not managed by Spring.</p></details>
+  <details><summary>Q4. Spring singleton vs the GoF Singleton?</summary><p>GoF Singleton: one instance per class loader, enforced by the class itself (private constructor, static <code>getInstance()</code>), hard to test. Spring singleton: one instance per container per bean definition, created and injected by Spring; the class is a normal class (you could create others), and dependencies are visible and replaceable in tests. Both must be thread-safe — keep them stateless.</p></details>
+  <details><summary>Q5. Strategy vs Template Method?</summary><p>Both vary part of an algorithm. Template Method uses <strong>inheritance</strong>: the base class fixes the steps and subclasses override some. Strategy uses <strong>composition</strong>: the whole algorithm is an object you pass in or choose at runtime. Strategy is more flexible (switch at runtime, no subclassing); modern Spring templates mix both by accepting callbacks (lambdas).</p></details>
+  <details><summary>Q6. How do you avoid a big <code>switch</code> over types in Spring?</summary><p>Define an interface, implement each case as a bean, and inject <code>Map&lt;String, MyInterface&gt;</code> (keyed by bean name) or <code>List&lt;MyInterface&gt;</code> with a <code>supports(type)</code> method. Pick the implementation at runtime. New cases = new beans (Open/Closed).</p></details>
+  <details><summary>Q7. What is the difference between Proxy, Decorator and Adapter?</summary><p>Adapter changes the <em>interface</em> (makes an incompatible class fit). Proxy and Decorator keep the <em>same</em> interface: Proxy controls access to the real object (security, lazy loading, transactions, remote calls), Decorator adds responsibilities and is often stacked by the client.</p></details>
+  <details><summary>Q8. What makes code "clean"? Give concrete rules.</summary><p>It reads like well-written prose: intention-revealing names, small methods that do one thing, few parameters, no magic numbers, guard clauses instead of deep nesting, enums instead of codes, no duplicated knowledge, comments that explain why, consistent formatting, meaningful exceptions, immutability where possible, and tests that document behaviour.</p></details>
+  <details><summary>Q9. How would you structure a large Spring Boot application?</summary><p>Package-by-feature (product, order, user…) with controller/service/repository/dto inside each feature, plus a <code>common</code> package for config, security and exception handling. DTOs at the boundary, entities inside, Flyway migrations, profile-specific config, tests mirroring packages. Features communicate via services or events; module boundaries can be enforced with ArchUnit or Spring Modulith.</p></details>
+  <details><summary>Q10. Name some OWASP Top 10 risks and how Spring Boot helps.</summary><p>Broken access control (Spring Security, <code>@PreAuthorize</code>, ownership checks), injection (parameterised queries via JPA/JdbcTemplate), cryptographic failures (BCrypt, HTTPS), security misconfiguration (limit actuator exposure, no stack traces), vulnerable components (keep Spring Boot and dependencies updated, Dependabot), authentication failures (Spring Security, JWT best practices), logging &amp; monitoring failures (structured logs, Actuator metrics, alerting).</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../69-Deployment-And-Kubernetes-Basics/lesson.html"><small>← Previous</small>69. Deployment &amp; Kubernetes Basics</a>
+    <a class="next" href="../71-Capstone-Project-ECommerce-Backend/lesson.html"><small>Next →</small>71. Capstone Project: E-Commerce Backend</a>
+  </nav>
+</main>
+</body>
+</html>

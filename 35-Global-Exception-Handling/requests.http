@@ -1,0 +1,55 @@
+### Topic 35 - Global Exception Handling
+### Run the app in any profile (default / problem / plain) and compare the error JSON.
+
+@base = http://localhost:8080/api/books
+
+### 1. OK - list books
+GET {{base}}
+
+### 2. 404 - book does not exist (ResourceNotFoundException)
+GET {{base}}/99
+
+### 3. 400 - id is not a number (MethodArgumentTypeMismatchException)
+GET {{base}}/abc
+
+### 4. 400 - validation failed (MethodArgumentNotValidException) -> fieldErrors
+POST {{base}}
+Content-Type: application/json
+
+{ "title": "", "author": "X", "isbn": "123", "copies": -1 }
+
+### 5. 409 - duplicate ISBN (DuplicateResourceException)
+POST {{base}}
+Content-Type: application/json
+
+{ "title": "Clean Code again", "author": "Robert C. Martin", "isbn": "9780132350884", "copies": 1 }
+
+### 6. 400 - broken JSON (HttpMessageNotReadableException)
+POST {{base}}
+Content-Type: application/json
+
+{ "title": "broken
+
+### 7. 201 - a valid new book
+POST {{base}}
+Content-Type: application/json
+
+{ "title": "Spring in Action", "author": "Craig Walls", "isbn": "9781617297571", "copies": 3 }
+
+### 8. 200 then 422 - borrow "Effective Java" (1 copy) twice
+POST {{base}}/2/borrow
+
+### 9. 422 - "Head First Java" has 0 copies (BookNotAvailableException)
+POST {{base}}/3/borrow
+
+### 10. 400 - query parameter constraint (HandlerMethodValidationException)
+GET {{base}}/available?minCopies=0
+
+### 11. 405 - DELETE not supported on the collection URL
+DELETE {{base}}
+
+### 12. 404 - unknown URL (NoResourceFoundException)
+GET http://localhost:8080/api/bookz
+
+### 13. 500 - simulated bug: generic message, NO stack trace to the client
+GET {{base}}/crash

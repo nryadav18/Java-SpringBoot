@@ -1,0 +1,98 @@
+### Topic 54 - File Upload, Download and Emails
+### Use with the VS Code "REST Client" extension.
+### Copy a "storedName" from an upload response into @stored below to try download/view/delete.
+
+@baseUrl = http://localhost:8080
+@stored = PASTE_STORED_NAME_HERE
+
+### 1) Upload ONE file (multipart/form-data). "< ./sample-files/hello.txt" = read the file from disk.
+POST {{baseUrl}}/api/files
+Content-Type: multipart/form-data; boundary=CourseBoundary
+
+--CourseBoundary
+Content-Disposition: form-data; name="file"; filename="hello.txt"
+Content-Type: text/plain
+
+< ./sample-files/hello.txt
+--CourseBoundary--
+
+### 2) Upload an image
+POST {{baseUrl}}/api/files
+Content-Type: multipart/form-data; boundary=CourseBoundary
+
+--CourseBoundary
+Content-Disposition: form-data; name="file"; filename="green-dot.png"
+Content-Type: image/png
+
+< ./sample-files/green-dot.png
+--CourseBoundary--
+
+### 3) Upload SEVERAL files - same part name "files"
+POST {{baseUrl}}/api/files/batch
+Content-Type: multipart/form-data; boundary=CourseBoundary
+
+--CourseBoundary
+Content-Disposition: form-data; name="files"; filename="hello.txt"
+Content-Type: text/plain
+
+< ./sample-files/hello.txt
+--CourseBoundary
+Content-Disposition: form-data; name="files"; filename="prices.csv"
+Content-Type: text/csv
+
+< ./sample-files/prices.csv
+--CourseBoundary--
+
+### 4) Forbidden type -> 400 "Upload rejected"
+POST {{baseUrl}}/api/files
+Content-Type: multipart/form-data; boundary=CourseBoundary
+
+--CourseBoundary
+Content-Disposition: form-data; name="file"; filename="evil.html"
+Content-Type: text/html
+
+<script>alert('hi')</script>
+--CourseBoundary--
+
+### 5) List files
+GET {{baseUrl}}/api/files
+
+### 6) Download (Content-Disposition: attachment)
+GET {{baseUrl}}/api/files/{{stored}}
+
+### 7) View inline (images / PDF)
+GET {{baseUrl}}/api/files/{{stored}}/view
+
+### 8) Delete
+DELETE {{baseUrl}}/api/files/{{stored}}
+
+### 9) Plain-text email (start Mailpit first: docker compose up -d, inbox http://localhost:8025)
+POST {{baseUrl}}/api/emails/simple
+Content-Type: application/json
+
+{
+  "to": "asha@example.com",
+  "subject": "Your order has shipped",
+  "text": "Hi Asha,\nyour order #1001 is on its way.\n\nThanks, Shop Team"
+}
+
+### 10) HTML email with an uploaded file as attachment
+POST {{baseUrl}}/api/emails/with-attachment
+Content-Type: application/json
+
+{
+  "to": "asha@example.com",
+  "subject": "Your invoice",
+  "html": "<h1>Thank you!</h1><p>Your invoice is <b>attached</b>.</p>",
+  "storedFileName": "{{stored}}"
+}
+
+### 11) Invalid email address -> 400 from @Valid
+POST {{baseUrl}}/api/emails/simple
+Content-Type: application/json
+
+{
+  "to": "not-an-email",
+  "subject": "x",
+  "text": "y"
+}

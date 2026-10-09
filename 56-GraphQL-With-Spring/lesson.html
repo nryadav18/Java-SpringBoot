@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>56 · GraphQL with Spring</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part E · Advanced Spring Boot › Topic 56</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part E · Advanced Spring Boot</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>56. GraphQL with Spring</h1>
+  <p class="subtitle">Build an API where the client asks for exactly the data it needs — no more, no less — using Spring for GraphQL, a schema file and a few annotations.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="56-GraphQL-With-Spring"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What GraphQL is and how it differs from REST (<strong>over-fetching</strong> and <strong>under-fetching</strong>).</li>
+      <li>How to write a <strong>schema</strong>: <code>type</code>, <code>Query</code>, <code>Mutation</code>, <code>input</code>, scalars and <code>!</code>.</li>
+      <li>Setting up <code>spring-boot-starter-graphql</code> and <code>schema.graphqls</code>.</li>
+      <li>Writing resolvers with <code>@QueryMapping</code>, <code>@MutationMapping</code>, <code>@SchemaMapping</code> and <code>@Argument</code>.</li>
+      <li>Trying queries in the <strong>GraphiQL</strong> browser UI.</li>
+      <li>The <strong>N+1 problem</strong> in GraphQL and how <code>@BatchMapping</code> fixes it.</li>
+      <li>GraphQL <strong>error handling</strong> with <code>@GraphQlExceptionHandler</code>.</li>
+      <li>Testing with <code>@GraphQlTest</code> and <code>GraphQlTester</code>.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../31-Spring-MVC-And-REST-Fundamentals/lesson.html">Topic 31 · REST Fundamentals</a>, <a href="../35-Global-Exception-Handling/lesson.html">Topic 35 · Global Exception Handling</a> and the N+1 idea from <a href="../40-JPA-Relationships/lesson.html">Topic 40 · JPA Relationships</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Imagine a mobile app screen that shows a list of book titles with the author's name. With a typical REST API you might do this:</p>
+  <ol>
+    <li><code>GET /api/books</code> → returns <em>every</em> field of every book (description, ISBN, price, stock, ...). The phone only needed the title. This is <strong>over-fetching</strong>: downloading data you throw away.</li>
+    <li>For each book, <code>GET /api/authors/{id}</code> to get the author's name. 20 books = 20 extra calls. This is <strong>under-fetching</strong>: one endpoint does not give enough, so you make many round trips.</li>
+  </ol>
+  <p><strong>GraphQL</strong> (created at Facebook in 2012, open-sourced in 2015) solves both. The client sends <em>one</em> request that describes exactly the shape of data it wants, and the server returns exactly that shape:</p>
+  <pre><code>query {
+  books {
+    title
+    author { name }
+  }
+}</code></pre>
+  <p>Where you will see it at work: GitHub's public API v4, Shopify, Netflix, Airbnb, and many companies with several front-ends (web, Android, iOS) that each need different data from the same backend. A "Backend For Frontend" or API aggregation layer is often GraphQL.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🍱 Fixed thali vs. à-la-carte ordering</strong>
+    <p><strong>REST is like a fixed thali (set meal).</strong> Each counter (endpoint) gives you a fixed plate. Want rice and dal? The "lunch" counter gives you rice, dal, sabzi, roti, salad and sweet — you leave half of it (over-fetching). Want dessert from another restaurant's menu too? Walk to another counter and queue again (under-fetching, many round trips).</p>
+    <p><strong>GraphQL is like ordering à la carte from one waiter.</strong> You hand one order slip: "rice, dal, and the chef's name". The waiter (the single <code>/graphql</code> endpoint) goes to the right kitchen stations (resolvers) and brings back one tray with exactly what you wrote — nothing more.</p>
+    <p>The <strong>menu</strong> is the <strong>schema</strong>: you can only order what is on it, and the waiter rejects an order for something that isn't (a validation error).</p>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 REST vs GraphQL at a glance</h3>
+  <figure class="diagram">
+    <svg viewBox="0 0 720 240" role="img" aria-label="REST many endpoints vs GraphQL one endpoint">
+      <style>
+        .g1{font:600 14px 'Segoe UI',sans-serif;fill:currentColor}
+        .g2{font:12px 'Segoe UI',sans-serif;fill:currentColor}
+      </style>
+      <text x="20" y="22" class="g1">REST: many endpoints, fixed shapes</text>
+      <rect x="20" y="40" width="90" height="40" rx="6" fill="var(--surface-2)" stroke="var(--java)" stroke-width="2"/>
+      <text x="38" y="65" class="g2">Client</text>
+      <line x1="110" y1="50" x2="200" y2="40" stroke="currentColor"/><rect x="200" y="28" width="140" height="24" rx="5" fill="var(--surface)" stroke="var(--accent)"/><text x="208" y="45" class="g2">GET /books</text>
+      <line x1="110" y1="60" x2="200" y2="75" stroke="currentColor"/><rect x="200" y="64" width="140" height="24" rx="5" fill="var(--surface)" stroke="var(--accent)"/><text x="208" y="81" class="g2">GET /authors/1</text>
+      <line x1="110" y1="70" x2="200" y2="110" stroke="currentColor"/><rect x="200" y="100" width="140" height="24" rx="5" fill="var(--surface)" stroke="var(--accent)"/><text x="208" y="117" class="g2">GET /authors/2 ...</text>
+      <text x="20" y="150" class="g2">3+ round trips, extra fields</text>
+
+      <text x="390" y="22" class="g1">GraphQL: one endpoint, client picks fields</text>
+      <rect x="390" y="40" width="90" height="40" rx="6" fill="var(--surface-2)" stroke="var(--java)" stroke-width="2"/>
+      <text x="408" y="65" class="g2">Client</text>
+      <line x1="480" y1="60" x2="560" y2="60" stroke="currentColor" stroke-width="2"/>
+      <polygon points="560,54 570,60 560,66" fill="currentColor"/>
+      <rect x="572" y="40" width="130" height="40" rx="6" fill="var(--surface)" stroke="var(--info)" stroke-width="2"/>
+      <text x="590" y="65" class="g2">POST /graphql</text>
+      <line x1="637" y1="80" x2="600" y2="120" stroke="currentColor"/>
+      <line x1="637" y1="80" x2="680" y2="120" stroke="currentColor"/>
+      <rect x="545" y="120" width="90" height="26" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="553" y="138" class="g2">books()</text>
+      <rect x="640" y="120" width="75" height="26" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="646" y="138" class="g2">author()</text>
+      <text x="390" y="180" class="g2">1 round trip; resolvers fill each requested field</text>
+      <text x="390" y="200" class="g2">response has exactly the requested shape</text>
+    </svg>
+    <figcaption>REST spreads data over many URLs. GraphQL has one URL and lets the client describe the shape.</figcaption>
+  </figure>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>REST</th><th>GraphQL</th></tr>
+    <tr><td>Endpoints</td><td>Many (<code>/books</code>, <code>/authors/{id}</code>)</td><td>One (<code>/graphql</code>)</td></tr>
+    <tr><td>HTTP methods</td><td>GET, POST, PUT, PATCH, DELETE</td><td>Usually POST for everything</td></tr>
+    <tr><td>Response shape</td><td>Decided by the server</td><td>Decided by the client's query</td></tr>
+    <tr><td>Over/under-fetching</td><td>Common</td><td>Avoided</td></tr>
+    <tr><td>Contract</td><td>Optional (OpenAPI, Topic 44)</td><td>Mandatory, strongly typed schema</td></tr>
+    <tr><td>Errors</td><td>HTTP status codes (404, 400...)</td><td>HTTP 200 + an <code>errors</code> array in the body</td></tr>
+    <tr><td>HTTP caching</td><td>Easy (GET + URL)</td><td>Harder (POST to one URL)</td></tr>
+    <tr><td>Versioning</td><td><code>/api/v1</code>, <code>/api/v2</code></td><td>Evolve the schema; deprecate fields with <code>@deprecated</code></td></tr>
+    <tr><td>Best for</td><td>Simple CRUD, public APIs, file downloads, caching</td><td>Many clients with different needs, nested/related data</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Not a replacement</strong>GraphQL does not "kill" REST. Many companies use both: REST for simple public or service-to-service APIs, GraphQL for flexible front-end data fetching.</div>
+
+  <h3>3.2 The schema – the menu of your API</h3>
+  <p>In GraphQL you <strong>start with the schema</strong> (this is called "schema-first"). It is written in SDL (Schema Definition Language) in a file ending with <code>.graphqls</code>. Spring Boot loads every <code>*.graphqls</code> file from <code>src/main/resources/graphql/</code>.</p>
+  <pre><span class="file">src/main/resources/graphql/schema.graphqls</span><code>type Query {
+    books: [Book!]!
+    bookById(id: ID!): Book
+}
+
+type Mutation {
+    addBook(input: BookInput!): Book!
+}
+
+type Book {
+    id: ID!
+    title: String!
+    pages: Int!
+    author: Author!
+}
+
+type Author {
+    id: ID!
+    name: String!
+    books: [Book!]!
+}
+
+input BookInput {
+    title: String!
+    pages: Int!
+    authorId: ID!
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Keyword / symbol</th><th>Meaning</th><th>Java comparison</th></tr>
+    <tr><td><code>type Book { ... }</code></td><td>An object the API can <em>return</em></td><td>A DTO / record</td></tr>
+    <tr><td><code>type Query</code></td><td>Entry points for <em>reading</em></td><td>GET endpoints</td></tr>
+    <tr><td><code>type Mutation</code></td><td>Entry points for <em>writing</em></td><td>POST/PUT/DELETE endpoints</td></tr>
+    <tr><td><code>input BookInput</code></td><td>An object the client <em>sends</em> as an argument</td><td>A request-body DTO</td></tr>
+    <tr><td><code>String</code>, <code>Int</code>, <code>Float</code>, <code>Boolean</code>, <code>ID</code></td><td>Built-in scalar types (<code>ID</code> = unique id, sent as a string)</td><td><code>String</code>, <code>int</code>, <code>double</code>, <code>boolean</code>, <code>String</code>/<code>Long</code></td></tr>
+    <tr><td><code>String!</code></td><td>Non-null: always has a value</td><td>Like <code>@NotNull</code></td></tr>
+    <tr><td><code>[Book!]!</code></td><td>A non-null list whose items are non-null</td><td><code>List&lt;Book&gt;</code>, never null</td></tr>
+    <tr><td><code>bookById(id: ID!)</code></td><td>A field with an argument</td><td>A method parameter</td></tr>
+    <tr><td><code>"text"</code> above a field</td><td>Documentation shown in GraphiQL</td><td>Javadoc</td></tr>
+  </table></div>
+  <p>There is also a third root type, <code>Subscription</code>, for real-time updates over WebSocket. We will only mention it.</p>
+
+  <h3>3.3 Writing queries (the client side)</h3>
+  <p>A <strong>query</strong> mirrors the schema. You pick fields, and you can go as deep as relationships allow:</p>
+  <pre><code># Simple
+{ books { title } }
+
+# With an argument and nested object
+query {
+  bookById(id: 1) {
+    title
+    pages
+    author { name country }
+  }
+}
+
+# Mutation (write)
+mutation {
+  addBook(input: { title: "Spring Boot Up and Running", pages: 300, authorId: 3 }) {
+    id
+    title
+  }
+}</code></pre>
+  <p>Over HTTP, every query is a JSON <code>POST</code> to <code>/graphql</code>:</p>
+  <pre><code>POST /graphql
+Content-Type: application/json
+
+{ "query": "{ bookById(id: 1) { title pages } }" }</code></pre>
+  <p>The response always has a <code>data</code> key with exactly the requested shape:</p>
+  <pre><code>{ "data": { "bookById": { "title": "Effective Java", "pages": 412 } } }</code></pre>
+  <p><strong>Variables</strong> keep the query text constant and pass values separately (safer and cacheable — like a <code>PreparedStatement</code> in <a href="../19-JDBC-Basics/lesson.html">Topic 19</a>):</p>
+  <pre><code>{
+  "query": "mutation AddBook($input: BookInput!) { addBook(input: $input) { id title } }",
+  "variables": { "input": { "title": "Spring Boot Up and Running", "pages": 300, "authorId": 3 } }
+}</code></pre>
+
+  <h3>3.4 How Spring answers a query – resolvers</h3>
+  <p>The server answers a query <strong>field by field</strong>. For each field there is a small function called a <strong>resolver</strong> (graphql-java calls it a <em>DataFetcher</em>). Spring for GraphQL lets you write resolvers as annotated controller methods.</p>
+  <div class="flow">
+    <span class="box">POST /graphql</span><span class="arrow">→</span>
+    <span class="box info">Parse &amp; validate<br><small>against the schema</small></span><span class="arrow">→</span>
+    <span class="box alt">Query.books<br><small>@QueryMapping</small></span><span class="arrow">→</span>
+    <span class="box alt">Book.author (for each book)<br><small>@BatchMapping</small></span><span class="arrow">→</span>
+    <span class="box">JSON {"data": ...}</span>
+  </div>
+  <p>Simple fields like <code>title</code> need no resolver: Spring reads them from your object automatically (record component, getter or field with the same name).</p>
+  <div class="table-wrap"><table>
+    <tr><th>Annotation</th><th>Resolves</th><th>Example</th></tr>
+    <tr><td><code>@QueryMapping</code></td><td>A field of <code>type Query</code>. The method name = field name.</td><td><code>public List&lt;Book&gt; books()</code></td></tr>
+    <tr><td><code>@MutationMapping</code></td><td>A field of <code>type Mutation</code></td><td><code>public Book addBook(@Argument BookInput input)</code></td></tr>
+    <tr><td><code>@SchemaMapping</code></td><td>A field of any type (the general form). <code>@QueryMapping</code> is a shortcut for <code>@SchemaMapping(typeName="Query")</code>.</td><td><code>@SchemaMapping(typeName="Author", field="books")</code></td></tr>
+    <tr><td><code>@BatchMapping</code></td><td>A field for <em>many</em> parent objects at once (N+1 fix)</td><td><code>public Map&lt;Book, Author&gt; author(List&lt;Book&gt; books)</code></td></tr>
+    <tr><td><code>@Argument</code></td><td>Binds one GraphQL argument to a parameter (with type conversion)</td><td><code>bookById(@Argument Long id)</code></td></tr>
+    <tr><td><code>@Controller</code></td><td>Marks the class (not <code>@RestController</code>!)</td><td></td></tr>
+  </table></div>
+
+  <h3>3.5 Nested fields with @SchemaMapping</h3>
+  <p>Our <code>Author</code> record has no <code>books</code> field, but the schema says <code>Author.books</code>. So Spring looks for a resolver. The parent object (the <em>source</em>) is passed as a parameter:</p>
+  <pre><code class="lang-java">@SchemaMapping(typeName = "Author", field = "books")
+public List&lt;Book&gt; books(Author author) {          // author = the parent object
+    return repository.findBooksByAuthorId(author.id());
+}</code></pre>
+  <p>Important: this method runs <strong>only if the client asks for <code>books</code></strong> inside an author. If they don't, no work is done. That is another win over REST.</p>
+
+  <h3>3.6 The N+1 problem and @BatchMapping</h3>
+  <p>You met N+1 with JPA in <a href="../40-JPA-Relationships/lesson.html">Topic 40</a>. GraphQL has the same trap. Suppose we resolve <code>Book.author</code> the naive way:</p>
+  <pre><code class="lang-java">// NAIVE - called once PER BOOK
+@SchemaMapping(typeName = "Book", field = "author")
+public Author author(Book book) {
+    return repository.findAuthorById(book.authorId()).orElseThrow();
+}</code></pre>
+  <p>Query <code>{ books { title author { name } } }</code> with 100 books runs <strong>1</strong> query for the books + <strong>100</strong> author queries = <strong>N+1</strong>.</p>
+  <div class="flow">
+    <span class="box alt">books() → 1 query</span><span class="arrow">→</span>
+    <span class="box" style="border-color:var(--danger)">author(book1) → query<br>author(book2) → query<br>... × N</span>
+  </div>
+  <p><code>@BatchMapping</code> collects all the books first and calls your method <strong>once</strong> with the whole list. You load all authors in one go (<code>WHERE id IN (...)</code>) and return a <code>Map</code> from each book to its author:</p>
+  <pre><code class="lang-java">@BatchMapping                                     // field name = method name "author", type = Book
+public Map&lt;Book, Author&gt; author(List&lt;Book&gt; books) {
+    List&lt;Long&gt; ids = books.stream().map(Book::authorId).toList();
+    Map&lt;Long, Author&gt; byId = repository.findAuthorsByIds(ids).stream()
+            .collect(Collectors.toMap(Author::id, Function.identity()));
+    return books.stream()
+            .collect(Collectors.toMap(Function.identity(), b -&gt; byId.get(b.authorId())));
+}</code></pre>
+  <div class="flow">
+    <span class="box alt">books() → 1 query</span><span class="arrow">→</span>
+    <span class="box">author(all books) → 1 query</span><span class="arrow">=</span>
+    <span class="box info">2 queries total</span>
+  </div>
+  <div class="callout info"><strong>ℹ️ Behind the scenes: DataLoader</strong><code>@BatchMapping</code> is built on graphql-java's <strong>DataLoader</strong>, which collects keys during a request and loads them in batches (and caches within the request). <code>@BatchMapping</code> is the easy way; you can register a <code>BatchLoaderRegistry</code> for full control. The parent type (<code>Book</code>) must have proper <code>equals</code>/<code>hashCode</code> — records give you that for free.</div>
+
+  <h3>3.7 Error handling</h3>
+  <p>In GraphQL, the HTTP status is <strong>almost always 200</strong>, even when something fails. Errors go into an <code>errors</code> array next to <code>data</code>:</p>
+  <pre><code>{
+  "errors": [{
+    "message": "Book 99 does not exist",
+    "locations": [{ "line": 1, "column": 12 }],
+    "path": ["deleteBook"],
+    "extensions": { "classification": "NOT_FOUND" }
+  }],
+  "data": null
+}</code></pre>
+  <p>Kinds of errors:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Kind</th><th>When</th><th>Classification</th></tr>
+    <tr><td>Syntax / validation</td><td>Bad query text or unknown field (<code>{ books { isbn } }</code>) — rejected before any resolver runs</td><td><code>InvalidSyntax</code>, <code>ValidationError</code></td></tr>
+    <tr><td>Your exceptions, mapped</td><td>A resolver throws and you map it</td><td><code>NOT_FOUND</code>, <code>BAD_REQUEST</code>, <code>UNAUTHORIZED</code>, <code>FORBIDDEN</code></td></tr>
+    <tr><td>Unmapped exceptions</td><td>Anything else thrown in a resolver</td><td><code>INTERNAL_ERROR</code> with a generic message (no stack trace leaks)</td></tr>
+  </table></div>
+  <p>To map your own exceptions, use <code>@GraphQlExceptionHandler</code> in a <code>@ControllerAdvice</code> — the GraphQL twin of <code>@ExceptionHandler</code> from <a href="../35-Global-Exception-Handling/lesson.html">Topic 35</a>:</p>
+  <pre><code class="lang-java">@ControllerAdvice
+public class GraphQlErrorHandler {
+
+    @GraphQlExceptionHandler
+    public GraphQLError handleNotFound(BookNotFoundException ex, DataFetchingEnvironment env) {
+        return GraphqlErrorBuilder.newError(env)     // adds path + locations
+                .errorType(ErrorType.NOT_FOUND)
+                .message(ex.getMessage())
+                .build();
+    }
+}</code></pre>
+  <p>GraphQL also supports <strong>partial results</strong>: if one field fails, the other fields can still return data, and the failing field becomes <code>null</code> with an entry in <code>errors</code>.</p>
+
+  <h3>3.8 GraphiQL – the playground in your browser</h3>
+  <p>With <code>spring.graphql.graphiql.enabled=true</code>, open <code>http://localhost:8080/graphiql</code>. You get an editor with <strong>auto-complete</strong> (press <kbd>Ctrl</kbd>+<kbd>Space</kbd>), a documentation explorer built from your schema, and a Run button. GraphQL APIs are <strong>self-describing</strong> because clients can ask the server for its schema (this is called <em>introspection</em>).</p>
+  <div class="callout warn"><strong>⚠️ Production note</strong>Disable GraphiQL in production (use a profile), and consider limiting introspection and query depth so attackers cannot send huge, deeply nested queries.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder (package <code>com.course.graphql</code>):</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td><code>spring-boot-starter-graphql</code> + <code>spring-boot-starter-web</code> + <code>spring-graphql-test</code></td></tr>
+    <tr><td><code>application.properties</code></td><td>GraphQL path, GraphiQL, schema printer</td></tr>
+    <tr><td><code>graphql/schema.graphqls</code></td><td>The schema: 5 queries, 2 mutations, 2 types, 1 input</td></tr>
+    <tr><td><code>GraphqlLibraryApplication.java</code></td><td>Main class</td></tr>
+    <tr><td><code>library/Book.java</code>, <code>Author.java</code>, <code>BookInput.java</code></td><td>Records that match schema types</td></tr>
+    <tr><td><code>library/LibraryRepository.java</code></td><td>In-memory data store with an "author query counter" to make N+1 visible</td></tr>
+    <tr><td><code>library/BookController.java</code></td><td>All resolvers</td></tr>
+    <tr><td><code>library/BookNotFoundException.java</code></td><td>Our custom exception</td></tr>
+    <tr><td><code>library/GraphQlErrorHandler.java</code></td><td>Maps exceptions to GraphQL errors</td></tr>
+    <tr><td><code>test/.../BookControllerTest.java</code></td><td>4 tests with <code>GraphQlTester</code></td></tr>
+    <tr><td><code>requests.http</code></td><td>Sample requests for the REST Client extension</td></tr>
+  </table></div>
+
+  <h3>4.1 pom.xml</h3>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-graphql&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;                        &lt;!-- the HTTP transport (Spring MVC + Tomcat) --&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-web&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.graphql&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-graphql-test&lt;/artifactId&gt;
+    &lt;scope&gt;test&lt;/scope&gt;
+&lt;/dependency&gt;</code></pre>
+  <p>Spring for GraphQL works on top of <strong>graphql-java</strong> (the engine). It can also run on WebFlux (<a href="../55-Reactive-Programming-With-WebFlux/lesson.html">Topic 55</a>) — controller methods may then return <code>Mono</code>/<code>Flux</code>.</p>
+
+  <h3>4.2 application.properties</h3>
+  <pre><span class="file">src/main/resources/application.properties</span><code class="lang-properties">spring.graphql.path=/graphql
+spring.graphql.graphiql.enabled=true
+spring.graphql.schema.printer.enabled=true
+spring.graphql.schema.locations=classpath:graphql/</code></pre>
+
+  <h3>4.3 The records</h3>
+  <pre><span class="file">library/Book.java</span><code class="lang-java">public record Book(Long id, String title, int pages, Long authorId) { }</code></pre>
+  <p>The schema field <code>author</code> is <strong>not</strong> a component of the record — we only store <code>authorId</code>, like a foreign key. Spring sees there is no <code>author</code> property and uses our <code>@BatchMapping</code> method. The extra <code>authorId</code> is simply not exposed because it is not in the schema.</p>
+
+  <h3>4.4 The controller – queries and mutations</h3>
+  <pre><span class="file">library/BookController.java (queries &amp; mutations)</span><code class="lang-java">@Controller
+public class BookController {
+
+    @QueryMapping                                     // schema: books: [Book!]!
+    public List&lt;Book&gt; books() {
+        return repository.findAllBooks();
+    }
+
+    @QueryMapping                                     // schema: bookById(id: ID!): Book
+    public Book bookById(@Argument Long id) {         // "1" (ID) converted to Long
+        return repository.findBookById(id).orElse(null);   // null is OK: Book has no "!"
+    }
+
+    @MutationMapping                                  // schema: addBook(input: BookInput!): Book!
+    public Book addBook(@Argument BookInput input) {
+        if (input.pages() &lt;= 0) {
+            throw new IllegalArgumentException("pages must be greater than 0");
+        }
+        repository.findAuthorById(input.authorId())
+                .orElseThrow(() -&gt; new BookNotFoundException("Author " + input.authorId() + " does not exist"));
+        return repository.save(new Book(null, input.title(), input.pages(), input.authorId()));
+    }
+
+    @MutationMapping                                  // schema: deleteBook(id: ID!): Boolean!
+    public boolean deleteBook(@Argument Long id) {
+        if (!repository.deleteBook(id)) {
+            throw new BookNotFoundException("Book " + id + " does not exist");
+        }
+        return true;
+    }
+}</code></pre>
+  <p>Notice how method names match schema field names. If the names differ, use <code>@QueryMapping(name = "bookById")</code>. At startup Spring Boot checks that schema fields have resolvers and logs a <strong>schema mapping inspection</strong> report listing any unmapped fields — read it when something returns <code>null</code> unexpectedly.</p>
+
+  <h3>4.5 The controller – nested fields</h3>
+  <pre><span class="file">library/BookController.java (nested fields)</span><code class="lang-java">@BatchMapping
+public Map&lt;Book, Author&gt; author(List&lt;Book&gt; books) {
+    List&lt;Long&gt; authorIds = books.stream().map(Book::authorId).toList();
+    log.debug("@BatchMapping: loading authors {} for {} books in ONE call", authorIds, books.size());
+    Map&lt;Long, Author&gt; authorsById = repository.findAuthorsByIds(authorIds).stream()
+            .collect(Collectors.toMap(Author::id, Function.identity()));
+    return books.stream().collect(Collectors.toMap(Function.identity(), b -&gt; authorsById.get(b.authorId())));
+}
+
+@SchemaMapping(typeName = "Author", field = "books")
+public List&lt;Book&gt; books(Author author) {
+    return repository.findBooksByAuthorId(author.id());
+}</code></pre>
+  <p>When you run <code>{ books { title author { name } } }</code>, the log shows one line:</p>
+  <pre class="terminal"><code>DEBUG ... BookController : @BatchMapping: loading authors [1, 1, 2, 2, 3] for 5 books in ONE call</code></pre>
+
+  <h3>4.6 The test</h3>
+  <pre><span class="file">src/test/java/com/course/graphql/library/BookControllerTest.java (excerpt)</span><code class="lang-java">@GraphQlTest(BookController.class)                       // GraphQL slice only
+@Import({LibraryRepository.class, GraphQlErrorHandler.class})
+class BookControllerTest {
+
+    @Autowired GraphQlTester graphQlTester;
+    @Autowired LibraryRepository repository;
+
+    @Test
+    void batchMappingLoadsAllAuthorsInOneCall() {
+        int before = repository.authorQueryCount();
+        graphQlTester.document("{ books { title author { name } } }")
+                .execute()
+                .path("books").entityList(Object.class).hasSizeGreaterThan(4);
+        assertThat(repository.authorQueryCount() - before).isEqualTo(1);   // no N+1!
+    }
+
+    @Test
+    void deletingMissingBookGivesNotFoundError() {
+        graphQlTester.document("mutation { deleteBook(id: 999) }")
+                .execute()
+                .errors()
+                .expect(error -&gt; error.getErrorType() == ErrorType.NOT_FOUND);
+    }
+}</code></pre>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\56-GraphQL-With-Spring"
+mvn spring-boot:run</code></pre>
+  <p>Or in VS Code open <code>GraphqlLibraryApplication.java</code> and click <strong>Run</strong>.</p>
+
+  <h3>5.1 With GraphiQL (easiest)</h3>
+  <ol>
+    <li>Open <code>http://localhost:8080/graphiql</code> in your browser.</li>
+    <li>Type <code>{ books { title author { name } } }</code> in the left panel.</li>
+    <li>Click the ▶ button. The result appears on the right.</li>
+    <li>Click the "Docs" (book) icon to browse the schema.</li>
+  </ol>
+
+  <h3>5.2 With curl</h3>
+  <p>On Windows <code>cmd</code> or Git Bash (in PowerShell use <code>curl.exe</code>). In <code>cmd</code>, inner double quotes must be escaped as <code>\"</code>; the <code>requests.http</code> file avoids all of that.</p>
+  <pre class="terminal"><code>curl -X POST http://localhost:8080/graphql -H "Content-Type: application/json" -d "{\"query\":\"{ books { title author { name } } }\"}"
+
+curl -X POST http://localhost:8080/graphql -H "Content-Type: application/json" -d "{\"query\":\"{ authorById(id: 2) { name books { title } } }\"}"
+
+curl -X POST http://localhost:8080/graphql -H "Content-Type: application/json" -d "{\"query\":\"mutation { addBook(input: {title: \\\"Spring Boot Up and Running\\\", pages: 300, authorId: 3}) { id title author { name } } }\"}"
+
+curl -X POST http://localhost:8080/graphql -H "Content-Type: application/json" -d "{\"query\":\"mutation { deleteBook(id: 99) }\"}"</code></pre>
+  <p>Expected responses:</p>
+  <pre class="terminal"><code>{"data":{"books":[{"title":"Effective Java","author":{"name":"Joshua Bloch"}},{"title":"Java Puzzlers","author":{"name":"Joshua Bloch"}},{"title":"Head First Java","author":{"name":"Kathy Sierra"}},{"title":"Head First Design Patterns","author":{"name":"Kathy Sierra"}},{"title":"Spring in Action","author":{"name":"Craig Walls"}}]}}
+
+{"data":{"authorById":{"name":"Kathy Sierra","books":[{"title":"Head First Java"},{"title":"Head First Design Patterns"}]}}}
+
+{"data":{"addBook":{"id":"6","title":"Spring Boot Up and Running","author":{"name":"Craig Walls"}}}}
+
+{"errors":[{"message":"Book 99 does not exist","locations":[{"line":1,"column":12}],"path":["deleteBook"],"extensions":{"classification":"NOT_FOUND"}}],"data":null}</code></pre>
+  <p>Ask for a field that does not exist and you get a validation error before any Java code runs:</p>
+  <pre class="terminal"><code>{"errors":[{"message":"Validation error (FieldUndefined@[books/isbn]) : Field 'isbn' in type 'Book' is undefined", ... "classification":"ValidationError"}]}</code></pre>
+  <p>You can also see the full schema at <code>http://localhost:8080/graphql/schema</code>.</p>
+
+  <h3>5.3 Run the tests</h3>
+  <pre class="terminal"><code>mvn test</code></pre>
+  <pre class="terminal"><code>[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS</code></pre>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: method name does not match the schema field</strong>
+    Schema says <code>bookById</code>, Java method is <code>getBook</code>. The field always returns <code>null</code> and the startup log reports it as unmapped.<br>
+    <strong>Fix:</strong> rename the method or use <code>@QueryMapping(name = "bookById")</code>. Check the "schema mapping inspection" log at startup.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: schema file in the wrong place or with the wrong extension</strong>
+    A file named <code>schema.graphql</code> in <code>src/main/resources/</code> is ignored, and the app fails with "No GraphQL schema files found".<br>
+    <strong>Fix:</strong> put it in <code>src/main/resources/graphql/</code> and name it <code>*.graphqls</code> (or <code>*.gqls</code>).</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting <code>@Argument</code></strong>
+    <code>public Book bookById(Long id)</code> — Spring does not know that <code>id</code> is a GraphQL argument, and startup fails or the value is missing.<br>
+    <strong>Fix:</strong> <code>public Book bookById(@Argument Long id)</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: using <code>@RestController</code></strong>
+    GraphQL controllers are annotated with <code>@Controller</code>. A <code>@RestController</code> with <code>@QueryMapping</code> methods still works, but it confuses readers and can mix in MVC behavior.<br>
+    <strong>Fix:</strong> use plain <code>@Controller</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: returning null for a non-null (<code>!</code>) field</strong>
+    If <code>books: [Book!]!</code> resolves to <code>null</code>, GraphQL reports an error and nulls the parent ("null bubbling").<br>
+    <strong>Fix:</strong> return an empty list instead of <code>null</code>; only make fields non-null when they truly always have a value.</div>
+
+  <div class="callout danger"><strong>🚫 Mistake: resolving relations one by one (N+1)</strong>
+    A <code>@SchemaMapping</code> that hits the database per parent object becomes very slow with long lists.<br>
+    <strong>Fix:</strong> use <code>@BatchMapping</code> (or a DataLoader) for any field that loads related data.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: expecting HTTP 404/400 status codes</strong>
+    GraphQL answers 200 with an <code>errors</code> array. Front-end code that only checks the status will think everything worked.<br>
+    <strong>Fix:</strong> always check the <code>errors</code> field in the response.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Design the schema first</strong>, together with front-end developers. It is your API contract.</li>
+    <li><strong>Use <code>input</code> types for mutations</strong> and return the changed object so the client can update its view.</li>
+    <li><strong>Use variables</strong> in client queries instead of building query strings by hand.</li>
+    <li><strong>Batch every relationship</strong> with <code>@BatchMapping</code>/DataLoader to avoid N+1.</li>
+    <li><strong>Paginate lists</strong> (e.g. arguments <code>first</code>/<code>after</code> or <code>page</code>/<code>size</code>; Spring for GraphQL supports the "Connection" pagination pattern with Spring Data).</li>
+    <li><strong>Protect the server:</strong> limit query depth/complexity, set timeouts, disable GraphiQL and restrict introspection in production.</li>
+    <li><strong>Secure resolvers</strong> with Spring Security method security (<code>@PreAuthorize</code> works on controller methods, Topic 48).</li>
+    <li><strong>Evolve, don't version:</strong> add new fields freely, mark old ones <code>@deprecated(reason: "...")</code> and remove them later.</li>
+    <li><strong>Map exceptions</strong> to clear error types; never leak stack traces.</li>
+    <li><strong>Keep business logic in services</strong>; the GraphQL controller should be thin, just like a REST controller (Topic 33).</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>GraphQL = one endpoint (<code>/graphql</code>) where the client asks for exactly the fields it needs.</li>
+    <li>It fixes REST's over-fetching (too much data) and under-fetching (too many calls).</li>
+    <li>The schema (<code>.graphqls</code>) defines <code>type</code>s, <code>Query</code>, <code>Mutation</code> and <code>input</code>s; <code>!</code> means non-null.</li>
+    <li>Spring for GraphQL maps fields to methods: <code>@QueryMapping</code>, <code>@MutationMapping</code>, <code>@SchemaMapping</code>, with <code>@Argument</code> for arguments.</li>
+    <li>Nested fields are resolved only when requested.</li>
+    <li><code>@BatchMapping</code> solves the N+1 problem by loading related data for all parents at once.</li>
+    <li>Errors come back in an <code>errors</code> array (usually with HTTP 200); map them with <code>@GraphQlExceptionHandler</code>.</li>
+    <li>GraphiQL (<code>/graphiql</code>) is a great playground; disable it in production.</li>
+    <li>Test with <code>@GraphQlTest</code> + <code>GraphQlTester</code>.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Write queries.</strong> In GraphiQL, write a query that returns all authors with their country and the titles and page counts of their books.</p>
+    <details><summary>Hint / solution</summary><pre><code>{
+  authors {
+    name
+    country
+    books { title pages }
+  }
+}</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Add a field.</strong> Add a <code>year: Int</code> field to books (schema + record + sample data) and query it.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// schema.graphqls:   type Book { ... year: Int }
+// Book.java
+public record Book(Long id, String title, int pages, Long authorId, Integer year) { }
+// LibraryRepository: new Book(null, "Effective Java", 412, 1L, 2018)
+// (update save() and BookInput usage to pass the extra value)</code></pre>
+    <p>No new resolver is needed — Spring reads <code>year</code> from the record automatically.</p></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. An <code>updateBook</code> mutation.</strong> Add <code>updateBook(id: ID!, input: BookInput!): Book!</code> that throws <code>BookNotFoundException</code> when the id is missing.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// schema: type Mutation { ... updateBook(id: ID!, input: BookInput!): Book! }
+
+@MutationMapping
+public Book updateBook(@Argument Long id, @Argument BookInput input) {
+    repository.findBookById(id)
+            .orElseThrow(() -&gt; new BookNotFoundException("Book " + id + " does not exist"));
+    return repository.save(new Book(id, input.title(), input.pages(), input.authorId()));
+}</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. A computed field.</strong> Add <code>bookCount: Int!</code> to <code>Author</code> without changing the <code>Author</code> record.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// schema: type Author { ... bookCount: Int! }
+
+@SchemaMapping(typeName = "Author", field = "bookCount")
+public int bookCount(Author author) {
+    return repository.findBooksByAuthorId(author.id()).size();
+}
+// Bonus: convert it to @BatchMapping(typeName = "Author", field = "bookCount")
+// returning Map&lt;Author, Integer&gt; to avoid N+1 when listing all authors.</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Batch the author's books.</strong> Rewrite <code>Author.books</code> as a <code>@BatchMapping</code> so <code>{ authors { name books { title } } }</code> runs one lookup for all authors. Add a test that checks the call count.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@BatchMapping(typeName = "Author", field = "books")
+public Map&lt;Author, List&lt;Book&gt;&gt; booksOfAuthors(List&lt;Author&gt; authors) {
+    Set&lt;Long&gt; ids = authors.stream().map(Author::id).collect(Collectors.toSet());
+    Map&lt;Long, List&lt;Book&gt;&gt; byAuthor = repository.findAllBooks().stream()   // one "query"
+            .filter(b -&gt; ids.contains(b.authorId()))
+            .collect(Collectors.groupingBy(Book::authorId));
+    return authors.stream().collect(Collectors.toMap(
+            Function.identity(), a -&gt; byAuthor.getOrDefault(a.id(), List.of())));
+}
+// Remove the old @SchemaMapping for Author.books - only ONE resolver per field is allowed.</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Pagination arguments.</strong> Change <code>books</code> to <code>books(page: Int = 0, size: Int = 10): [Book!]!</code> and implement it. Reject <code>size &gt; 50</code> with a <code>BAD_REQUEST</code> error.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@QueryMapping
+public List&lt;Book&gt; books(@Argument int page, @Argument int size) {
+    if (size &gt; 50) {
+        throw new IllegalArgumentException("size must be 50 or less");  // mapped to BAD_REQUEST
+    }
+    return repository.findAllBooks().stream()
+            .skip((long) page * size)
+            .limit(size)
+            .toList();
+}</code></pre>
+    <p>Default values in the schema (<code>= 0</code>, <code>= 10</code>) are used when the client leaves the arguments out.</p></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is GraphQL and how is it different from REST?</summary>
+    <p>GraphQL is a query language and runtime for APIs. Clients send queries to a single endpoint describing exactly which fields they need, and the server returns data in that shape, validated against a strongly typed schema. REST exposes many resource URLs with server-defined response shapes and uses HTTP methods and status codes. GraphQL reduces over- and under-fetching but makes HTTP caching, file uploads and rate limiting harder.</p></details>
+  <details><summary>Q2. What are over-fetching and under-fetching?</summary>
+    <p>Over-fetching: an endpoint returns more data than the client needs (wasted bandwidth). Under-fetching: one endpoint returns too little, so the client must make extra requests (more round trips, often N+1 calls). GraphQL lets the client request exactly the fields and nested data it needs in one call.</p></details>
+  <details><summary>Q3. What are Query, Mutation and Subscription?</summary>
+    <p>They are the three root operation types. <code>Query</code> reads data (fields may run in parallel), <code>Mutation</code> changes data (top-level fields run in order), and <code>Subscription</code> pushes a stream of events to the client, usually over WebSocket.</p></details>
+  <details><summary>Q4. What is a resolver, and how do you write one in Spring?</summary>
+    <p>A resolver (DataFetcher) is a function that produces the value for one field. In Spring for GraphQL you write them as methods in a <code>@Controller</code> annotated with <code>@QueryMapping</code>, <code>@MutationMapping</code>, <code>@SubscriptionMapping</code>, <code>@SchemaMapping</code> or <code>@BatchMapping</code>; arguments are bound with <code>@Argument</code>, and the parent object is passed for nested fields. Simple fields are resolved from properties automatically.</p></details>
+  <details><summary>Q5. Explain the N+1 problem in GraphQL and how to fix it.</summary>
+    <p>When a list of N parents is returned and a nested field is resolved per parent with its own data-store call, you get 1 + N calls. Fix it with batching: the DataLoader pattern collects all keys during execution and loads them in one call. In Spring, <code>@BatchMapping</code> receives the list of parents and returns a <code>Map&lt;Parent, Child&gt;</code> (or a <code>Mono&lt;Map&gt;</code>/<code>Flux</code>).</p></details>
+  <details><summary>Q6. How are errors returned in GraphQL?</summary>
+    <p>Usually with HTTP 200 and an <code>errors</code> array containing <code>message</code>, <code>locations</code>, <code>path</code> and <code>extensions</code> (e.g. a classification). Partial data may be returned alongside errors. In Spring you map exceptions with <code>@GraphQlExceptionHandler</code> in a <code>@ControllerAdvice</code> or a <code>DataFetcherExceptionResolverAdapter</code>; unmapped exceptions become <code>INTERNAL_ERROR</code> without details.</p></details>
+  <details><summary>Q7. What does "!" mean in a schema, and what is the difference between type and input?</summary>
+    <p><code>!</code> marks a non-null field or argument. <code>[Book!]!</code> is a non-null list of non-null books. A <code>type</code> describes output objects that resolvers return; an <code>input</code> describes objects passed as arguments. Inputs cannot have resolvers or fields of output types.</p></details>
+  <details><summary>Q8. How do you test a Spring GraphQL controller?</summary>
+    <p>Use <code>@GraphQlTest(MyController.class)</code> to start only the GraphQL slice and inject <code>GraphQlTester</code>; send a document, then assert with <code>.path("...").entity(...)</code> or <code>.errors()</code>. Mock or <code>@Import</code> dependencies. For full end-to-end tests use <code>@SpringBootTest</code> with <code>@AutoConfigureHttpGraphQlTester</code>.</p></details>
+  <details><summary>Q9. What are the security concerns specific to GraphQL?</summary>
+    <p>Clients can craft very deep or expensive queries (denial of service), introspection exposes the full schema, and a single endpoint makes per-URL authorization and rate limiting less useful. Mitigations: max query depth/complexity, timeouts, pagination limits, disabling introspection/GraphiQL in production, field-level authorization (e.g. <code>@PreAuthorize</code>), and persisted queries.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../55-Reactive-Programming-With-WebFlux/lesson.html"><small>← Previous</small>55. Reactive Programming with WebFlux</a>
+    <a class="next" href="../57-Messaging-With-RabbitMQ/lesson.html"><small>Next →</small>57. Messaging with RabbitMQ</a>
+  </nav>
+</main>
+</body>
+</html>

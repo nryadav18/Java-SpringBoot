@@ -1,0 +1,53 @@
+### Topic 51 - Caching with Redis
+### Use with the VS Code "REST Client" extension: click "Send Request" above each request.
+### Watch the X-Response-Time-Ms header and the application log!
+
+@baseUrl = http://localhost:8080
+
+### 1) First read of product 1 -> cache MISS (about 2000 ms)
+GET {{baseUrl}}/api/products/1
+
+### 2) Same request again -> cache HIT (a few ms)
+GET {{baseUrl}}/api/products/1
+
+### 3) Search by category -> first time slow, then fast
+GET {{baseUrl}}/api/products?category=laptops
+
+### 4) Search term shorter than 3 chars -> condition is false -> NEVER cached (always slow)
+GET {{baseUrl}}/api/products?category=ph
+
+### 5) How many REAL database hits so far?
+GET {{baseUrl}}/api/products/stats
+
+### 6) Update a price -> @CachePut refreshes "products::1", search lists are evicted
+PUT {{baseUrl}}/api/products/1/price
+Content-Type: application/json
+
+{
+  "price": 999.00
+}
+
+### 7) Read product 1 again -> still FAST and shows the NEW price
+GET {{baseUrl}}/api/products/1
+
+### 8) Create a product -> it is put into the cache immediately
+POST {{baseUrl}}/api/products
+Content-Type: application/json
+
+{
+  "name": "Lenovo ThinkPad X1",
+  "category": "laptops",
+  "price": 1499.00
+}
+
+### 9) Delete a product -> @CacheEvict removes it from the cache
+DELETE {{baseUrl}}/api/products/5
+
+### 10) Look inside the caches
+GET {{baseUrl}}/api/caches
+
+### 11) Clear one cache
+DELETE {{baseUrl}}/api/caches/products
+
+### 12) Clear all caches
+DELETE {{baseUrl}}/api/caches

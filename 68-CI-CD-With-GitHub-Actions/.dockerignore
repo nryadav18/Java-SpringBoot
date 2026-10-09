@@ -1,0 +1,11 @@
+# Send only what the Dockerfile needs: target/app.jar
+# Ignore everything in target/ ... except the jar ("!" = "but keep this")
+target/*
+!target/app.jar
+.git/
+.github/
+.idea/
+.vscode/
+src/
+*.md
+lesson.html

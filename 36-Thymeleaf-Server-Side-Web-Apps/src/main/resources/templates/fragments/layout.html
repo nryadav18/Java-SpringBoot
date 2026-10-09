@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<!--
+  fragments/layout.html - REUSABLE PIECES ("fragments") shared by every page.
+  ---------------------------------------------------------------------------
+  A page includes a fragment with:   th:replace="~{fragments/layout :: navbar}"
+                                     (file name)          (fragment name)
+  Write the header, menu and footer ONCE here, instead of copying them into every page.
+  This file is never shown on its own.
+-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+
+<!-- A fragment WITH A PARAMETER: each page passes its own title -->
+<head th:fragment="head(pageTitle)">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:text="${pageTitle} + ' · Todo App'">Todo App</title>
+    <!-- @{...} builds a URL relative to the app's context path. /css/app.css is served from static/css/app.css -->
+    <link rel="stylesheet" th:href="@{/css/app.css}" href="../../static/css/app.css">
+</head>
+
+<body>
+
+<!-- Top navigation bar -->
+<nav class="navbar" th:fragment="navbar">
+    <a class="brand" th:href="@{/todos}">✅ Todo App</a>
+    <a class="btn" th:href="@{/todos/new}">+ New todo</a>
+</nav>
+
+<!-- Flash message shown after a redirect (set with RedirectAttributes.addFlashAttribute) -->
+<div th:fragment="flash" th:if="${successMessage}" class="flash" th:text="${successMessage}">
+    Saved!
+</div>
+
+<footer class="footer" th:fragment="footer">
+    <!-- #temporals = Thymeleaf helper for java.time; #dates/#numbers/#strings/#lists also exist -->
+    Rendered on the server by Spring Boot + Thymeleaf at
+    <span th:text="${#temporals.format(#temporals.createNow(), 'HH:mm:ss')}">12:00:00</span>
+</footer>
+
+</body>
+</html>

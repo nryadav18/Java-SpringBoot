@@ -1,0 +1,105 @@
+### Topic 44 - Task API (VS Code "REST Client" extension: click "Send Request")
+@baseUrl = http://localhost:8080
+
+### ---------- Reading ----------
+
+### First page (default size 10, sorted by id)
+GET {{baseUrl}}/api/v1/tasks
+
+### Second page, 5 per page
+GET {{baseUrl}}/api/v1/tasks?page=1&size=5
+
+### Filter + sort: HIGH priority TODO tasks, earliest due date first
+GET {{baseUrl}}/api/v1/tasks?status=TODO&priority=HIGH&sort=dueDate,asc
+
+### Search in the title
+GET {{baseUrl}}/api/v1/tasks?search=demo
+
+### Sort by two fields
+GET {{baseUrl}}/api/v1/tasks?sort=priority,desc&sort=dueDate,asc
+
+### One task
+GET {{baseUrl}}/api/v1/tasks/1
+
+### ---------- Writing ----------
+
+### Create (201 Created + Location header)
+POST {{baseUrl}}/api/v1/tasks
+Content-Type: application/json
+
+{
+  "title": "Learn OpenAPI",
+  "description": "Read topic 44 and try Swagger UI",
+  "priority": "HIGH",
+  "dueDate": "2030-01-31"
+}
+
+### Create with Idempotency-Key. Send it TWICE: 1st = 201, 2nd = 200 with the same id
+POST {{baseUrl}}/api/v1/tasks
+Content-Type: application/json
+Idempotency-Key: 7f9c1d2e-0b1a-4c55-9f00-1234567890ab
+
+{
+  "title": "Pay the invoice",
+  "priority": "HIGH"
+}
+
+### Replace (PUT = send everything)
+PUT {{baseUrl}}/api/v1/tasks/2
+Content-Type: application/json
+
+{
+  "title": "Write API documentation (OpenAPI)",
+  "description": "Use springdoc",
+  "status": "IN_PROGRESS",
+  "priority": "HIGH",
+  "dueDate": "2030-02-15"
+}
+
+### Partial update (PATCH = send only what changes)
+PATCH {{baseUrl}}/api/v1/tasks/3
+Content-Type: application/json
+
+{
+  "status": "DONE"
+}
+
+### Delete (204 No Content)
+DELETE {{baseUrl}}/api/v1/tasks/12
+
+### ---------- Errors (all in ProblemDetail format) ----------
+
+### 404 - unknown id
+GET {{baseUrl}}/api/v1/tasks/999
+
+### 400 - validation
+POST {{baseUrl}}/api/v1/tasks
+Content-Type: application/json
+
+{
+  "title": "",
+  "dueDate": "2000-01-01"
+}
+
+### 400 - unknown enum value
+GET {{baseUrl}}/api/v1/tasks?status=SLEEPING
+
+### 400 - unknown sort property
+GET {{baseUrl}}/api/v1/tasks?sort=colour,asc
+
+### ---------- Versioning ----------
+
+### v2 (URI versioning) - compact shape
+GET {{baseUrl}}/api/v2/tasks?size=3
+
+### Header versioning - default (v1 shape)
+GET {{baseUrl}}/api/tasks/1
+
+### Header versioning - v2 shape
+GET {{baseUrl}}/api/tasks/1
+X-API-Version: 2
+
+### ---------- Docs ----------
+
+### OpenAPI JSON for group v1
+GET {{baseUrl}}/v3/api-docs/v1

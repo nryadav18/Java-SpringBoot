@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>48 · Database Users &amp; Roles</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part D · Security › Topic 48</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part D · Security</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>48. Spring Security with Database Users &amp; Roles</h1>
+  <p class="subtitle">Store users and roles in a database, let people register with hashed passwords, and protect both URLs and individual methods – including "only the owner may see this".</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="48-Spring-Security-With-Database-Users-And-Roles"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Implement <code>UserDetails</code> and <code>UserDetailsService</code> on top of a JPA entity (<code>AppUser</code> + <code>Role</code>).</li>
+      <li>Build a <b>registration endpoint</b> that hashes passwords with BCrypt.</li>
+      <li>Role-based access with <code>hasRole</code>, permission-based access with <code>hasAuthority</code>, both in <code>requestMatchers</code>.</li>
+      <li><b>Method security</b>: <code>@EnableMethodSecurity</code>, <code>@PreAuthorize("hasRole('ADMIN')")</code>, and SpEL owner checks like <code>#username == authentication.name</code>.</li>
+      <li>Get the current user with <code>@AuthenticationPrincipal</code> and <code>SecurityContextHolder</code>.</li>
+      <li>Seed the first admin user and test secured endpoints with <code>@WithMockUser</code>, <code>@WithUserDetails</code> and <code>httpBasic()</code>.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../47-Spring-Security-Fundamentals/lesson.html">Topic 47 · Security fundamentals</a>,
+    <a href="../38-Spring-Data-JPA-Fundamentals/lesson.html">Topic 38 · Spring Data JPA</a>,
+    <a href="../34-Validation/lesson.html">Topic 34 · Validation</a> and <a href="../27-Spring-AOP/lesson.html">Topic 27 · AOP (proxies)</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>In topic 47 our two users were written into the Java code. That is fine for a demo, but a real application needs much more:</p>
+  <ul>
+    <li>New people must be able to <b>sign up</b> while the app is running.</li>
+    <li>Users must survive a <b>restart</b> – they live in a database.</li>
+    <li>An admin must be able to <b>lock</b> or <b>delete</b> accounts and give people roles.</li>
+    <li>Rules become more personal: <i>"A customer may see <b>their own</b> orders, not everybody's."</i> URL rules alone cannot express that.</li>
+  </ul>
+  <p>This is what nearly every business application does: an online shop, a college portal, a hospital system. After this lesson you can build
+     the user-management backbone of such an app.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏨 Think of a hotel</strong>
+    <p><b>The guest register</b> (a big book at reception) is our <b>database table</b> of users.</p>
+    <p><b>The receptionist</b> who looks up your name in the book when you show your ID is the <b><code>UserDetailsService</code></b>. She does not decide anything –
+       she just finds your entry and hands it to the security guard.</p>
+    <p><b>Checking in</b> (filling in the form, choosing a PIN) is <b>registration</b>. The hotel never writes your PIN in the book – only a scrambled version (a <b>hash</b>).</p>
+    <p><b>Your key card</b> carries <b>roles</b>: <i>Guest</i> opens your room and the gym; <i>Staff</i> opens every floor; <i>Manager</i> also opens the office.
+       That is <code>hasRole(...)</code>.</p>
+    <p><b>"Only your own room"</b>: two guests both have the role <i>Guest</i>, but card 214 opens only room 214. The lock looks at the <b>data</b> (the room number)
+       and the <b>person</b>. That is <code>@PreAuthorize("#username == authentication.name")</code> – method security with an owner check.</p>
+    <p><b>The very first manager</b> cannot be created by "another manager" – the owner sets them up when the hotel opens. That is our <b>admin seeder</b>.</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The plan: replace the in-memory user store</h3>
+  <p>The good news: the authentication machinery from topic 47 stays exactly the same. We only swap <b>one</b> piece – where users come from.</p>
+  <div class="flow">
+    <span class="box alt">BasicAuthenticationFilter</span><span class="arrow">→</span>
+    <span class="box">AuthenticationManager</span><span class="arrow">→</span>
+    <span class="box">DaoAuthenticationProvider</span><span class="arrow">→</span>
+    <span class="box info"><b>JpaUserDetailsService</b> (new)</span><span class="arrow">→</span>
+    <span class="box info">AppUserRepository</span><span class="arrow">→</span>
+    <span class="box alt">H2 / MySQL table</span>
+  </div>
+  <p>Topic 47: <code>InMemoryUserDetailsManager</code>. Topic 48: our own <code>JpaUserDetailsService</code> that reads the <code>app_users</code> table. Everything else – BCrypt,
+     filters, 401/403 – works unchanged. This is "programming to an interface" (topic 8) paying off.</p>
+
+  <h3>3.2 The data model: <code>AppUser</code> and <code>Role</code></h3>
+  <p>We need two things per user: who they are (username + password hash) and what they may do (roles). Our model:</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 760 210" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Users and roles tables">
+      <g font-family="Consolas, monospace" font-size="13" fill="currentColor">
+        <rect x="20" y="20" width="300" height="170" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="170" y="42" text-anchor="middle" font-weight="bold" font-family="Segoe UI, sans-serif">app_users</text>
+        <line x1="20" y1="52" x2="320" y2="52" stroke="currentColor"/>
+        <text x="35" y="75">id         BIGINT  PK</text>
+        <text x="35" y="98">username   VARCHAR(50) UNIQUE</text>
+        <text x="35" y="121">password   VARCHAR(100) (BCrypt hash)</text>
+        <text x="35" y="144">enabled    BOOLEAN</text>
+        <rect x="440" y="20" width="300" height="120" rx="8" fill="none" stroke="var(--java)" stroke-width="2"/>
+        <text x="590" y="42" text-anchor="middle" font-weight="bold" font-family="Segoe UI, sans-serif">user_roles</text>
+        <line x1="440" y1="52" x2="740" y2="52" stroke="currentColor"/>
+        <text x="455" y="75">user_id    BIGINT  FK → app_users.id</text>
+        <text x="455" y="98">role       VARCHAR  ('USER' / 'ADMIN')</text>
+        <line x1="320" y1="75" x2="440" y2="75" stroke="currentColor" stroke-width="2"/>
+        <text x="330" y="68" font-size="12" font-family="Segoe UI, sans-serif">1</text>
+        <text x="425" y="68" font-size="12" font-family="Segoe UI, sans-serif">*</text>
+        <text x="440" y="170" font-size="12" font-family="Segoe UI, sans-serif">@ElementCollection of an enum: one user, many roles</text>
+      </g>
+    </svg>
+    <figcaption>One user row, any number of role rows.</figcaption>
+  </figure>
+  <pre><span class="file">user/AppUser.java (key part)</span><code class="lang-java">@Entity
+@Table(name = "app_users")
+public class AppUser {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, unique = true, length = 50)
+    private String username;
+
+    @Column(nullable = false, length = 100)      // BCrypt hash = 60 chars
+    private String password;
+
+    private boolean enabled = true;
+
+    @ElementCollection(fetch = FetchType.EAGER)  // roles are needed at EVERY login
+    @CollectionTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"))
+    @Enumerated(EnumType.STRING)
+    @Column(name = "role", nullable = false)
+    private Set&lt;Role&gt; roles = new HashSet&lt;&gt;();
+}</code></pre>
+  <ul>
+    <li>Why <code>AppUser</code> and not <code>User</code>? Spring Security already has a class <code>User</code>, and <code>user</code> is a reserved word in some databases.</li>
+    <li><code>@ElementCollection</code> stores a collection of simple values (our enum) in a side table – no extra entity needed.</li>
+    <li><code>FetchType.EAGER</code> – roles are loaded together with the user. Otherwise you hit a <code>LazyInitializationException</code> (topic 40) when Spring reads the authorities after the transaction is closed.</li>
+    <li><code>EnumType.STRING</code> stores <code>"ADMIN"</code> rather than a number; adding a new enum value later cannot scramble existing data.</li>
+  </ul>
+  <p>Our <code>Role</code> enum also lists <b>permissions</b> (fine-grained rights):</p>
+  <pre><span class="file">user/Role.java</span><code class="lang-java">public enum Role {
+    USER(Set.of("NOTE_WRITE")),
+    ADMIN(Set.of("REPORT_READ", "USER_DELETE"));
+    ...
+    public String asAuthority() { return "ROLE_" + name(); }
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ Alternative: <code>Role</code> as its own entity</strong>
+    Many projects use a <code>roles</code> table and <code>@ManyToMany Set&lt;Role&gt; roles</code> with a join table (topic 40). That lets admins create new roles at runtime
+    without redeploying. An enum is simpler and perfectly fine when the set of roles is fixed – which is the common case.</div>
+
+  <h3>3.3 <code>UserDetails</code> and <code>UserDetailsService</code> with JPA</h3>
+  <p>Spring Security does not know our <code>AppUser</code> class. It speaks only the <code>UserDetails</code> "language". So we write a small <b>adapter</b> (a translator):</p>
+  <pre><span class="file">security/SecurityUser.java (key part)</span><code class="lang-java">public class SecurityUser implements UserDetails {
+    private final Long id;
+    private final String username;
+    private final String password;
+    private final boolean enabled;
+    private final Set&lt;GrantedAuthority&gt; authorities;
+
+    public SecurityUser(AppUser user) {
+        this.id = user.getId();
+        this.username = user.getUsername();
+        this.password = user.getPassword();
+        this.enabled = user.isEnabled();
+        this.authorities = toAuthorities(user.getRoles());  // ADMIN -&gt; ROLE_ADMIN, REPORT_READ, USER_DELETE
+    }
+    public Long getId() { return id; }                       // our own extra!
+    @Override public String getUsername() { return username; }
+    @Override public String getPassword() { return password; }
+    @Override public Collection&lt;? extends GrantedAuthority&gt; getAuthorities() { return authorities; }
+    @Override public boolean isEnabled() { return enabled; }
+}</code></pre>
+  <p>And the service that looks users up:</p>
+  <pre><span class="file">security/JpaUserDetailsService.java</span><code class="lang-java">@Service
+public class JpaUserDetailsService implements UserDetailsService {
+    private final AppUserRepository userRepository;
+    ...
+    @Override
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        return userRepository.findByUsername(username)
+                .map(SecurityUser::new)
+                .orElseThrow(() -&gt; new UsernameNotFoundException("User not found: " + username));
+    }
+}</code></pre>
+  <p>Because it is a <code>@Service</code> bean implementing <code>UserDetailsService</code>, Spring Boot <b>automatically</b> wires it, together with our
+     <code>PasswordEncoder</code> bean, into the <code>DaoAuthenticationProvider</code>. No extra configuration.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Option</th><th>Pros</th><th>Cons</th></tr>
+    <tr><td>Adapter class (<code>SecurityUser</code>) – <b>this project</b></td><td>Entity stays clean; security code separated; can add extra fields (id)</td><td>One more class</td></tr>
+    <tr><td>Entity implements <code>UserDetails</code></td><td>Fewer classes; seen in many tutorials</td><td>JPA entity mixed with security concerns; easy to leak the password field in JSON</td></tr>
+    <tr><td>Spring's <code>User.withUsername(...)</code> builder (topic 49)</td><td>No custom class at all</td><td><code>@AuthenticationPrincipal</code> gives only username + authorities, no id</td></tr>
+  </table></div>
+
+  <h3>3.4 Trace: what happens when alice logs in?</h3>
+  <p>Request: <code>curl -u alice:alice123 http://localhost:8080/api/me</code></p>
+  <ol>
+    <li><code>BasicAuthenticationFilter</code> decodes the header → username <code>alice</code>, password <code>alice123</code>.</li>
+    <li>It asks the <code>AuthenticationManager</code>, which delegates to <code>DaoAuthenticationProvider</code>.</li>
+    <li>The provider calls <code>JpaUserDetailsService.loadUserByUsername("alice")</code> → Hibernate runs
+      <code>select ... from app_users where username='alice'</code> (+ roles).</li>
+    <li>The row is wrapped in a <code>SecurityUser</code> with authorities <code>ROLE_USER</code>, <code>NOTE_WRITE</code>.</li>
+    <li>The provider calls <code>passwordEncoder.matches("alice123", "$2a$10$...")</code> → <code>true</code>. It checks <code>isEnabled()</code> → <code>true</code>.</li>
+    <li>An authenticated <code>UsernamePasswordAuthenticationToken</code> (principal = our <code>SecurityUser</code>) is put into the <code>SecurityContextHolder</code>.</li>
+    <li><code>AuthorizationFilter</code>: <code>/api/me</code> needs <code>authenticated()</code> → OK → controller runs.</li>
+  </ol>
+  <p>If the username does not exist or the password is wrong, step 3 or 5 fails with a <code>BadCredentialsException</code> → <b>401</b>.
+     Spring deliberately reports both cases the same way so attackers cannot discover which usernames exist.</p>
+
+  <h3>3.5 Registration with BCrypt</h3>
+  <pre><span class="file">user/UserService.java (register)</span><code class="lang-java">@Transactional
+public UserResponse register(RegisterRequest request) {
+    if (userRepository.existsByUsername(request.username())) {
+        throw new UsernameTakenException(request.username());           // -&gt; 409 Conflict
+    }
+    String hash = passwordEncoder.encode(request.password());           // "bob12345" -&gt; "$2a$10$..."
+    AppUser saved = userRepository.save(new AppUser(request.username(), hash, Set.of(Role.USER)));
+    return UserResponse.from(saved);                                    // DTO without password
+}</code></pre>
+  <p>Four security rules hide in these few lines:</p>
+  <ol>
+    <li><b>Hash before saving.</b> The plain password never reaches the database.</li>
+    <li><b>The server chooses the role.</b> The request has no "role" field. If it did, anybody could register as ADMIN (a real-world bug called <i>mass assignment</i>).</li>
+    <li><b>Validate input</b> (<code>@Valid</code> + <code>@Size(min = 8, max = 72)</code>): BCrypt only uses the first 72 bytes, and short passwords are weak.</li>
+    <li><b>Never return the password</b> (not even the hash). The response DTO simply has no such field.</li>
+  </ol>
+  <p>The URL must be public, otherwise nobody could ever create an account: <code>.requestMatchers(HttpMethod.POST, "/api/auth/register").permitAll()</code>.</p>
+
+  <h3>3.6 Roles vs authorities (permissions) in URL rules</h3>
+  <p>Recap: Spring only stores <b>authorities</b> (strings). A role is an authority with the <code>ROLE_</code> prefix. Our users get <b>both</b> kinds:</p>
+  <div class="table-wrap"><table>
+    <tr><th>User</th><th>Roles in DB</th><th>Authorities Spring sees</th></tr>
+    <tr><td>alice</td><td>USER</td><td><code>ROLE_USER</code>, <code>NOTE_WRITE</code></td></tr>
+    <tr><td>admin</td><td>ADMIN, USER</td><td><code>ROLE_ADMIN</code>, <code>ROLE_USER</code>, <code>REPORT_READ</code>, <code>USER_DELETE</code>, <code>NOTE_WRITE</code></td></tr>
+  </table></div>
+  <pre><span class="file">security/SecurityConfig.java (rules)</span><code class="lang-java">.authorizeHttpRequests(auth -&gt; auth
+    .requestMatchers(HttpMethod.POST, "/api/auth/register").permitAll()
+    .requestMatchers(PathRequest.toH2Console()).permitAll()
+    .requestMatchers("/error").permitAll()
+    .requestMatchers("/api/admin/**").hasRole("ADMIN")              // == hasAuthority("ROLE_ADMIN")
+    .requestMatchers("/api/reports/**").hasAuthority("REPORT_READ") // a permission
+    .anyRequest().authenticated()
+)</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Expression</th><th>True when the user has…</th></tr>
+    <tr><td><code>hasRole("ADMIN")</code></td><td><code>ROLE_ADMIN</code></td></tr>
+    <tr><td><code>hasAnyRole("ADMIN", "MANAGER")</code></td><td><code>ROLE_ADMIN</code> or <code>ROLE_MANAGER</code></td></tr>
+    <tr><td><code>hasAuthority("REPORT_READ")</code></td><td>exactly <code>REPORT_READ</code></td></tr>
+    <tr><td><code>hasAnyAuthority("REPORT_READ", "REPORT_WRITE")</code></td><td>one of them</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Roles or permissions?</strong>
+    Roles are <i>who you are</i> (job title). Permissions are <i>what you can do</i>. Checking permissions in code (<code>hasAuthority("REPORT_READ")</code>) means you can later
+    give that one right to a new role (say AUDITOR) without touching every rule. Small apps: roles are enough. Bigger apps: roles that bundle permissions – like our enum.</div>
+
+  <h3>3.7 Method security: <code>@EnableMethodSecurity</code> + <code>@PreAuthorize</code></h3>
+  <p>URL rules guard the <b>doors</b>. Method security guards individual <b>actions</b> – on services, not just controllers. Switch it on once:</p>
+  <pre><code class="lang-java">@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity      // without this, @PreAuthorize is silently IGNORED!
+public class SecurityConfig { ... }</code></pre>
+  <p>Then annotate methods:</p>
+  <pre><span class="file">user/UserService.java</span><code class="lang-java">@PreAuthorize("hasAuthority('USER_DELETE')")
+@Transactional
+public void deleteUser(Long id) { ... }</code></pre>
+  <p><b>How does it work?</b> Exactly like <code>@Transactional</code> (topic 42): Spring wraps the bean in an <b>AOP proxy</b> (topic 27). Before the real method runs,
+     the proxy evaluates the expression. False → it throws <code>AccessDeniedException</code> → <code>ExceptionTranslationFilter</code> turns it into <b>403</b>.</p>
+  <div class="flow">
+    <span class="box">Controller</span><span class="arrow">→</span>
+    <span class="box alt">Proxy: evaluate "hasAuthority('USER_DELETE')"</span><span class="arrow">→</span>
+    <span class="box info">✓ real deleteUser()</span>
+    <span class="arrow">/</span>
+    <span class="box alt">✗ AccessDeniedException → 403</span>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th>Annotation</th><th>When checked</th><th>Notes</th></tr>
+    <tr><td><code>@PreAuthorize("...")</code></td><td>Before the method</td><td>Full SpEL, can use arguments. <b>Most used.</b></td></tr>
+    <tr><td><code>@PostAuthorize("...")</code></td><td>After the method</td><td>Can inspect <code>returnObject</code> (e.g. owner of a loaded entity).</td></tr>
+    <tr><td><code>@Secured("ROLE_ADMIN")</code></td><td>Before</td><td>Old, no SpEL. Needs <code>@EnableMethodSecurity(securedEnabled = true)</code>.</td></tr>
+    <tr><td><code>@RolesAllowed("ADMIN")</code></td><td>Before</td><td>Jakarta standard (JSR-250). Needs <code>jsr250Enabled = true</code>.</td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Self-invocation gotcha (again!)</strong>
+    Like <code>@Transactional</code>, the check runs only when the call goes <b>through the proxy</b>. If a method inside <code>UserService</code> calls
+    <code>this.deleteUser(5)</code>, there is <b>no security check</b>. Call protected methods from another bean.</div>
+
+  <h3>3.8 SpEL owner checks: "only your own notes"</h3>
+  <p><b>SpEL</b> (Spring Expression Language, topic 26) lets the rule look at method <b>arguments</b> and the <b>current user</b>:</p>
+  <pre><span class="file">note/NoteService.java</span><code class="lang-java">@PreAuthorize("#username == authentication.name or hasRole('ADMIN')")
+@Transactional(readOnly = true)
+public List&lt;NoteResponse&gt; findNotesOf(String username) { ... }</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>SpEL piece</th><th>Meaning</th></tr>
+    <tr><td><code>#username</code></td><td>The method parameter named <code>username</code>.</td></tr>
+    <tr><td><code>authentication</code></td><td>The current <code>Authentication</code>; <code>authentication.name</code> = logged-in username.</td></tr>
+    <tr><td><code>principal</code></td><td>The principal object – here our <code>SecurityUser</code>, so <code>principal.id</code> works too.</td></tr>
+    <tr><td><code>returnObject</code></td><td>Only in <code>@PostAuthorize</code>: the value the method returned.</td></tr>
+    <tr><td><code>and</code>, <code>or</code>, <code>!</code></td><td>Combine conditions.</td></tr>
+    <tr><td><code>@beanName.method(...)</code></td><td>Call any Spring bean, e.g. <code>@noteSecurity.isOwner(#id, authentication)</code> for complex rules.</td></tr>
+  </table></div>
+  <p><b>Trace:</b></p>
+  <div class="flow">
+    <span class="box">alice → GET /api/users/<b>alice</b>/notes</span><span class="arrow">→</span>
+    <span class="box alt">"alice" == "alice" ✓</span><span class="arrow">→</span>
+    <span class="box info">200 + her notes</span>
+  </div>
+  <div class="flow">
+    <span class="box">alice → GET /api/users/<b>admin</b>/notes</span><span class="arrow">→</span>
+    <span class="box alt">"admin" == "alice" ✗, hasRole ADMIN ✗</span><span class="arrow">→</span>
+    <span class="box">403</span>
+  </div>
+  <div class="flow">
+    <span class="box">admin → GET /api/users/<b>alice</b>/notes</span><span class="arrow">→</span>
+    <span class="box alt">names differ, but hasRole ADMIN ✓</span><span class="arrow">→</span>
+    <span class="box info">200</span>
+  </div>
+  <div class="callout info"><strong>ℹ️ Where does the owner come from when creating?</strong>
+    Never from the request body. <code>NoteController.create</code> passes <code>me.getUsername()</code> from the logged-in user. Otherwise alice could send
+    <code>"owner":"bob"</code> and create notes in bob's name.</div>
+
+  <h3>3.9 Getting the current user</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Way</th><th>Example</th><th>Use when</th></tr>
+    <tr><td><code>@AuthenticationPrincipal</code></td><td><code>me(@AuthenticationPrincipal SecurityUser me)</code></td><td>In controllers. Gives <i>your</i> <code>UserDetails</code> type with extra fields.</td></tr>
+    <tr><td><code>Authentication</code> / <code>Principal</code> parameter</td><td><code>me(Authentication auth)</code></td><td>In controllers, when name + authorities are enough.</td></tr>
+    <tr><td><code>SecurityContextHolder</code></td><td><code>SecurityContextHolder.getContext().getAuthentication()</code></td><td>Anywhere in the same request thread (services, helpers, auditing).</td></tr>
+  </table></div>
+  <pre><span class="file">web/ProfileController.java</span><code class="lang-java">@GetMapping
+public Map&lt;String, Object&gt; me(@AuthenticationPrincipal SecurityUser me) {
+    return Map.of("id", me.getId(), "username", me.getUsername(), ...);
+}
+
+@GetMapping("/context")
+public Map&lt;String, Object&gt; fromContext() {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    return Map.of("username", auth.getName(), ...);
+}</code></pre>
+  <div class="callout warn"><strong>⚠️ <code>SecurityContextHolder</code> and other threads</strong>
+    It is a <code>ThreadLocal</code>. Code running in another thread (<code>@Async</code>, <code>CompletableFuture.supplyAsync</code> – topics 17 and 52) sees an <b>empty</b> context
+    unless you pass it along (e.g. <code>DelegatingSecurityContextExecutor</code>).</div>
+
+  <h3>3.10 Seeding the first admin</h3>
+  <p>Only admins may manage users… so who creates the first admin? The application itself, at startup, <b>if it does not exist yet</b>:</p>
+  <pre><span class="file">config/DataSeeder.java</span><code class="lang-java">@Override
+@Transactional
+public void run(String... args) {
+    if (!users.existsByUsername("admin")) {
+        users.save(new AppUser("admin", passwordEncoder.encode("admin123"), Set.of(Role.ADMIN, Role.USER)));
+    }
+    ...
+}</code></pre>
+  <p>The <i>"only if missing"</i> check makes it safe to run on every start (it is <b>idempotent</b>). In production read the password from an environment variable
+     (<code>@Value("${ADMIN_PASSWORD}")</code>), or insert the admin with a Flyway migration (topic 43) using a pre-computed BCrypt hash.</p>
+
+  <h3>3.11 Testing secured endpoints with <code>spring-security-test</code></h3>
+  <p>Add the test dependency <code>org.springframework.security:spring-security-test</code>. It gives you ready-made ways to "be somebody" in a test:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Tool</th><th>What it does</th><th>Good for</th></tr>
+    <tr><td><code>@WithMockUser(username="alice", roles="USER")</code></td><td>Puts a fake user in the SecurityContext. No DB, no password check.</td><td>Testing rules quickly</td></tr>
+    <tr><td><code>@WithMockUser(authorities="REPORT_READ")</code></td><td>Same, with exact authorities</td><td>Permission rules</td></tr>
+    <tr><td><code>@WithUserDetails("alice")</code></td><td>Loads the <b>real</b> user through your <code>UserDetailsService</code></td><td>Code that expects your own principal type (<code>SecurityUser</code>)</td></tr>
+    <tr><td><code>@WithAnonymousUser</code></td><td>Explicitly anonymous</td><td>401 tests</td></tr>
+    <tr><td><code>.with(httpBasic("admin", "admin123"))</code></td><td>Sends a real Basic header</td><td>Testing the real login + BCrypt</td></tr>
+    <tr><td><code>.with(user("bob").roles("ADMIN"))</code></td><td>Per-request mock user</td><td>Several users in one test</td></tr>
+    <tr><td><code>.with(csrf())</code></td><td>Adds a valid CSRF token</td><td>Cookie-based apps with CSRF on</td></tr>
+  </table></div>
+  <pre><span class="file">src/test/.../SecuredEndpointsTest.java (excerpt)</span><code class="lang-java">@Test
+@WithMockUser(username = "alice", roles = "USER")
+void cannotReadOthersNotes() throws Exception {
+    mockMvc.perform(get("/api/users/admin/notes")).andExpect(status().isForbidden());
+}
+
+@Test
+@WithUserDetails("alice")   // real SecurityUser -&gt; @AuthenticationPrincipal works
+void currentUser() throws Exception {
+    mockMvc.perform(get("/api/me"))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.id").isNumber());
+}</code></pre>
+  <p>Method security can even be tested <b>without HTTP</b> – call the service and expect the exception:</p>
+  <pre><code class="lang-java">@Test
+@WithMockUser(username = "alice")
+void otherUserIsDenied() {
+    assertThatThrownBy(() -&gt; noteService.findNotesOf("admin"))
+            .isInstanceOf(AccessDeniedException.class);
+}</code></pre>
+
+  <h3>3.12 Bonus: the H2 console behind Spring Security</h3>
+  <p>The H2 console (topic 37) breaks as soon as security is on: it needs a POST without a CSRF token and runs inside HTML <i>frames</i>, which the default
+     <code>X-Frame-Options: DENY</code> header blocks. Our config fixes all three – for learning only:</p>
+  <pre><code class="lang-java">.requestMatchers(PathRequest.toH2Console()).permitAll()           // reach it without login
+.csrf(csrf -&gt; csrf.disable())                                       // (our API is stateless anyway)
+.headers(h -&gt; h.frameOptions(frame -&gt; frame.sameOrigin()))        // allow frames from our own site</code></pre>
+
+  <!-- ============================================================ -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>A "Personal Notes" API. Package <code>com.course.dbsecurity</code>, organised <b>by feature</b> (topic 33):</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>web, security, data-jpa, h2, validation; test: spring-security-test</td></tr>
+    <tr><td><code>user/Role.java</code></td><td>Enum USER/ADMIN, each with a set of permissions</td></tr>
+    <tr><td><code>user/AppUser.java</code></td><td>JPA entity, roles as <code>@ElementCollection</code></td></tr>
+    <tr><td><code>user/AppUserRepository.java</code></td><td><code>findByUsername</code>, <code>existsByUsername</code></td></tr>
+    <tr><td><code>user/UserDtos.java</code></td><td><code>RegisterRequest</code> (validated), <code>UserResponse</code> (no password)</td></tr>
+    <tr><td><code>user/UserService.java</code></td><td><code>register</code> with BCrypt; <code>deleteUser</code> with <code>@PreAuthorize</code></td></tr>
+    <tr><td><code>user/UsernameTakenException.java</code></td><td>→ 409 via <code>web/ApiExceptionHandler.java</code></td></tr>
+    <tr><td><code>security/SecurityUser.java</code></td><td>Adapter <code>AppUser</code> → <code>UserDetails</code> (roles + permissions → authorities)</td></tr>
+    <tr><td><code>security/JpaUserDetailsService.java</code></td><td>Loads users from the database</td></tr>
+    <tr><td><code>security/SecurityConfig.java</code></td><td>URL rules, Basic, stateless, CSRF off, H2 frames, <code>@EnableMethodSecurity</code>, BCrypt</td></tr>
+    <tr><td><code>note/Note.java</code>, <code>NoteRepository.java</code></td><td>A note with an owner username</td></tr>
+    <tr><td><code>note/NoteService.java</code></td><td><code>@PreAuthorize</code> with SpEL owner check; <code>hasAuthority('NOTE_WRITE')</code></td></tr>
+    <tr><td><code>web/AuthController.java</code></td><td><code>POST /api/auth/register</code></td></tr>
+    <tr><td><code>web/ProfileController.java</code></td><td><code>/api/me</code> (<code>@AuthenticationPrincipal</code>) and <code>/api/me/context</code> (<code>SecurityContextHolder</code>)</td></tr>
+    <tr><td><code>web/NoteController.java</code></td><td>Create notes; read a user's notes</td></tr>
+    <tr><td><code>web/AdminController.java</code></td><td>List/delete users, <code>/api/reports/summary</code></td></tr>
+    <tr><td><code>config/DataSeeder.java</code></td><td>Creates <code>admin/admin123</code> and <code>alice/alice123</code> (+ one note)</td></tr>
+    <tr><td><code>src/test/.../SecuredEndpointsTest.java</code></td><td>12 MockMvc tests</td></tr>
+    <tr><td><code>src/test/.../NoteServiceMethodSecurityTest.java</code></td><td>4 tests calling services directly</td></tr>
+    <tr><td><code>requests.http</code></td><td>All requests, ready to click</td></tr>
+  </table></div>
+  <h3>4.1 The full <code>SecurityConfig</code></h3>
+  <pre><span class="file">security/SecurityConfig.java</span><code class="lang-java">@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity
+public class SecurityConfig {
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+            .authorizeHttpRequests(auth -&gt; auth
+                .requestMatchers(HttpMethod.POST, "/api/auth/register").permitAll()
+                .requestMatchers(PathRequest.toH2Console()).permitAll()
+                .requestMatchers("/error").permitAll()
+                .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .requestMatchers("/api/reports/**").hasAuthority("REPORT_READ")
+                .anyRequest().authenticated()
+            )
+            .httpBasic(Customizer.withDefaults())
+            .sessionManagement(sm -&gt; sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .csrf(csrf -&gt; csrf.disable())
+            .headers(headers -&gt; headers.frameOptions(frame -&gt; frame.sameOrigin()));
+        return http.build();
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+}</code></pre>
+  <p><code>SessionCreationPolicy.STATELESS</code> tells Spring never to create an HTTP session. With HTTP Basic, the client sends credentials on every request anyway, so a session cookie
+     would only add risk (and then CSRF would matter again). Notice there is <b>no</b> <code>UserDetailsService</code> bean here – the <code>@Service</code> is found automatically.</p>
+
+  <h3>4.2 The exception handler – and a trap</h3>
+  <pre><span class="file">web/ApiExceptionHandler.java</span><code class="lang-java">@RestControllerAdvice
+public class ApiExceptionHandler {
+    @ExceptionHandler(UsernameTakenException.class)
+    public ProblemDetail usernameTaken(UsernameTakenException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+    }
+}</code></pre>
+  <p>We deliberately do <b>not</b> add <code>@ExceptionHandler(Exception.class)</code>. A catch-all would also catch the <code>AccessDeniedException</code> thrown by
+     <code>@PreAuthorize</code> inside the controller call and turn a correct <b>403</b> into a wrong <b>500</b>. If you need a catch-all, re-throw
+     <code>AccessDeniedException</code> and <code>AuthenticationException</code> or add a dedicated handler returning 403.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 In VS Code</h3>
+  <ol>
+    <li>Open the folder <code>D:\Java-SpringBoot\48-Spring-Security-With-Database-Users-And-Roles</code>.</li>
+    <li>Run <code>DbSecurityApplication</code> (Run link above <code>main</code>). Watch the console: <code>Seeded user 'admin' (roles ADMIN, USER)</code>.</li>
+    <li>Open <code>requests.http</code> and send the requests from top to bottom.</li>
+  </ol>
+  <h3>5.2 From the terminal (real outputs)</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\48-Spring-Security-With-Database-Users-And-Roles"
+mvn spring-boot:run</code></pre>
+  <pre class="terminal"><code>curl.exe -H "Content-Type: application/json" -d "{\"username\":\"bob\",\"password\":\"bob12345\"}" http://localhost:8080/api/auth/register
+{"id":3,"username":"bob","enabled":true,"roles":["USER"]}                          (201)
+
+(same again)
+{"type":"about:blank","title":"Conflict","status":409,"detail":"Username 'bob' is already taken","instance":"/api/auth/register"}
+
+curl.exe -u bob:bob12345 http://localhost:8080/api/me
+{"id":3,"username":"bob","authorities":["NOTE_WRITE","ROLE_USER"]}
+
+curl.exe -u admin:admin123 http://localhost:8080/api/me/context
+{"authenticationType":"UsernamePasswordAuthenticationToken","authorities":["NOTE_WRITE","REPORT_READ","ROLE_ADMIN","ROLE_USER","USER_DELETE"],"authenticated":true,"username":"admin"}
+
+curl.exe -u alice:alice123 -H "Content-Type: application/json" -d "{\"title\":\"Groceries\",\"content\":\"Milk, eggs\"}" http://localhost:8080/api/notes
+{"id":2,"title":"Groceries","content":"Milk, eggs","owner":"alice"}               (201)
+
+curl.exe -u alice:alice123 http://localhost:8080/api/users/alice/notes
+[{"id":1,"title":"Welcome",...,"owner":"alice"},{"id":2,"title":"Groceries",...,"owner":"alice"}]
+
+curl.exe -u alice:alice123 http://localhost:8080/api/users/admin/notes
+{"timestamp":"...","status":403,"error":"Forbidden","path":"/api/users/admin/notes"}
+
+curl.exe -u alice:alice123 http://localhost:8080/api/admin/users        -&gt; 403
+curl.exe -u admin:admin123 http://localhost:8080/api/admin/users
+[{"id":1,"username":"admin","enabled":true,"roles":["USER","ADMIN"]},{"id":2,"username":"alice",...},{"id":3,"username":"bob",...}]
+
+curl.exe -u admin:admin123 http://localhost:8080/api/reports/summary    -&gt; {"totalUsers":3}
+curl.exe -u alice:alice123 http://localhost:8080/api/reports/summary    -&gt; 403
+curl.exe -u admin:admin123 -X DELETE http://localhost:8080/api/admin/users/3   -&gt; 204
+curl.exe -u alice:nope http://localhost:8080/api/me                     -&gt; 401</code></pre>
+  <h3>5.3 Look into the database</h3>
+  <p>Open <code>http://localhost:8080/h2-console</code>, JDBC URL <code>jdbc:h2:mem:notesdb</code>, user <code>sa</code>, empty password. Run
+     <code>SELECT * FROM APP_USERS;</code> – the password column shows only <code>$2a$10$...</code> hashes. Run <code>SELECT * FROM USER_ROLES;</code> to see the roles.</p>
+  <h3>5.4 Tests</h3>
+  <pre class="terminal"><code>mvn test
+[INFO] Tests run: 16, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS</code></pre>
+
+  <!-- ============================================================ -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>@PreAuthorize</code> does nothing</strong>
+    You forgot <code>@EnableMethodSecurity</code>. The annotations are then ignored silently – everyone gets in.<br>
+    <strong>Fix:</strong> add <code>@EnableMethodSecurity</code> to a <code>@Configuration</code> class, and write a test that expects 403.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: storing <code>ROLE_ADMIN</code> and then calling <code>.roles("ROLE_ADMIN")</code></strong>
+    <code>User.roles(...)</code> adds the prefix itself and throws <i>"ROLE_ADMIN cannot start with ROLE_ (it is automatically added)"</i>.<br>
+    <strong>Fix:</strong> decide one convention: store <code>ADMIN</code> and use <code>.roles()</code>/<code>hasRole()</code>, or store <code>ROLE_ADMIN</code> and use <code>.authorities()</code>/<code>hasAuthority()</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>LazyInitializationException</code> at login</strong>
+    Roles mapped LAZY, read later by Spring after the repository's transaction closed.<br>
+    <strong>Fix:</strong> <code>fetch = FetchType.EAGER</code> for roles (they are tiny), or a <code>JOIN FETCH</code> query in <code>findByUsername</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>@AuthenticationPrincipal SecurityUser me</code> is <code>null</code> in tests</strong>
+    <code>@WithMockUser</code> creates Spring's own <code>User</code>, not your <code>SecurityUser</code>, so the cast fails and Spring injects <code>null</code>.<br>
+    <strong>Fix:</strong> use <code>@WithUserDetails("alice")</code> (loads the real principal) for such endpoints.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>#username</code> in SpEL is <code>null</code></strong>
+    SpEL reads parameter names from the compiled class. Maven (via the Spring Boot parent) compiles with <code>-parameters</code>; some IDE setups do not.<br>
+    <strong>Fix:</strong> keep the Boot parent's compiler settings, or name the parameter explicitly with <code>@P("username")</code> (<code>org.springframework.security.core.parameters.P</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: catch-all exception handler turns 403 into 500</strong>
+    <code>@ExceptionHandler(Exception.class)</code> swallows <code>AccessDeniedException</code>.<br>
+    <strong>Fix:</strong> do not catch everything, or handle <code>AccessDeniedException</code> explicitly with 403.</div>
+  <div class="callout danger"><strong>🔥 Mistake: letting the client choose its role</strong>
+    A <code>role</code> field in <code>RegisterRequest</code> = anybody can become ADMIN.<br>
+    <strong>Fix:</strong> the server assigns <code>Role.USER</code>; only admins promote users through a protected endpoint.</div>
+  <div class="callout danger"><strong>🔥 Mistake: returning the entity from the controller</strong>
+    Returning <code>AppUser</code> directly serialises the password hash to JSON.<br>
+    <strong>Fix:</strong> always map to a DTO (<code>UserResponse</code>) without the password (topic 33).</div>
+
+  <!-- ============================================================ -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><b>Defence in depth:</b> URL rules for broad areas (<code>/api/admin/**</code>) <i>plus</i> <code>@PreAuthorize</code> on sensitive service methods.</li>
+    <li><b>Put method security on services</b>, not only controllers – services can be called from many places (schedulers, message listeners…).</li>
+    <li><b>Owner checks belong in the service</b> (or a dedicated bean like <code>@noteSecurity.isOwner(...)</code>), and the owner always comes from the authenticated user.</li>
+    <li><b>Permissions over roles in code</b> for bigger systems: check <code>hasAuthority("REPORT_READ")</code>, map roles → permissions in one place.</li>
+    <li><b>Unique, case-consistent usernames</b> (e.g. store lower-case emails) with a database <code>UNIQUE</code> constraint.</li>
+    <li><b>Account status:</b> use <code>enabled</code>/<code>locked</code> flags to block users instead of deleting them (keeps history).</li>
+    <li><b>Rate-limit login and registration</b> and consider account lockout after many failures (brute-force protection).</li>
+    <li><b>Seed admins safely</b>: password from environment/secret store, force a change on first login in real systems.</li>
+    <li><b>Test the negative cases</b>: for each protected endpoint at least one 401 and one 403 test.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>To use a database, implement <code>UserDetailsService.loadUserByUsername</code> with a JPA repository – the rest of Spring Security stays the same.</li>
+    <li><code>UserDetails</code> is Spring's view of a user; an adapter (<code>SecurityUser</code>) keeps the entity clean and adds extra fields.</li>
+    <li>Registration: validate, check duplicates, <b>hash with BCrypt</b>, assign the default role on the server, return a DTO without password.</li>
+    <li><code>hasRole("X")</code> checks <code>ROLE_X</code>; <code>hasAuthority("Y")</code> checks the exact string <code>Y</code>.</li>
+    <li><code>@EnableMethodSecurity</code> + <code>@PreAuthorize</code> protect methods via AOP proxies; SpEL can compare arguments with <code>authentication.name</code>.</li>
+    <li>Current user: <code>@AuthenticationPrincipal</code> in controllers, <code>SecurityContextHolder</code> anywhere on the request thread.</li>
+    <li>Seed the first admin at startup only if missing.</li>
+    <li>Test with <code>@WithMockUser</code>, <code>@WithUserDetails</code>, <code>httpBasic()</code> from <code>spring-security-test</code>.</li>
+  </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Add a MODERATOR role</b> with the permission <code>REPORT_READ</code>. Seed a user <code>mod/mod12345</code> with this role and check that they can
+       read <code>/api/reports/summary</code> but not <code>/api/admin/users</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public enum Role {
+    USER(Set.of("NOTE_WRITE")),
+    MODERATOR(Set.of("REPORT_READ")),
+    ADMIN(Set.of("REPORT_READ", "USER_DELETE"));
+    ...
+}
+// DataSeeder
+if (!users.existsByUsername("mod")) {
+    users.save(new AppUser("mod", passwordEncoder.encode("mod12345"), Set.of(Role.MODERATOR)));
+}
+// curl -u mod:mod12345 .../api/reports/summary  -&gt; 200 (hasAuthority REPORT_READ)
+// curl -u mod:mod12345 .../api/admin/users      -&gt; 403 (no ROLE_ADMIN)
+// This is the power of permissions: no rule had to change.</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Disable a user.</b> Add <code>PATCH /api/admin/users/{id}/disable</code> (ADMIN only) that sets <code>enabled=false</code>. What status does that user get afterwards when they log in?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// UserService
+@PreAuthorize("hasRole('ADMIN')")
+@Transactional
+public void disable(Long id) {
+    AppUser user = userRepository.findById(id)
+            .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND));
+    user.setEnabled(false);          // dirty checking saves it (topic 38)
+}
+// AdminController
+@PatchMapping("/admin/users/{id}/disable")
+public ResponseEntity&lt;Void&gt; disable(@PathVariable Long id) {
+    userService.disable(id);
+    return ResponseEntity.noContent().build();
+}
+// The user now gets 401: DaoAuthenticationProvider throws DisabledException
+// because SecurityUser.isEnabled() returns false.</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Owner check by note id.</b> Add <code>DELETE /api/notes/{id}</code>. Only the note's owner or an ADMIN may delete it. Write the rule with a helper bean
+       <code>@noteSecurity.isOwner(#id, authentication)</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Component("noteSecurity")
+public class NoteSecurity {
+    private final NoteRepository notes;
+    public NoteSecurity(NoteRepository notes) { this.notes = notes; }
+
+    public boolean isOwner(Long noteId, Authentication authentication) {
+        return notes.findById(noteId)
+                .map(n -&gt; n.getOwnerUsername().equals(authentication.getName()))
+                .orElse(false);
+    }
+}
+
+// NoteService
+@PreAuthorize("@noteSecurity.isOwner(#id, authentication) or hasRole('ADMIN')")
+@Transactional
+public void delete(Long id) {
+    noteRepository.deleteById(id);
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Change password.</b> Add <code>PUT /api/me/password</code> with body <code>{"oldPassword":"...","newPassword":"..."}</code>. Check the old password with
+       <code>passwordEncoder.matches</code> before saving the new hash. Return 400 if the old one is wrong.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public record ChangePasswordRequest(@NotBlank String oldPassword,
+                                    @NotBlank @Size(min = 8, max = 72) String newPassword) { }
+
+@Transactional
+public void changePassword(Long userId, ChangePasswordRequest req) {
+    AppUser user = userRepository.findById(userId).orElseThrow();
+    if (!passwordEncoder.matches(req.oldPassword(), user.getPassword())) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Old password is wrong");
+    }
+    user.setPassword(passwordEncoder.encode(req.newPassword())); // add a setter to AppUser
+}
+
+@PutMapping("/api/me/password")
+public ResponseEntity&lt;Void&gt; change(@AuthenticationPrincipal SecurityUser me,
+                                   @Valid @RequestBody ChangePasswordRequest req) {
+    userService.changePassword(me.getId(), req);
+    return ResponseEntity.noContent().build();
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>Roles as entities.</b> Replace the enum with a <code>RoleEntity</code> table (<code>id</code>, <code>name</code>) and a <code>@ManyToMany</code> join table
+       <code>users_roles</code>. Adapt <code>SecurityUser</code>, the seeder and registration. Make sure all tests still pass.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Entity @Table(name = "roles")
+public class RoleEntity {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
+    @Column(unique = true, nullable = false) private String name;   // "USER", "ADMIN"
+    ...
+}
+
+// AppUser
+@ManyToMany(fetch = FetchType.EAGER)
+@JoinTable(name = "users_roles",
+        joinColumns = @JoinColumn(name = "user_id"),
+        inverseJoinColumns = @JoinColumn(name = "role_id"))
+private Set&lt;RoleEntity&gt; roles = new HashSet&lt;&gt;();
+
+// SecurityUser
+user.getRoles().forEach(r -&gt; result.add(new SimpleGrantedAuthority("ROLE_" + r.getName())));
+
+// RoleRepository.findByName("USER") in registration; seed roles first in DataSeeder.
+// Permissions could become a second @ManyToMany on RoleEntity.</code></pre></details>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. How do you load users from a database in Spring Security?</summary>
+    <p>Implement <code>UserDetailsService</code> (one method, <code>loadUserByUsername</code>) using a repository, return a <code>UserDetails</code> (own adapter or Spring's <code>User</code>),
+       and expose it as a bean together with a <code>PasswordEncoder</code>. Spring Boot wires both into a <code>DaoAuthenticationProvider</code>.</p></details>
+  <details><summary>Q2. What should happen in a registration endpoint, security-wise?</summary>
+    <p>Validate input, reject duplicate usernames (409), hash the password with BCrypt, assign the default role server-side (never from the request), save, and return a DTO
+       without any password data. The endpoint itself must be <code>permitAll</code>; consider rate limiting and email verification.</p></details>
+  <details><summary>Q3. Difference between URL-based security and method security?</summary>
+    <p>URL rules (<code>authorizeHttpRequests</code>) run in the filter chain and only see the request (path, method). Method security (<code>@PreAuthorize</code>) runs
+       around a bean method via an AOP proxy and can use method arguments, return values and beans – ideal for ownership and business-level rules. Use both.</p></details>
+  <details><summary>Q4. What does <code>@PreAuthorize("#username == authentication.name")</code> do?</summary>
+    <p>Before the method runs, it compares the method parameter <code>username</code> with the name of the authenticated user. If false, an <code>AccessDeniedException</code>
+       is thrown (403). Parameter names must be available (compiled with <code>-parameters</code>) or annotated with <code>@P</code>.</p></details>
+  <details><summary>Q5. <code>@PreAuthorize</code> vs <code>@PostAuthorize</code> vs <code>@Secured</code>?</summary>
+    <p><code>@PreAuthorize</code> checks before invocation with SpEL. <code>@PostAuthorize</code> checks after, with access to <code>returnObject</code> (careful: the method's side effects already happened).
+       <code>@Secured</code> is the older annotation taking role names only, no SpEL; it must be enabled with <code>securedEnabled = true</code>.</p></details>
+  <details><summary>Q6. How do you get the currently logged-in user?</summary>
+    <p>In a controller: <code>@AuthenticationPrincipal MyUserDetails me</code>, or an <code>Authentication</code>/<code>Principal</code> parameter. Anywhere on the request thread:
+       <code>SecurityContextHolder.getContext().getAuthentication()</code>. Note it is thread-bound, so async code needs context propagation.</p></details>
+  <details><summary>Q7. Why could <code>@PreAuthorize</code> be ignored even when enabled?</summary>
+    <p>Self-invocation: calling the method from inside the same class bypasses the proxy. Also: the class is not a Spring bean (created with <code>new</code>), or the method is private/final (cannot be proxied).</p></details>
+  <details><summary>Q8. <code>@WithMockUser</code> vs <code>@WithUserDetails</code>?</summary>
+    <p><code>@WithMockUser</code> creates a fake <code>User</code> with given username/roles/authorities without touching your user store – fast and isolated.
+       <code>@WithUserDetails</code> loads the user via your real <code>UserDetailsService</code>, so the principal is your custom type – needed when code uses
+       <code>@AuthenticationPrincipal</code> with that type or relies on DB state.</p></details>
+  <details><summary>Q9. Roles vs authorities – how would you design permissions for a large app?</summary>
+    <p>Store roles on users and map each role to a set of fine-grained permissions (authorities). Check permissions in code (<code>hasAuthority("ORDER_REFUND")</code>), so changing which roles may refund needs no code change – only the mapping (enum or database tables).</p></details>
+  <details><summary>Q10. How do you create the first admin user safely?</summary>
+    <p>Seed it at startup only if it does not exist (idempotent), or via a DB migration. Take the password from an environment variable/secret manager, never hard-code it in production, and require a password change on first login.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../47-Spring-Security-Fundamentals/lesson.html"><small>← Previous</small>47. Spring Security Fundamentals</a>
+    <a class="next" href="../49-JWT-Authentication/lesson.html"><small>Next →</small>49. JWT Authentication</a>
+  </nav>
+</main>
+</body>
+</html>

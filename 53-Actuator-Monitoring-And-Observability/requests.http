@@ -1,0 +1,88 @@
+### Topic 53 - Actuator, Monitoring and Observability
+### Use with the VS Code "REST Client" extension.
+
+@baseUrl = http://localhost:8080
+
+### 1) Discovery page: which actuator endpoints are exposed?
+GET {{baseUrl}}/actuator
+
+### 2) Health (overall + components, incl. our custom "paymentGateway")
+GET {{baseUrl}}/actuator/health
+
+### 3) Kubernetes-style probes
+GET {{baseUrl}}/actuator/health/liveness
+
+###
+GET {{baseUrl}}/actuator/health/readiness
+
+### 4) Info: app, build, java, os + our "shop" section
+GET {{baseUrl}}/actuator/info
+
+### 5) Place a few orders (creates custom metrics)
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+
+{ "product": "Coffee Mug", "amount": 12.50, "paymentMethod": "UPI" }
+
+###
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+
+{ "product": "Laptop Stand", "amount": 49.90, "paymentMethod": "card" }
+
+### 6) List all metric names
+GET {{baseUrl}}/actuator/metrics
+
+### 7) Our custom counter, total and filtered by tag
+GET {{baseUrl}}/actuator/metrics/shop.orders.placed
+
+###
+GET {{baseUrl}}/actuator/metrics/shop.orders.placed?tag=paymentMethod:upi
+
+### 8) Timer, gauge, summary
+GET {{baseUrl}}/actuator/metrics/shop.orders.processing
+
+###
+GET {{baseUrl}}/actuator/metrics/shop.orders.pending
+
+###
+GET {{baseUrl}}/actuator/metrics/shop.orders.amount
+
+### 9) Built-in metrics
+GET {{baseUrl}}/actuator/metrics/http.server.requests
+
+###
+GET {{baseUrl}}/actuator/metrics/jvm.memory.used
+
+### 10) Everything in Prometheus text format
+GET {{baseUrl}}/actuator/prometheus
+
+### 11) Payment gateway DOWN -> health DOWN (HTTP 503), new orders become PENDING
+POST {{baseUrl}}/api/admin/payment-gateway?up=false
+
+###
+GET {{baseUrl}}/actuator/health
+
+###
+POST {{baseUrl}}/api/admin/payment-gateway?up=true
+
+### 12) Loggers: read the level of our package
+GET {{baseUrl}}/actuator/loggers/com.course.observability
+
+### 13) Change it to DEBUG at runtime (no restart!) - now OrderService logs "Placing order ..."
+POST {{baseUrl}}/actuator/loggers/com.course.observability
+Content-Type: application/json
+
+{ "configuredLevel": "DEBUG" }
+
+### 14) Reset to the configured level
+POST {{baseUrl}}/actuator/loggers/com.course.observability
+Content-Type: application/json
+
+{ "configuredLevel": null }
+
+### 15) dev profile only (-Dspring-boot.run.profiles=dev): env, beans, mappings
+GET {{baseUrl}}/actuator/env
+
+###
+GET {{baseUrl}}/actuator/mappings

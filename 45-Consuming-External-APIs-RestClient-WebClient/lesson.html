@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>45 · Consuming External APIs: RestClient &amp; WebClient</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 45</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>45. Consuming External APIs: RestClient &amp; WebClient</h1>
+  <p class="subtitle">Make your Spring Boot app talk to other APIs — with RestTemplate, RestClient, WebClient and declarative HTTP interfaces — safely, with timeouts and proper error handling.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="45-Consuming-External-APIs-RestClient-WebClient"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Why backend services call other APIs, and what changes when <em>you</em> are the client.</li>
+      <li><strong>RestTemplate</strong> — the classic client you will meet in existing code.</li>
+      <li><strong>RestClient</strong> — the modern, recommended client for normal (blocking) code.</li>
+      <li><strong>WebClient</strong> — the reactive client (a preview; topic 55 goes deeper).</li>
+      <li><strong>Declarative HTTP interfaces</strong> — <code>@HttpExchange</code> + <code>HttpServiceProxyFactory</code>.</li>
+      <li>Base URL in properties, timeouts, and turning remote errors into good answers (404 / 502 / 503).</li>
+      <li>How to work offline with a mock, and how to test client code with <code>MockRestServiceServer</code>.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../31-Spring-MVC-And-REST-Fundamentals/lesson.html">Topic 31 · REST fundamentals</a>, <a href="../29-Configuration-Properties-And-Profiles/lesson.html">Topic 29 · Configuration properties</a>, <a href="../35-Global-Exception-Handling/lesson.html">Topic 35 · Exception handling</a>, <a href="../44-REST-API-Best-Practices-And-OpenAPI/lesson.html">Topic 44 · REST best practices</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1 -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>So far our apps have only <em>received</em> HTTP requests. In real projects, your backend very often <strong>sends</strong> requests to other systems too:</p>
+  <ul>
+    <li>An online shop calls a <strong>payment provider</strong> (Stripe, Razorpay, PayPal) to charge a card.</li>
+    <li>A food delivery app calls a <strong>maps API</strong> to compute distance, and an <strong>SMS API</strong> to send the OTP.</li>
+    <li>A travel site calls <strong>airline APIs</strong> to get flight prices.</li>
+    <li>In microservices (Part F), the <code>order-service</code> calls the <code>product-service</code> all day long.</li>
+  </ul>
+  <p>When your app is the <strong>client</strong>, new problems appear: the other API can be slow, down, change its answers, or return errors. A good developer handles all of that so <em>their</em> users still get a clear answer. This lesson teaches the tools <strong>and</strong> the safety habits.</p>
+
+  <!-- ===================================================== 2 -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>📞 You are a travel agent on the phone</strong>
+    <p>A customer (your user) asks you for a flight price. You don't know it — you must <strong>phone the airline</strong> (the external API).</p>
+    <ul>
+      <li><strong>RestTemplate</strong> is the old desk phone: works fine, everybody knows it, but it's not getting new features.</li>
+      <li><strong>RestClient</strong> is a modern smartphone: same idea (you call and <em>wait</em> on the line), but nicer to use.</li>
+      <li><strong>WebClient</strong> is sending WhatsApp messages to three airlines at once and doing other work while you wait for the replies.</li>
+      <li><strong>HTTP interface</strong> is a speed-dial button labelled "Airline – get price". You press it; the phone does the dialling.</li>
+      <li><strong>Timeout</strong>: if the airline keeps you on hold for 10 minutes, you hang up and tell the customer "please try again later" — you don't freeze your whole office.</li>
+      <li><strong>Error translation</strong>: the airline shouts technical jargon at you; you tell the customer a calm, clear sentence.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== 3 -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The big picture</h3>
+  <div class="flow">
+    <span class="box">Browser / curl</span><span class="arrow">→</span>
+    <span class="box alt">Our DemoController</span><span class="arrow">→</span>
+    <span class="box alt">Our service</span><span class="arrow">→</span>
+    <span class="box info">HTTP client (RestClient…)</span><span class="arrow">→</span>
+    <span class="box">External API (JSONPlaceholder)</span>
+  </div>
+  <p>Our app is a <strong>server</strong> for the browser and a <strong>client</strong> for JSONPlaceholder at the same time. The HTTP client does 4 jobs for us:</p>
+  <ol>
+    <li>Build the request (method, URL, headers, JSON body from a Java object).</li>
+    <li>Send it over the network and wait for the answer.</li>
+    <li>Check the status code (2xx? 4xx? 5xx?).</li>
+    <li>Convert the JSON answer into a Java object (with Jackson — same as in our controllers, just the other direction).</li>
+  </ol>
+  <div class="callout info"><strong>ℹ️ What is JSONPlaceholder?</strong> <code>https://jsonplaceholder.typicode.com</code> is a free, fake REST API for practice. It has <code>/posts</code>, <code>/users</code>, <code>/comments</code>... It even accepts POST requests (but doesn't really save them). Open <code>https://jsonplaceholder.typicode.com/posts/1</code> in your browser to see the JSON.</div>
+
+  <h3>3.2 The four ways, side by side</h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>RestTemplate</th><th>RestClient</th><th>WebClient</th><th>HTTP interface</th></tr>
+    <tr><td>Since</td><td>Spring 3 (2009)</td><td>Spring 6.1 (2023)</td><td>Spring 5 (2017)</td><td>Spring 6 (2022)</td></tr>
+    <tr><td>Style</td><td>Many methods: <code>getForObject</code>, <code>exchange</code>...</td><td>Fluent chain: <code>get().uri().retrieve().body()</code></td><td>Fluent chain, returns <code>Mono</code>/<code>Flux</code></td><td>Annotated Java interface</td></tr>
+    <tr><td>Blocking?</td><td>Yes</td><td>Yes</td><td>No (reactive)</td><td>Depends on the adapter (we use RestClient → yes)</td></tr>
+    <tr><td>Extra dependency</td><td>No (in <code>-web</code>)</td><td>No (in <code>-web</code>)</td><td><code>spring-boot-starter-webflux</code></td><td>No</td></tr>
+    <tr><td>Status</td><td>Maintenance mode</td><td>✅ Recommended for new blocking code</td><td>✅ For reactive apps / many parallel calls</td><td>✅ Great for clean, typed clients</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Simple rule</strong> New Spring MVC app? Use <strong>RestClient</strong> (or an HTTP interface on top of it). Reactive WebFlux app? Use <strong>WebClient</strong>. Existing code with RestTemplate? Keep it working; migrate when convenient.</div>
+
+  <h3>3.3 Mapping JSON to Java (records)</h3>
+  <p>The remote API returns JSON like <code>{"userId":1,"id":1,"title":"...","body":"..."}</code>. We create a record with the <strong>same field names</strong>:</p>
+  <pre><span class="file">model/Post.java</span><code class="lang-java">public record Post(Long userId, Long id, String title, String body) { }</code></pre>
+  <p>Jackson matches JSON names to record components. Extra JSON fields we don't declare (like <code>address</code> in <code>User</code>) are <strong>ignored</strong>, because Spring Boot configures Jackson with <code>FAIL_ON_UNKNOWN_PROPERTIES = false</code>. That's good: when the other team adds a field, our code doesn't break.</p>
+  <div class="callout info"><strong>ℹ️ Different names?</strong> If the remote JSON uses <code>user_id</code>, write <code>@JsonProperty("user_id") Long userId</code> on the record component.</div>
+
+  <h3>3.4 RestTemplate (legacy, but everywhere)</h3>
+  <pre><code class="lang-java">// GET → object
+Post post = restTemplate.getForObject("/posts/{id}", Post.class, 1);
+
+// GET → status + headers + body
+ResponseEntity&lt;Post&gt; entity = restTemplate.getForEntity("/posts/{id}", Post.class, 1);
+
+// POST
+Post created = restTemplate.postForObject("/posts", newPost, Post.class);
+
+// Generic types (List&lt;Post&gt;) need exchange + ParameterizedTypeReference
+ResponseEntity&lt;List&lt;Post&gt;&gt; response = restTemplate.exchange(
+        "/posts?userId={userId}", HttpMethod.GET, null,
+        new ParameterizedTypeReference&lt;List&lt;Post&gt;&gt;() { }, 2);</code></pre>
+  <p>Errors arrive as exceptions: <code>HttpClientErrorException</code> (4xx, with subclasses like <code>HttpClientErrorException.NotFound</code>), <code>HttpServerErrorException</code> (5xx), <code>ResourceAccessException</code> (no answer: timeout, connection refused).</p>
+  <div class="callout info"><strong>ℹ️ Why <code>ParameterizedTypeReference</code>?</strong> Because of type erasure (topic 12), <code>List&lt;Post&gt;.class</code> does not exist. The anonymous subclass <code>new ParameterizedTypeReference&lt;List&lt;Post&gt;&gt;() { }</code> "remembers" the full generic type so Jackson knows to create <code>Post</code> objects inside the list.</div>
+
+  <h3>3.5 RestClient (modern, recommended)</h3>
+  <p>A <strong>fluent</strong> API: each step returns an object that offers the next step, so the code reads like a sentence.</p>
+  <pre><code class="lang-java">Post post = restClient.get()                 // 1. HTTP method
+        .uri("/posts/{id}", 1)               // 2. URL (relative to the base URL), {id} is filled in
+        .retrieve()                          // 3. send it; get ready to read the response
+        .body(Post.class);                   // 4. JSON body → Post
+
+List&lt;Post&gt; posts = restClient.get()
+        .uri(b -&gt; b.path("/posts").queryParam("userId", 2).build())   // safe query parameters
+        .retrieve()
+        .body(new ParameterizedTypeReference&lt;List&lt;Post&gt;&gt;() { });
+
+ResponseEntity&lt;Post&gt; created = restClient.post()
+        .uri("/posts")
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(newPost)                       // Java object → JSON request body
+        .retrieve()
+        .toEntity(Post.class);               // status + headers + body</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>After <code>retrieve()</code></th><th>Gives you</th></tr>
+    <tr><td><code>.body(Post.class)</code></td><td>Just the body as an object</td></tr>
+    <tr><td><code>.toEntity(Post.class)</code></td><td><code>ResponseEntity&lt;Post&gt;</code>: status, headers, body</td></tr>
+    <tr><td><code>.toBodilessEntity()</code></td><td>Status + headers, no body (e.g. for DELETE)</td></tr>
+    <tr><td><code>.onStatus(predicate, handler)</code></td><td>Custom error handling for this call</td></tr>
+  </table></div>
+  <p>By default, RestClient throws <code>HttpClientErrorException</code> / <code>HttpServerErrorException</code> for 4xx/5xx — the same exceptions as RestTemplate. We'll replace them with our own exceptions (3.9).</p>
+
+  <h3>3.6 WebClient (reactive preview)</h3>
+  <p>WebClient looks almost the same, but returns a <strong><code>Mono</code></strong> (0 or 1 value, <em>later</em>) or a <strong><code>Flux</code></strong> (0..N values, <em>later</em>) from Project Reactor.</p>
+  <pre><code class="lang-java">Mono&lt;Post&gt; postMono = webClient.get()
+        .uri("/posts/{id}", 1)
+        .retrieve()
+        .bodyToMono(Post.class);      // nothing is sent yet! A Mono is a "recipe".
+
+Flux&lt;Post&gt; postsFlux = webClient.get().uri("/posts").retrieve().bodyToFlux(Post.class);</code></pre>
+  <p>Important beginner facts:</p>
+  <ul>
+    <li><strong>Lazy:</strong> the request is only sent when someone <em>subscribes</em>. In a controller, just <code>return</code> the <code>Mono</code> — Spring subscribes for you.</li>
+    <li><strong>Non-blocking:</strong> no thread sits waiting for the answer. That's why one server can handle many thousands of concurrent calls.</li>
+    <li><strong>Parallel calls are easy:</strong> <code>Mono.zip(userMono, postsMono)</code> starts both requests at the same time and combines the results when both are back.</li>
+    <li><code>.block()</code> turns a Mono into a normal value by waiting. OK in a <code>main</code> method or test; avoid it inside reactive code. In a Spring MVC app, prefer RestClient over "WebClient + block()".</li>
+  </ul>
+  <div class="flow">
+    <span class="box">GET /users/1</span><span class="arrow">∥</span>
+    <span class="box">GET /posts?userId=1</span><span class="arrow">→</span>
+    <span class="box alt">Mono.zip waits for both</span><span class="arrow">→</span>
+    <span class="box info">UserSummary</span>
+  </div>
+
+  <h3>3.7 Declarative HTTP interfaces (<code>@HttpExchange</code>)</h3>
+  <p>The nicest style of all: you only write an <strong>interface</strong>. Spring generates the implementation at runtime (a <em>proxy</em>, like the ones from topic 27).</p>
+  <pre><code class="lang-java">@HttpExchange
+public interface PostHttpClient {
+
+    @GetExchange("/posts/{id}")
+    Post getPost(@PathVariable Long id);
+
+    @GetExchange("/posts")
+    List&lt;Post&gt; getPosts(@RequestParam(required = false) Long userId);
+
+    @PostExchange("/posts")
+    Post createPost(@RequestBody NewPost newPost);
+}</code></pre>
+  <p>Then create the proxy once, as a bean:</p>
+  <pre><code class="lang-java">HttpServiceProxyFactory factory = HttpServiceProxyFactory
+        .builderFor(RestClientAdapter.create(restClient))   // use RestClient underneath
+        .build();
+PostHttpClient client = factory.createClient(PostHttpClient.class);
+
+Post p = client.getPost(1L);   // → GET {baseUrl}/posts/1</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Annotation</th><th>HTTP</th></tr>
+    <tr><td><code>@HttpExchange</code></td><td>Generic (on the interface: shared URL prefix, headers)</td></tr>
+    <tr><td><code>@GetExchange</code>, <code>@PostExchange</code>, <code>@PutExchange</code>, <code>@PatchExchange</code>, <code>@DeleteExchange</code></td><td>The matching HTTP method</td></tr>
+    <tr><td><code>@PathVariable</code>, <code>@RequestParam</code>, <code>@RequestBody</code>, <code>@RequestHeader</code></td><td>Same annotations you know from controllers, used "in reverse"</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Feign</strong> Spring Cloud OpenFeign (topic 63) is an older library with the same idea. HTTP interfaces are Spring's built-in alternative, with no extra dependency.</div>
+
+  <h3>3.8 Configuration: base URL and timeouts</h3>
+  <p><strong>Never hard-code URLs in Java.</strong> The URL is different in dev, test and production. Put it in properties and bind it to a record (topic 29):</p>
+  <pre><span class="file">application.properties</span><code class="lang-properties">external.jsonplaceholder.base-url=https://jsonplaceholder.typicode.com
+external.jsonplaceholder.connect-timeout=3s
+external.jsonplaceholder.read-timeout=5s</code></pre>
+  <pre><span class="file">config/ExternalApiProperties.java</span><code class="lang-java">@Validated
+@ConfigurationProperties(prefix = "external.jsonplaceholder")
+public record ExternalApiProperties(@NotBlank String baseUrl,
+                                    @NotNull Duration connectTimeout,
+                                    @NotNull Duration readTimeout) { }</code></pre>
+  <p><strong>Two timeouts:</strong></p>
+  <ul>
+    <li><strong>Connect timeout</strong> — the maximum time to <em>open</em> the connection (is anyone answering the phone?).</li>
+    <li><strong>Read timeout</strong> — the maximum time to <em>wait for the answer</em> once connected (how long on hold?).</li>
+  </ul>
+  <div class="callout danger"><strong>🛑 Why timeouts are not optional</strong> Each request in Spring MVC uses one Tomcat thread (topic 17). Tomcat has ~200. If the remote API hangs and you have <em>no timeout</em>, each of your requests waits forever. After 200 requests, <strong>your whole app is frozen</strong> — even pages that don't use the remote API. One slow partner took you down. This is called a <em>cascading failure</em> (topic 64 shows circuit breakers for it).</div>
+
+  <h3>3.9 Error handling strategy</h3>
+  <p>Three kinds of problems can happen when calling an API:</p>
+  <div class="table-wrap"><table>
+    <tr><th>What happened</th><th>Spring throws (by default)</th><th>Our exception</th><th>We answer our client</th></tr>
+    <tr><td>Remote says 404</td><td><code>HttpClientErrorException.NotFound</code></td><td><code>ExternalResourceNotFoundException</code></td><td>404 Not Found</td></tr>
+    <tr><td>Remote says other 4xx/5xx</td><td><code>HttpClientErrorException</code> / <code>HttpServerErrorException</code></td><td><code>ExternalServiceException</code></td><td>502 Bad Gateway</td></tr>
+    <tr><td>No answer (timeout, connection refused, no internet)</td><td><code>ResourceAccessException</code> (WebClient: <code>WebClientRequestException</code>, <code>TimeoutException</code>)</td><td><code>ExternalServiceUnavailableException</code></td><td>503 Service Unavailable</td></tr>
+  </table></div>
+  <p>Why translate? Our callers should not care which library or partner we use. "502" means "the server <em>behind</em> me failed"; "503" means "try again later". And we never forward the remote error body — it may contain internal details.</p>
+  <p>With RestClient you can set a <strong>default</strong> handler for every call, and override it <strong>per call</strong>:</p>
+  <pre><code class="lang-java">RestClient client = builder
+        .baseUrl(props.baseUrl())
+        .defaultStatusHandler(HttpStatusCode::isError, (request, response) -&gt; {
+            if (response.getStatusCode().isSameCodeAs(HttpStatus.NOT_FOUND)) {
+                throw new ExternalResourceNotFoundException("Remote resource not found: " + request.getURI());
+            }
+            throw new ExternalServiceException("Remote API returned " + response.getStatusCode().value(),
+                    response.getStatusCode().value());
+        })
+        .build();
+
+// per call (wins over the default):
+restClient.post().uri("/posts").body(newPost).retrieve()
+        .onStatus(HttpStatusCode::is4xxClientError, (req, res) -&gt; { throw new ExternalServiceException(...); })
+        .toEntity(Post.class);</code></pre>
+
+  <h3>3.10 Working offline: a local mock</h3>
+  <p>Depending on a real internet API while learning (or in tests) is fragile: no Wi-Fi, a company firewall, or the API is down. So this project contains a small <strong>fake JSONPlaceholder</strong> inside the app (<code>MockJsonPlaceholderController</code>, under <code>/mock-api</code>). The <code>offline</code> profile simply points the base URL at it:</p>
+  <pre><span class="file">application-offline.properties</span><code class="lang-properties">external.jsonplaceholder.base-url=http://localhost:${server.port:8080}/mock-api</code></pre>
+  <p>Not a single line of Java changes — that's the reward for putting the URL in configuration.</p>
+  <div class="callout info"><strong>ℹ️ In real projects</strong> Mocks live in <strong>tests</strong>, not in production code: <code>MockRestServiceServer</code> (for RestTemplate/RestClient — used in our <code>PostServiceTest</code>), <strong>WireMock</strong> (a fake HTTP server for any client) or <strong>MockWebServer</strong> (OkHttp). We put the mock in <code>src/main</code> only so you can play with it in the browser.</div>
+
+  <!-- ===================================================== 4 -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>All Java files are under <code>src/main/java/com/course/apiclient</code>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>ApiClientApplication.java</code></td><td>Main class with <code>@ConfigurationPropertiesScan</code></td></tr>
+    <tr><td><code>config/ExternalApiProperties.java</code></td><td>Base URL + timeouts, validated at startup</td></tr>
+    <tr><td><code>config/HttpClientsConfig.java</code></td><td>Builds all four clients in one place</td></tr>
+    <tr><td><code>client/PostHttpClient.java</code></td><td>The <code>@HttpExchange</code> interface</td></tr>
+    <tr><td><code>service/LegacyPostService.java</code></td><td>RestTemplate: <code>getForObject</code>, <code>exchange</code>, exception catching</td></tr>
+    <tr><td><code>service/PostService.java</code></td><td>RestClient: GET, GET with query param, POST, <code>onStatus</code>, sequential combination</td></tr>
+    <tr><td><code>service/ReactivePostService.java</code></td><td>WebClient: <code>Mono</code>, <code>Flux</code>, <code>Mono.zip</code>, <code>timeout</code>, <code>onErrorMap</code></td></tr>
+    <tr><td><code>web/DemoController.java</code></td><td>Our endpoints, grouped by client + two error demos</td></tr>
+    <tr><td><code>web/ApiExceptionHandler.java</code></td><td>Remote 404 → 404, remote error → 502, no answer → 503 (ProblemDetail)</td></tr>
+    <tr><td><code>mock/MockJsonPlaceholderController.java</code></td><td>Fake API for offline use + <code>/slow</code> and <code>/broken</code></td></tr>
+    <tr><td><code>model/Post</code>, <code>User</code>, <code>NewPost</code>, <code>UserSummary</code></td><td>Records for the JSON</td></tr>
+    <tr><td><code>src/test/.../PostServiceTest.java</code></td><td>Tests RestClient code with <code>MockRestServiceServer</code>, no network</td></tr>
+    <tr><td><code>application.properties</code> / <code>application-offline.properties</code></td><td>Real API vs local mock</td></tr>
+  </table></div>
+
+  <h3>4.1 <code>pom.xml</code> — why both web and webflux?</h3>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-web&lt;/artifactId&gt;      &lt;!-- our server: Tomcat + MVC; RestTemplate, RestClient --&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-webflux&lt;/artifactId&gt;  &lt;!-- only for WebClient --&gt;
+&lt;/dependency&gt;</code></pre>
+  <p>When both are present, Spring Boot still starts <strong>Tomcat + Spring MVC</strong>. WebFlux is used only as a client library. (Log line: <code>Tomcat started on port 8080</code>.)</p>
+
+  <h3>4.2 <code>HttpClientsConfig</code> — one place for all clients</h3>
+  <p>Spring Boot auto-configures <strong>builders</strong> (<code>RestTemplateBuilder</code>, <code>RestClient.Builder</code>, <code>WebClient.Builder</code>) already wired with Jackson and other defaults. We use them and add our settings:</p>
+  <pre><span class="file">config/HttpClientsConfig.java</span><code class="lang-java">@Bean
+public ClientHttpRequestFactory externalApiRequestFactory(ExternalApiProperties props) {
+    HttpClient jdkHttpClient = HttpClient.newBuilder()           // java.net.http.HttpClient (Java 11+)
+            .connectTimeout(props.connectTimeout())
+            .build();
+    JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(jdkHttpClient);
+    factory.setReadTimeout(props.readTimeout());
+    return factory;
+}
+
+@Bean
+public RestTemplate jsonPlaceholderRestTemplate(RestTemplateBuilder builder, ExternalApiProperties props) {
+    return builder.rootUri(props.baseUrl())
+            .connectTimeout(props.connectTimeout())
+            .readTimeout(props.readTimeout())
+            .build();
+}
+
+@Bean
+public RestClient jsonPlaceholderRestClient(RestClient.Builder builder, ExternalApiProperties props,
+                                            ClientHttpRequestFactory externalApiRequestFactory) {
+    return builder
+            .baseUrl(props.baseUrl())
+            .requestFactory(externalApiRequestFactory)                 // ← the timeouts
+            .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+            .defaultHeader(HttpHeaders.USER_AGENT, "course-api-client/1.0")
+            .defaultStatusHandler(HttpStatusCode::isError, (request, response) -&gt; { ... })   // see 3.9
+            .build();
+}
+
+@Bean
+public WebClient jsonPlaceholderWebClient(WebClient.Builder builder, ExternalApiProperties props) {
+    return builder.baseUrl(props.baseUrl())
+            .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+            .build();
+}
+
+@Bean
+public PostHttpClient postHttpClient(RestClient jsonPlaceholderRestClient) {
+    return HttpServiceProxyFactory
+            .builderFor(RestClientAdapter.create(jsonPlaceholderRestClient))   // re-use URL, timeouts, errors
+            .build()
+            .createClient(PostHttpClient.class);
+}</code></pre>
+  <div class="callout tip"><strong>💡 Why build the clients once, as beans?</strong> Clients are thread-safe and somewhat expensive to create (connection pools). Create them once, inject them everywhere. Don't call <code>RestClient.create()</code> inside every method.</div>
+
+  <h3>4.3 <code>PostService</code> (RestClient)</h3>
+  <pre><span class="file">service/PostService.java</span><code class="lang-java">public Post getPost(Long id) {
+    try {
+        return restClient.get()
+                .uri("/posts/{id}", id)
+                .retrieve()
+                .body(Post.class);              // 404 → ExternalResourceNotFoundException (default handler)
+    } catch (ResourceAccessException e) {       // timeout / no connection
+        throw new ExternalServiceUnavailableException("JSONPlaceholder is not reachable: " + e.getMessage(), e);
+    }
+}
+
+public UserSummary getUserSummary(Long userId) {
+    User user = restClient.get().uri("/users/{id}", userId).retrieve().body(User.class);   // call 1
+    List&lt;Post&gt; posts = getPostsByUser(userId);                                           // call 2 (after call 1)
+    return UserSummary.of(user, posts);
+}</code></pre>
+
+  <h3>4.4 <code>ReactivePostService</code> (WebClient)</h3>
+  <pre><span class="file">service/ReactivePostService.java</span><code class="lang-java">public Mono&lt;Post&gt; getPost(Long id) {
+    return webClient.get()
+            .uri("/posts/{id}", id)
+            .retrieve()
+            .onStatus(status -&gt; status.isSameCodeAs(HttpStatus.NOT_FOUND),
+                    response -&gt; Mono.error(new ExternalResourceNotFoundException("Post " + id + " not found (WebClient)")))
+            .onStatus(HttpStatusCode::isError,
+                    response -&gt; Mono.error(new ExternalServiceException("Remote error", response.statusCode().value())))
+            .bodyToMono(Post.class)
+            .timeout(timeout)                                   // give up after 5 s
+            .onErrorMap(this::isConnectionProblem,              // low-level error → our exception
+                    e -&gt; new ExternalServiceUnavailableException("JSONPlaceholder is not reachable", e));
+}
+
+public Mono&lt;UserSummary&gt; getUserSummary(Long userId) {
+    Mono&lt;User&gt; userMono = webClient.get().uri("/users/{id}", userId).retrieve().bodyToMono(User.class);
+    Mono&lt;List&lt;Post&gt;&gt; postsMono = webClient.get()
+            .uri(b -&gt; b.path("/posts").queryParam("userId", userId).build())
+            .retrieve().bodyToFlux(Post.class).collectList();
+
+    return Mono.zip(userMono, postsMono)                         // both calls run AT THE SAME TIME
+            .map(tuple -&gt; UserSummary.of(tuple.getT1(), tuple.getT2()));
+}</code></pre>
+  <p>Notice the difference: in WebClient, errors are <em>values in the stream</em> (<code>Mono.error(...)</code>), not thrown immediately.</p>
+
+  <h3>4.5 <code>DemoController</code></h3>
+  <pre><span class="file">web/DemoController.java</span><code class="lang-java">@GetMapping("/rest-client/posts/{id}")
+public Post restClientPost(@PathVariable Long id) { return postService.getPost(id); }
+
+@GetMapping("/web-client/posts/{id}")
+public Mono&lt;Post&gt; webClientPost(@PathVariable Long id) { return reactivePostService.getPost(id); }   // MVC subscribes
+
+@GetMapping("/http-interface/posts/{id}")
+public Post httpInterfacePost(@PathVariable Long id) { return postHttpClient.getPost(id); }
+
+@GetMapping("/errors/timeout")       // mock waits 10 s, read timeout 5 s → 503
+public String timeoutDemo() { return postService.callAbsoluteUrl(localUrl("/mock-api/slow")); }</code></pre>
+
+  <h3>4.6 <code>ApiExceptionHandler</code></h3>
+  <pre><span class="file">web/ApiExceptionHandler.java</span><code class="lang-java">@ExceptionHandler(ExternalResourceNotFoundException.class)
+public ProblemDetail notFound(ExternalResourceNotFoundException ex) {
+    return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
+}
+
+@ExceptionHandler(ExternalServiceException.class)
+public ProblemDetail remoteError(ExternalServiceException ex) {
+    ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_GATEWAY, "The external service returned an error");
+    problem.setProperty("remoteStatus", ex.getRemoteStatus());
+    return problem;
+}
+
+@ExceptionHandler({ExternalServiceUnavailableException.class, ResourceAccessException.class})
+public ProblemDetail unavailable(RuntimeException ex) {
+    return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+            "The external service is not reachable right now. Please try again later.");
+}</code></pre>
+
+  <h3>4.7 Testing client code: <code>PostServiceTest</code></h3>
+  <pre><span class="file">src/test/java/com/course/apiclient/service/PostServiceTest.java</span><code class="lang-java">RestClient.Builder builder = RestClient.builder().baseUrl("https://fake-api.test");
+MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();   // intercepts requests
+PostService postService = new PostService(builder.build());
+
+server.expect(requestTo("https://fake-api.test/posts/1"))
+      .andExpect(method(HttpMethod.GET))
+      .andRespond(withSuccess("""
+              {"userId": 1, "id": 1, "title": "Hello", "body": "World", "extra": "ignored"}
+              """, MediaType.APPLICATION_JSON));
+
+Post post = postService.getPost(1L);
+assertThat(post.title()).isEqualTo("Hello");
+server.verify();</code></pre>
+  <p>No network, runs in milliseconds, and proves that our URL building and JSON mapping are right. Topic 46 covers testing in depth.</p>
+
+  <!-- ===================================================== 5 -->
+  <h2 id="run">5. How to run</h2>
+  <p><strong>VS Code:</strong> open the topic folder, open <code>ApiClientApplication.java</code>, click <strong>Run</strong>. For the offline profile, use the terminal (below) or add <code>"args": "--spring.profiles.active=offline"</code> to a launch configuration.</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\45-Consuming-External-APIs-RestClient-WebClient"
+
+mvn spring-boot:run                                        # calls the real JSONPlaceholder (internet)
+mvn spring-boot:run -Dspring-boot.run.profiles=offline     # calls the built-in mock (no internet)
+mvn test                                                   # PostServiceTest</code></pre>
+  <h3>5.1 Try each client</h3>
+  <pre class="terminal"><code>curl http://localhost:8080/api/demo/rest-template/posts/1
+curl "http://localhost:8080/api/demo/rest-template/posts?userId=2"
+curl http://localhost:8080/api/demo/rest-client/posts/2
+curl http://localhost:8080/api/demo/rest-client/users/1/summary
+curl http://localhost:8080/api/demo/web-client/posts/3
+curl http://localhost:8080/api/demo/web-client/users/2/summary
+curl http://localhost:8080/api/demo/http-interface/posts/4
+curl -X POST http://localhost:8080/api/demo/rest-client/posts -H "Content-Type: application/json" -d "{\"userId\":1,\"title\":\"Hi\",\"body\":\"There\"}"</code></pre>
+  <p>Sample output with the real API:</p>
+  <pre class="terminal"><code>{"userId":1,"id":1,"title":"sunt aut facere repellat provident occaecati excepturi optio reprehenderit","body":"quia et suscipit..."}</code></pre>
+  <p>Sample output with the <code>offline</code> profile:</p>
+  <pre class="terminal"><code>{"userId":1,"id":1,"title":"Mock post 1 by user 1","body":"This is the body of mock post 1."}
+
+curl http://localhost:8080/api/demo/rest-client/users/1/summary
+{"userId":1,"name":"Leanne Graham","email":"Sincere@april.biz","postCount":3,
+ "postTitles":["Mock post 1 by user 1","Mock post 2 by user 1","Mock post 3 by user 1"]}
+
+curl -X POST ... (create)
+{"userId":1,"id":101,"title":"Hi","body":"There"}       ← HTTP 201</code></pre>
+  <h3>5.2 Try the error handling</h3>
+  <pre class="terminal"><code>curl http://localhost:8080/api/demo/rest-client/posts/999
+{"type":"about:blank","title":"Not Found","status":404,"detail":"Remote resource not found: .../posts/999",...}
+
+curl http://localhost:8080/api/demo/errors/remote-500
+{"type":"about:blank","title":"Bad Gateway","status":502,"detail":"The external service returned an error","remoteStatus":500,...}
+
+curl http://localhost:8080/api/demo/errors/timeout          # takes ~5 seconds, not 10!
+{"type":"about:blank","title":"Service Unavailable","status":503,"detail":"The external service is not reachable right now. Please try again later.",...}</code></pre>
+  <p>Try this too: unplug Wi-Fi and call an endpoint in the default profile → 503 instead of a crash. Then restart with <code>offline</code> → everything works again.</p>
+
+  <!-- ===================================================== 6 -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>🛑 Mistake: no timeouts</strong> One slow partner freezes all Tomcat threads and your whole app.<br><strong>Fix:</strong> always configure connect and read timeouts (and later: circuit breakers, topic 64).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>new RestTemplate()</code> / <code>RestClient.create()</code> inside methods</strong> No shared config, no timeouts, new objects for each call.<br><strong>Fix:</strong> configure the client once as a bean using the Boot builders; inject it.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: hard-coded URLs</strong> <code>"https://api.partner.com/v1/orders"</code> in Java code.<br><strong>Fix:</strong> base URL in <code>application.properties</code>, per-profile overrides, relative paths in code.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: building query strings by hand</strong> <code>"/search?q=" + text</code> breaks with spaces or <code>&amp;</code>, and can be a security problem.<br><strong>Fix:</strong> <code>uri("/search?q={q}", text)</code> or <code>uriBuilder.queryParam("q", text)</code> — they encode for you.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>body(List.class)</code></strong> You get a <code>List</code> of <code>LinkedHashMap</code>s, not Posts — <code>ClassCastException</code> later.<br><strong>Fix:</strong> <code>new ParameterizedTypeReference&lt;List&lt;Post&gt;&gt;() { }</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: WebClient that "does nothing"</strong> You called <code>webClient.post()...bodyToMono(...)</code> but never returned or subscribed to the Mono, so no request was sent.<br><strong>Fix:</strong> return the Mono to Spring, or chain it into another reactive flow.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: letting remote errors leak</strong> Your API returns 500 with <code>HttpClientErrorException: 404 Not Found: [{...partner body...}]</code>.<br><strong>Fix:</strong> translate to your own exceptions and a clean ProblemDetail (404 / 502 / 503).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: secrets in code</strong> API keys like <code>"sk_live_..."</code> in Java or Git.<br><strong>Fix:</strong> <code>external.payment.api-key=${PAYMENT_API_KEY}</code> and send it via <code>defaultHeader("Authorization", "Bearer " + key)</code>.</div>
+
+  <!-- ===================================================== 7 -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>One configured client bean per external API</strong>, with base URL, timeouts, default headers and default error handling.</li>
+    <li><strong>Wrap each external API in your own class</strong> (a service or an <code>@HttpExchange</code> interface). The rest of your code never sees URLs or HTTP details — easy to mock, easy to replace.</li>
+    <li><strong>Use your own DTOs</strong> for remote data and declare only the fields you need.</li>
+    <li><strong>Translate errors</strong>: 404 → 404 (if it makes sense), other remote errors → 502, no answer → 503/504.</li>
+    <li><strong>Retry only idempotent calls</strong> (GET/PUT/DELETE), with a limit and back-off; for POST use an Idempotency-Key (topic 44). Resilience4j (topic 64) adds retries and circuit breakers declaratively.</li>
+    <li><strong>Log</strong> the remote URL, status and duration (never the full body if it contains personal data or secrets).</li>
+    <li><strong>Cache</strong> data that rarely changes (topic 51) to reduce calls and latency.</li>
+    <li><strong>Test without the network</strong>: <code>MockRestServiceServer</code>, WireMock, or <code>@RestClientTest</code>.</li>
+    <li><strong>Pick the right client</strong>: RestClient for MVC apps; WebClient for WebFlux apps or massive parallel I/O; HTTP interfaces for clean typed clients on top of either.</li>
+  </ul>
+
+  <!-- ===================================================== 8 -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Backends constantly call other APIs: payments, maps, SMS, other microservices.</li>
+    <li>RestTemplate is the classic client (maintenance mode) — read it, don't start new code with it.</li>
+    <li>RestClient (Spring 6.1) is the recommended blocking client: <code>get().uri().retrieve().body()</code>.</li>
+    <li>WebClient is reactive: returns <code>Mono</code>/<code>Flux</code>, is lazy, and makes parallel calls easy (<code>Mono.zip</code>).</li>
+    <li><code>@HttpExchange</code> interfaces + <code>HttpServiceProxyFactory</code> = typed clients with no implementation code.</li>
+    <li>Base URL and timeouts belong in properties; always set connect and read timeouts.</li>
+    <li>Translate remote problems: 404 → 404, remote error → 502, no answer → 503.</li>
+    <li>Use mocks (a local mock profile, <code>MockRestServiceServer</code>, WireMock) to work and test offline.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9 -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Comments.</strong> JSONPlaceholder has <code>GET /posts/{id}/comments</code> returning <code>[{"postId":1,"id":1,"name":"...","email":"...","body":"..."}]</code>. Create a <code>Comment</code> record and an endpoint <code>GET /api/demo/rest-client/posts/{id}/comments</code> using RestClient.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public record Comment(Long postId, Long id, String name, String email, String body) { }
+
+// PostService
+public List&lt;Comment&gt; getComments(Long postId) {
+    return restClient.get()
+            .uri("/posts/{id}/comments", postId)
+            .retrieve()
+            .body(new ParameterizedTypeReference&lt;List&lt;Comment&gt;&gt;() { });
+}
+
+// DemoController
+@GetMapping("/rest-client/posts/{id}/comments")
+public List&lt;Comment&gt; comments(@PathVariable Long id) {
+    return postService.getComments(id);
+}</code></pre><p>For the offline profile, also add a <code>/mock-api/posts/{id}/comments</code> endpoint to the mock.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Add to the HTTP interface.</strong> Add <code>@DeleteExchange("/posts/{id}")</code> to <code>PostHttpClient</code> and expose <code>DELETE /api/demo/http-interface/posts/{id}</code> returning 204.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// PostHttpClient
+@DeleteExchange("/posts/{id}")
+void deletePost(@PathVariable Long id);
+
+// DemoController
+@DeleteMapping("/http-interface/posts/{id}")
+@ResponseStatus(HttpStatus.NO_CONTENT)
+public void delete(@PathVariable Long id) {
+    postHttpClient.deletePost(id);
+}</code></pre><p>The real JSONPlaceholder answers 200 to DELETE. For offline mode add a <code>@DeleteMapping("/posts/{id}")</code> to the mock.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Feel the timeout.</strong> Change <code>read-timeout</code> to <code>15s</code> and call <code>/api/demo/errors/timeout</code>. What happens now? Then set it to <code>1s</code>. Which value would you choose for a payment API, and why?</p>
+    <details><summary>Hint / solution</summary><p>With 15 s the mock answers after 10 s, so you get <code>"finally!"</code> (200). With 1 s you get 503 after ~1 s. For a payment API choose a value a bit above the provider's normal worst case (check their docs/latency metrics) — e.g. 5–10 s — because cutting a payment too early can leave you not knowing whether the charge happened. Combine with an Idempotency-Key so a retry cannot charge twice.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>RestClient vs WebClient timing.</strong> Add a 1-second delay to the mock's <code>/users/{id}</code> and <code>/posts</code> endpoints (only in offline mode). Compare the response times of <code>/rest-client/users/1/summary</code> and <code>/web-client/users/1/summary</code>. Explain the difference.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// in the mock methods
+Thread.sleep(1000);</code></pre><pre class="terminal"><code>curl -w "\ntime: %{time_total}s\n" http://localhost:8080/api/demo/rest-client/users/1/summary   # ~2 s
+curl -w "\ntime: %{time_total}s\n" http://localhost:8080/api/demo/web-client/users/1/summary    # ~1 s</code></pre><p>RestClient makes the calls one after another (1 s + 1 s). <code>Mono.zip</code> starts both at the same time, so the total is the slowest one (≈1 s). You could get the same with RestClient using <code>CompletableFuture.supplyAsync</code> (topic 17).</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>A second external API.</strong> Add a client for <code>https://api.agify.io?name=bella</code> (it guesses the age of a name, returns <code>{"count":..., "name":"bella", "age":36}</code>). Use a separate properties prefix, its own <code>RestClient</code> bean (qualified by name) and an <code>@HttpExchange</code> interface. Expose <code>GET /api/demo/age?name=bella</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-properties">external.agify.base-url=https://api.agify.io</code></pre>
+<pre><code class="lang-java">public record AgeGuess(String name, Integer age, Long count) { }
+
+@HttpExchange
+public interface AgifyClient {
+    @GetExchange("/")
+    AgeGuess guess(@RequestParam String name);
+}
+
+// HttpClientsConfig
+@Bean
+public AgifyClient agifyClient(RestClient.Builder builder,
+                               @Value("${external.agify.base-url}") String baseUrl,
+                               ClientHttpRequestFactory externalApiRequestFactory) {
+    RestClient restClient = builder.baseUrl(baseUrl).requestFactory(externalApiRequestFactory).build();
+    return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(restClient))
+            .build().createClient(AgifyClient.class);
+}
+
+// DemoController (inject AgifyClient)
+@GetMapping("/age")
+public AgeGuess age(@RequestParam String name) {
+    return agifyClient.guess(name);
+}</code></pre><p>Note: the auto-configured <code>RestClient.Builder</code> is a <em>prototype</em> — every injection point gets a fresh builder, so configuring one doesn't affect the other.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Test the 404 path.</strong> In <code>PostServiceTest</code>, add a test where the server answers 404 and assert that <code>ExternalResourceNotFoundException</code> is thrown. Hint: the default status handler is configured in <code>HttpClientsConfig</code>, so the test builder needs it too.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Test
+void getPostThrowsOurExceptionOn404() {
+    RestClient.Builder builder = RestClient.builder()
+            .baseUrl("https://fake-api.test")
+            .defaultStatusHandler(status -&gt; status.value() == 404, (req, res) -&gt; {
+                throw new ExternalResourceNotFoundException("not found");
+            });
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    PostService service = new PostService(builder.build());
+
+    server.expect(requestTo("https://fake-api.test/posts/999"))
+          .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+    assertThatThrownBy(() -&gt; service.getPost(999L))
+            .isInstanceOf(ExternalResourceNotFoundException.class);
+}</code></pre><p>Better design: move the status-handler lambda into a small reusable class (e.g. <code>ExternalApiErrorHandler</code>) so production config and tests use the same code.</p></details>
+  </div>
+
+  <!-- ===================================================== 10 -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What are the options to call a REST API from Spring, and which would you choose today?</summary><p>RestTemplate (classic, blocking, maintenance mode), RestClient (Spring 6.1, fluent, blocking — recommended for Spring MVC apps), WebClient (reactive, non-blocking — for WebFlux or high-concurrency I/O), declarative HTTP interfaces with <code>@HttpExchange</code> (on top of RestClient or WebClient), and Spring Cloud OpenFeign. For a new MVC app: RestClient, often behind an HTTP interface.</p></details>
+  <details><summary>Q2. Is RestTemplate deprecated?</summary><p>Not formally deprecated in Spring 6, but it's in maintenance mode: only minor fixes, no new features. Spring recommends RestClient for new synchronous code. (The Spring team has announced plans to deprecate it in a future major version.)</p></details>
+  <details><summary>Q3. What is the difference between blocking and non-blocking HTTP clients?</summary><p>A blocking client keeps the calling thread waiting until the response arrives. A non-blocking client registers a callback and frees the thread; the result is delivered later (as a Mono/Flux). Non-blocking scales better for many concurrent slow calls, but the programming model is more complex.</p></details>
+  <details><summary>Q4. What do <code>retrieve()</code> and <code>exchange()</code> do in RestClient/WebClient?</summary><p><code>retrieve()</code> is the simple path: it sends the request and gives you convenient methods to read the body/entity, applying status handlers (errors throw by default). <code>exchange()</code> (RestClient) / <code>exchangeToMono()</code> (WebClient) gives full access to the raw response so you decide how to handle every status yourself.</p></details>
+  <details><summary>Q5. How do you configure timeouts?</summary><p>Connect timeout and read/response timeout on the underlying request factory or HTTP library — e.g. <code>JdkClientHttpRequestFactory</code> with <code>HttpClient.connectTimeout</code> + <code>setReadTimeout</code> for RestClient, <code>RestTemplateBuilder.connectTimeout/readTimeout</code>, Reactor Netty's <code>responseTimeout</code> or the <code>.timeout()</code> operator for WebClient. Spring Boot also offers <code>spring.http.client.*</code> properties / <code>ClientHttpRequestFactorySettings</code>.</p></details>
+  <details><summary>Q6. How does a declarative HTTP interface work internally?</summary><p><code>HttpServiceProxyFactory</code> creates a JDK dynamic proxy for the interface. Each method call is intercepted; the annotations (<code>@GetExchange</code>, <code>@PathVariable</code>, <code>@RequestBody</code>...) are read to build an HTTP request, which is executed through an adapter (<code>RestClientAdapter</code> or <code>WebClientAdapter</code>), and the response is converted to the method's return type.</p></details>
+  <details><summary>Q7. How do you handle errors from an external API?</summary><p>Register status handlers (<code>defaultStatusHandler</code> / <code>onStatus</code>) or catch <code>HttpClientErrorException</code>/<code>HttpServerErrorException</code>/<code>ResourceAccessException</code>; translate them into domain exceptions; map those in a <code>@RestControllerAdvice</code> to suitable responses (404, 502, 503/504); log details internally; add retries/circuit breakers for transient failures.</p></details>
+  <details><summary>Q8. How do you read a JSON array into <code>List&lt;Post&gt;</code>?</summary><p>Pass a <code>ParameterizedTypeReference&lt;List&lt;Post&gt;&gt;</code> (because generic type information is erased at runtime), or in WebClient use <code>bodyToFlux(Post.class).collectList()</code>. With HTTP interfaces, simply declare the return type <code>List&lt;Post&gt;</code>.</p></details>
+  <details><summary>Q9. How do you test code that calls an external API?</summary><p>Unit/slice tests with <code>MockRestServiceServer</code> (RestTemplate/RestClient, also via <code>@RestClientTest</code>), mocking the client interface with Mockito, or a fake HTTP server like WireMock/MockWebServer for realistic integration tests (also works for WebClient). Avoid calling real third-party APIs in automated tests.</p></details>
+  <details><summary>Q10. Can you use WebClient in a Spring MVC application?</summary><p>Yes — add <code>spring-boot-starter-webflux</code> alongside <code>-web</code>; the app keeps running on Tomcat/MVC. Controllers may even return <code>Mono</code>/<code>Flux</code>. However, if you end up calling <code>.block()</code> everywhere, RestClient is the simpler and better choice.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../44-REST-API-Best-Practices-And-OpenAPI/lesson.html"><small>← Previous</small>44. REST API Best Practices &amp; OpenAPI</a>
+    <a class="next" href="../46-Testing-Spring-Boot-Applications/lesson.html"><small>Next →</small>46. Testing Spring Boot Applications</a>
+  </nav>
+</main>
+</body>
+</html>

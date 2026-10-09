@@ -1,0 +1,35 @@
+### Topic 31 - Spring MVC & REST Fundamentals (Book API)
+### Start the app first: mvn spring-boot:run
+### Click "Send Request" above each request (VS Code "REST Client" extension).
+
+@baseUrl = http://localhost:8080/api/books
+
+### 1. Get all books
+GET {{baseUrl}}
+
+### 2. Get one book by id
+GET {{baseUrl}}/2
+
+### 3. A book that does not exist -> 404
+GET {{baseUrl}}/999
+
+### 4. Search by author (query parameter)
+GET {{baseUrl}}/search?author=bloch
+
+### 5. Add a new book (JSON body) -> 201 Created
+POST {{baseUrl}}
+Content-Type: application/json
+
+{
+  "title": "Java Concurrency in Practice",
+  "author": "Brian Goetz",
+  "year": 2006,
+  "price": 800
+}
+
+### 6. Delete a book -> 204 No Content
+DELETE {{baseUrl}}/3
+
+### 7. Ask for the response headers too - look at Content-Type: application/json
+GET {{baseUrl}}/1
+Accept: application/json

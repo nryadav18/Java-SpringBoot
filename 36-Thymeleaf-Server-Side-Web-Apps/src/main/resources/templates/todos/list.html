@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<!--
+  todos/list.html - the main page.  Rendered by TodoController.list(...) which returns "todos/list".
+  Model attributes available here: todos (List<Todo>), filter (String), openCount (long),
+  priorities (Priority[]) and, after a redirect, successMessage (flash attribute).
+
+  Tip: you can open this file directly in a browser - the plain HTML attributes
+  (text inside tags, href) show sample content. That is Thymeleaf's "natural templates" idea.
+-->
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('My Todos')}">
+    <title>My Todos</title>
+</head>
+<body>
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+
+<main class="container">
+    <div th:replace="~{fragments/layout :: flash}"></div>
+
+    <h1>My Todos
+        <!-- |...| = literal substitution: mixes text and ${...} without + signs -->
+        <small th:text="|${openCount} open|">2 open</small>
+    </h1>
+
+    <!-- Filter links: @{/todos(filter='active')} builds /todos?filter=active -->
+    <div class="filters">
+        <a th:href="@{/todos(filter='all')}" th:classappend="${filter == 'all'} ? 'active'">All</a>
+        <a th:href="@{/todos(filter='active')}" th:classappend="${filter == 'active'} ? 'active'">Active</a>
+        <a th:href="@{/todos(filter='done')}" th:classappend="${filter == 'done'} ? 'active'">Done</a>
+    </div>
+
+    <!-- th:if / th:unless: show or hide an element -->
+    <p class="empty" th:if="${#lists.isEmpty(todos)}">
+        Nothing here. <a th:href="@{/todos/new}">Add your first todo</a> 🎉
+    </p>
+
+    <ul class="todo-list" th:unless="${#lists.isEmpty(todos)}">
+        <!-- th:each: repeat this <li> once per todo. "stat" gives index/count/first/last/odd/even -->
+        <li class="todo" th:each="todo, stat : ${todos}" th:classappend="${todo.done} ? 'done'">
+
+            <span class="number" th:text="${stat.count} + '.'">1.</span>
+
+            <!-- Toggling changes data, so it is a POST form (never change data with a GET link!) -->
+            <form class="inline" method="post" th:action="@{/todos/{id}/toggle(id=${todo.id})}">
+                <input type="hidden" name="filter" th:value="${filter}">
+                <button type="submit" class="check" title="Mark done / not done"
+                        th:text="${todo.done} ? '✔' : ''"></button>
+            </form>
+
+            <div class="body">
+                <!-- th:text ESCAPES HTML: a title like <script> is shown as text, not executed -->
+                <span class="title" th:text="${todo.title}">Buy milk</span>
+                <span class="badge" th:classappend="'p-' + ${#strings.toLowerCase(todo.priority.name())}"
+                      th:text="${todo.priority.label}">Medium</span>
+                <span class="badge overdue" th:if="${todo.overdue}">Overdue</span>
+                <p class="desc" th:unless="${#strings.isEmpty(todo.description)}"
+                   th:text="${todo.description}">Some details</p>
+                <small class="due" th:if="${todo.dueDate != null}"
+                       th:text="|Due ${#temporals.format(todo.dueDate, 'dd MMM yyyy')}|">Due 01 Jan 2030</small>
+            </div>
+
+            <div class="actions">
+                <a class="btn small" th:href="@{/todos/{id}/edit(id=${todo.id})}">Edit</a>
+                <form class="inline" method="post" th:action="@{/todos/{id}/delete(id=${todo.id})}"
+                      onsubmit="return confirm('Delete this todo?');">
+                    <button type="submit" class="btn small danger">Delete</button>
+                </form>
+            </div>
+        </li>
+    </ul>
+</main>
+
+<footer th:replace="~{fragments/layout :: footer}"></footer>
+</body>
+</html>

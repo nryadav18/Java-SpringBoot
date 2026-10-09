@@ -1,0 +1,22 @@
+# Topic 57 - RabbitMQ for local development
+#
+#   docker compose up -d        start RabbitMQ in the background
+#   docker compose logs -f      watch the logs (Ctrl+C to stop watching)
+#   docker compose down         stop and remove the container
+#
+# Management UI:  http://localhost:15672   user: guest   password: guest
+services:
+  rabbitmq:
+    image: rabbitmq:3-management     # "-management" = includes the web UI plugin
+    container_name: course-rabbitmq
+    ports:
+      - "5672:5672"                  # AMQP port - our Spring Boot app connects here
+      - "15672:15672"                # web management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

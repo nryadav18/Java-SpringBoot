@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>33 · Layered Architecture &amp; DTOs</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 33</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>33. Layered Architecture &amp; DTOs</h1>
+  <p class="subtitle">Organise a Spring Boot API the way real companies do: a thin controller, a smart service, a swappable repository, and DTOs that protect your data.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="33-Layered-Architecture-And-DTOs"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>The three classic layers — <b>controller → service → repository</b> — and exactly what belongs in each.</li>
+      <li>Why we split code into layers at all (and what goes wrong when we don't).</li>
+      <li>What a <b>DTO</b> is, how it differs from an <b>Entity</b>, and why you should never return entities from an API.</li>
+      <li>How to convert between them with a <b>mapper</b> class (and what MapStruct does for you).</li>
+      <li>Using Java <b>records</b> as DTOs.</li>
+      <li><b>Package-by-layer</b> vs <b>package-by-feature</b> — which to choose.</li>
+      <li>Hiding the repository behind an <b>interface</b> so you can swap in-memory storage for a real database later.</li>
+      <li>What <b>Lombok</b> is, how to set it up in VS Code, and why this project chooses not to use it.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../32-Request-Handling-And-Responses/lesson.html">Topic 32 · Request Handling &amp; Responses</a>, <a href="../24-Dependency-Injection-Deep-Dive/lesson.html">Topic 24 · Dependency Injection</a> and <a href="../15-Modern-Java-Features/lesson.html">Topic 15 · Records</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>In topics 31 and 32 we built small APIs where the controller did almost everything: it held a list, searched it, changed it and returned it. That is fine for 50 lines of code. But real applications have <b>hundreds</b> of endpoints, many developers and years of changes.</p>
+  <p>Imagine a controller method that reads the JSON, checks ten business rules, writes SQL, sends an email and builds the response — all in one place. Now imagine:</p>
+  <ul>
+    <li>Your manager says: <i>"We are moving from MySQL to PostgreSQL."</i> → you must edit every controller.</li>
+    <li>A mobile team says: <i>"Please don't send us the employee salary!"</i> → but your code returns the whole database object.</li>
+    <li>You want to write a unit test for the "email must be unique" rule → but it is buried inside HTTP code.</li>
+  </ul>
+  <p><b>Layered architecture</b> fixes all three problems. It is the structure you will find in almost every Spring Boot project at work. When you join a new team, the first thing you will see is folders named <code>controller</code>, <code>service</code>, <code>repository</code>, <code>dto</code>… After this lesson you will know exactly what lives in each one and why.</p>
+  <div class="callout info"><strong>ℹ️ Where you will see this</strong> Banking apps, e-commerce backends, HR systems, government portals — nearly every Spring Boot codebase follows this pattern. Interviewers also love asking "What is the role of the service layer?" and "Why use DTOs?".</div>
+
+  <!-- ============================================================ -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🍽️ Think of a restaurant</strong>
+    <ul>
+      <li><b>The waiter (Controller)</b> takes your order, writes it on a slip, and later brings the plate. The waiter does <i>not</i> cook.</li>
+      <li><b>The chef (Service)</b> knows the recipes and the rules: "no peanuts for allergic guests", "steak must rest 5 minutes". The chef does <i>not</i> talk to customers.</li>
+      <li><b>The storeroom keeper (Repository)</b> fetches and stores ingredients. They do not care what dish you are making.</li>
+      <li><b>The order slip and the plated dish (DTOs)</b>. You never walk into the kitchen and grab raw ingredients from the fridge (the Entity). You get a nicely <i>prepared</i> plate that contains only what you ordered.</li>
+    </ul>
+    If the restaurant changes its supplier (database), the waiter and customers do not notice. If a new waiter joins, the recipes stay the same. Each person has <b>one job</b>.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The three layers</h3>
+  <p>A <b>layer</b> is simply a group of classes with the same kind of job. Requests flow <i>down</i> through the layers, and answers flow back <i>up</i>.</p>
+  <div class="flow">
+    <span class="box">HTTP client<br><small>browser / mobile / curl</small></span><span class="arrow">→</span>
+    <span class="box alt">Controller<br><small>web layer</small></span><span class="arrow">→</span>
+    <span class="box info">Service<br><small>business layer</small></span><span class="arrow">→</span>
+    <span class="box">Repository<br><small>data layer</small></span><span class="arrow">→</span>
+    <span class="box alt">Storage<br><small>Map / database</small></span>
+  </div>
+  <p>The golden rule: <b>each layer only talks to the layer directly below it.</b> The controller never touches the repository. The repository never knows a controller exists.</p>
+
+  <svg viewBox="0 0 640 250" width="100%" style="max-width:640px" role="img" aria-label="Layer diagram with DTOs between controller and service and entities between service and repository">
+    <g fill="none" stroke="currentColor" stroke-width="1.5">
+      <rect x="20" y="15" width="600" height="50" rx="8"/>
+      <rect x="20" y="100" width="600" height="50" rx="8"/>
+      <rect x="20" y="185" width="600" height="50" rx="8"/>
+      <path d="M320 65 V100 M314 92 L320 100 L326 92"/>
+      <path d="M320 150 V185 M314 177 L320 185 L326 177"/>
+    </g>
+    <g fill="currentColor" font-family="sans-serif" font-size="14" text-anchor="middle">
+      <text x="320" y="38" font-weight="bold">Controller  (@RestController)</text>
+      <text x="320" y="56" font-size="12">HTTP in/out · JSON ⇄ DTO · status codes</text>
+      <text x="320" y="123" font-weight="bold">Service  (@Service)</text>
+      <text x="320" y="141" font-size="12">business rules · DTO ⇄ Entity (via mapper) · transactions</text>
+      <text x="320" y="208" font-weight="bold">Repository  (@Repository / interface)</text>
+      <text x="320" y="226" font-size="12">save · find · delete — no rules, no HTTP</text>
+      <text x="450" y="87" font-size="12">speaks DTOs</text>
+      <text x="460" y="172" font-size="12">speaks Entities</text>
+    </g>
+  </svg>
+
+  <h3>3.2 Responsibilities table</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Layer</th><th>Annotation</th><th>✅ Does</th><th>❌ Never does</th></tr>
+    <tr><td><b>Controller</b></td><td><code>@RestController</code></td><td>Maps URLs, reads path/query/body, calls the service, picks the HTTP status, returns DTOs</td><td>Business rules, SQL, touching the repository, returning entities</td></tr>
+    <tr><td><b>Service</b></td><td><code>@Service</code></td><td>Business rules ("email must be unique"), coordinates repositories, mapping, transactions (topic 42)</td><td>Knowing about HTTP (<code>ResponseEntity</code>, status codes, <code>HttpServletRequest</code>)</td></tr>
+    <tr><td><b>Repository</b></td><td><code>@Repository</code></td><td>Save, load, update, delete data</td><td>Business decisions, HTTP, DTOs</td></tr>
+    <tr><td><b>DTO</b></td><td>(plain record)</td><td>Carries data in and out of the API</td><td>Logic, database annotations</td></tr>
+    <tr><td><b>Entity / Model</b></td><td>(<code>@Entity</code> in topic 38)</td><td>Represents what we store</td><td>Being sent directly to clients</td></tr>
+    <tr><td><b>Mapper</b></td><td><code>@Component</code></td><td>Converts DTO ⇄ Entity</td><td>Business rules</td></tr>
+  </table></div>
+
+  <h3>3.3 Why layers? (the five big benefits)</h3>
+  <ol>
+    <li><b>Separation of concerns</b> — each class has one job, so it is short and easy to read.</li>
+    <li><b>Easy to change</b> — swap the database? Only the repository changes. Add a GraphQL or Thymeleaf front-end? Only add a new controller; the service is reused.</li>
+    <li><b>Easy to test</b> — you can test the service's rules without starting a web server (see <code>EmployeeServiceTest</code>).</li>
+    <li><b>Team work</b> — one developer works on the API, another on business rules, with fewer merge conflicts.</li>
+    <li><b>Reuse</b> — the same <code>EmployeeService.create(...)</code> is used by the REST controller AND by the startup data loader.</li>
+  </ol>
+
+  <h3>3.4 Before and after</h3>
+  <p>Here is the "everything in the controller" style. It works, but it mixes three jobs:</p>
+  <pre><span class="file">❌ Fat controller (don't do this)</span><code class="lang-java">@RestController
+public class EmployeeController {
+    private final Map&lt;Long, Employee&gt; db = new HashMap&lt;&gt;();   // storage IN the controller
+
+    @PostMapping("/api/employees")
+    public Employee create(@RequestBody Employee e) {          // entity used as input
+        for (Employee x : db.values()) {                       // business rule IN the controller
+            if (x.getEmail().equals(e.getEmail())) throw new RuntimeException("dup");
+        }
+        e.setId((long) db.size() + 1);
+        db.put(e.getId(), e);
+        return e;                                               // returns salary + HR notes!
+    }
+}</code></pre>
+  <p>And the layered version. Each piece is tiny and has a clear name:</p>
+  <pre><span class="file">✅ Thin controller</span><code class="lang-java">@PostMapping
+public ResponseEntity&lt;EmployeeResponse&gt; create(@RequestBody EmployeeRequest request) {
+    EmployeeResponse created = employeeService.create(request);   // one call to the service
+    URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+            .path("/{id}").buildAndExpand(created.id()).toUri();
+    return ResponseEntity.created(location).body(created);       // 201 + DTO
+}</code></pre>
+  <pre><span class="file">✅ Service holds the rule</span><code class="lang-java">public EmployeeResponse create(EmployeeRequest request) {
+    if (repository.existsByEmail(request.email())) {
+        throw new DuplicateEmailException(request.email());
+    }
+    Employee saved = repository.save(mapper.toEntity(request));
+    return mapper.toResponse(saved);
+}</code></pre>
+
+  <h3>3.5 What is a DTO? And what is an Entity?</h3>
+  <p><b>DTO</b> stands for <b>Data Transfer Object</b>. It is a simple object whose only job is to <i>carry data across a boundary</i> — for example, from the client into your API (a <b>request DTO</b>) or from your API back to the client (a <b>response DTO</b>).</p>
+  <p>An <b>Entity</b> (or <b>domain model</b>) is the object that represents what you <i>store</i>. In topic 38 it will get <code>@Entity</code> and map to a database table. In this project it is the plain class <code>Employee</code>.</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Entity (<code>Employee</code>)</th><th>DTO (<code>EmployeeRequest</code> / <code>EmployeeResponse</code>)</th></tr>
+    <tr><td>Purpose</td><td>Represents stored data</td><td>Represents the API's input/output "contract"</td></tr>
+    <tr><td>Shape decided by</td><td>The database / domain</td><td>What the client needs</td></tr>
+    <tr><td>Contains sensitive fields?</td><td>Yes (salary, notes, password hash…)</td><td>Only what is safe to share</td></tr>
+    <tr><td>Mutable?</td><td>Usually yes (setters)</td><td>Usually no (records)</td></tr>
+    <tr><td>Has annotations like</td><td><code>@Entity</code>, <code>@Id</code>, <code>@Column</code></td><td><code>@NotBlank</code>, <code>@Email</code> (topic 34), <code>@JsonProperty</code></td></tr>
+    <tr><td>How many?</td><td>One per concept</td><td>Often several per concept (create, update, response, summary…)</td></tr>
+  </table></div>
+
+  <h3>3.6 Why never expose entities directly?</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Problem</th><th>What goes wrong</th><th>How a DTO fixes it</th></tr>
+    <tr><td>🔓 Data leaks</td><td>Salary, password hashes, internal notes appear in JSON</td><td>The response DTO simply has no such field</td></tr>
+    <tr><td>✍️ Mass assignment</td><td>A client sends <code>"id": 1</code> or <code>"role": "ADMIN"</code> and Jackson happily sets it</td><td>The request DTO has no <code>id</code> / <code>role</code>, so it is ignored</td></tr>
+    <tr><td>💥 Tight coupling</td><td>Renaming a DB column renames a JSON field and breaks the mobile app</td><td>DTO stays the same; only the mapper changes</td></tr>
+    <tr><td>🔁 Infinite JSON</td><td>JPA relationships (topic 40) like Customer ↔ Order loop forever</td><td>DTOs contain only flat, chosen data</td></tr>
+    <tr><td>🐢 Lazy-loading errors</td><td><code>LazyInitializationException</code> when Jackson touches unloaded relations</td><td>Mapping happens inside the service, before the response</td></tr>
+    <tr><td>🎯 Wrong shape</td><td>Client wants <code>fullName</code>, entity has first/last</td><td>DTO can have computed fields</td></tr>
+  </table></div>
+  <p>Try it in this project: send a POST with <code>"id": 999</code> and <code>"internalNotes": "..."</code>. Both are silently ignored, because <code>EmployeeRequest</code> does not have those components. Jackson (by default in Spring Boot) ignores unknown JSON fields.</p>
+
+  <h3>3.7 Records as DTOs</h3>
+  <p>A <b>record</b> (topic 15) is a short way to write an immutable data class. Java writes the constructor, the accessor methods, <code>equals</code>, <code>hashCode</code> and <code>toString</code> for you.</p>
+  <pre><span class="file">dto/EmployeeRequest.java</span><code class="lang-java">public record EmployeeRequest(
+        String firstName,
+        String lastName,
+        String email,
+        String department,
+        BigDecimal salary
+) { }</code></pre>
+  <ul>
+    <li>Jackson can <b>read</b> JSON into a record (it uses the constructor) and <b>write</b> a record as JSON (it uses the accessors).</li>
+    <li>Accessors have no "get" prefix: <code>request.email()</code>, not <code>request.getEmail()</code>.</li>
+    <li>Because records are immutable, nobody can change a DTO halfway through the request — fewer surprises.</li>
+  </ul>
+  <div class="callout tip"><strong>💡 Rule of thumb</strong> Use <b>records for DTOs</b>, and <b>normal classes for entities</b> (JPA needs a no-argument constructor and setters, which records cannot give).</div>
+
+  <h3>3.8 Mapping: converting between DTO and Entity</h3>
+  <p>Somebody has to copy <code>request.firstName()</code> into <code>employee.setFirstName(...)</code>. We put that code in one dedicated class: the <b>mapper</b>.</p>
+  <pre><span class="file">mapper/EmployeeMapper.java (key part)</span><code class="lang-java">public EmployeeResponse toResponse(Employee employee) {
+    return new EmployeeResponse(
+            employee.getId(),
+            employee.getFirstName() + " " + employee.getLastName(),   // computed field
+            employee.getEmail(),
+            employee.getDepartment());                               // salary NOT copied
+}</code></pre>
+  <p>Where should mapping happen? Two common choices:</p>
+  <ul>
+    <li><b>In the service</b> (what we do): the service accepts and returns DTOs. Controllers stay super thin. This is the most common style.</li>
+    <li><b>In the controller</b>: the service works only with entities, and the controller maps. Also valid; some teams prefer services to be DTO-free.</li>
+  </ul>
+  <p>Pick one style and use it consistently across the project.</p>
+
+  <h4>MapStruct — a generated mapper</h4>
+  <p>Writing mappers by hand is boring for entities with 30 fields. <b>MapStruct</b> is a library that <i>generates</i> the mapper code at compile time from an interface. You write:</p>
+  <pre><code class="lang-java">@Mapper(componentModel = "spring")          // generated class becomes a Spring bean
+public interface EmployeeMapStructMapper {
+    @Mapping(target = "fullName", expression = "java(e.getFirstName() + \" \" + e.getLastName())")
+    EmployeeResponse toResponse(Employee e);
+
+    @Mapping(target = "id", ignore = true)
+    Employee toEntity(EmployeeRequest request);
+}</code></pre>
+  <p>…and MapStruct writes the <code>EmployeeMapStructMapperImpl</code> class with all the copying. It needs the <code>org.mapstruct:mapstruct</code> dependency plus its annotation processor in <code>pom.xml</code>. It is fast (plain Java, no reflection) and widely used. For learning, a manual mapper is clearer — that is why this project uses one. (Other libraries such as ModelMapper use reflection at runtime; they are slower and hide mistakes, so many teams avoid them.)</p>
+
+  <h3>3.9 The repository behind an interface</h3>
+  <p>The service depends on <code>EmployeeRepository</code> — an <b>interface</b>. Today the only implementation is <code>InMemoryEmployeeRepository</code>, which stores employees in a <code>ConcurrentHashMap</code>.</p>
+  <div class="flow">
+    <span class="box info">EmployeeService</span><span class="arrow">→ depends on →</span>
+    <span class="box">«interface»<br>EmployeeRepository</span><span class="arrow">← implemented by ←</span>
+    <span class="box alt">InMemoryEmployeeRepository<br><small>today</small></span>
+    <span class="box alt">JdbcEmployeeRepository<br><small>topic 37</small></span>
+    <span class="box alt">JpaRepository<br><small>topic 38</small></span>
+  </div>
+  <p>Spring finds exactly one bean that implements the interface and injects it. When we write a database version later, we delete (or disable) the in-memory class and the service does not change at all. This is <b>loose coupling</b> from topic 8, and dependency injection from topic 24, working together.</p>
+  <div class="callout info"><strong>ℹ️ Notice the method names</strong> <code>save</code>, <code>findById</code> (returning <code>Optional</code>), <code>findAll</code>, <code>existsById</code>, <code>deleteById</code> are exactly the names Spring Data JPA uses. In topic 38 our interface will simply <code>extend JpaRepository&lt;Employee, Long&gt;</code> and Spring will write the implementation for us.</div>
+
+  <h3>3.10 Package-by-layer vs package-by-feature</h3>
+  <p>There are two popular ways to arrange packages.</p>
+  <div class="grid">
+    <div class="card"><strong>📁 Package-by-layer</strong> (this project)
+<pre><code>com.course.layered
+├── controller
+│   └── EmployeeController
+├── service
+│   └── EmployeeService
+├── repository
+│   ├── EmployeeRepository
+│   └── InMemoryEmployeeRepository
+├── dto
+├── mapper
+├── model
+└── exception</code></pre>
+      <p>✅ Very easy for beginners. ✅ Common in tutorials and small apps.<br>❌ In a big app, one feature is spread over 7 folders.</p>
+    </div>
+    <div class="card"><strong>📦 Package-by-feature</strong>
+<pre><code>com.course.hr
+├── employee
+│   ├── EmployeeController
+│   ├── EmployeeService
+│   ├── EmployeeRepository
+│   ├── EmployeeMapper
+│   └── dto/...
+├── department
+│   ├── DepartmentController
+│   └── ...
+└── common
+    └── exception/...</code></pre>
+      <p>✅ Everything about "employee" is in one place. ✅ Classes can be package-private (better encapsulation). ✅ Easier to split into microservices later.<br>❌ Slightly less obvious for total beginners.</p>
+    </div>
+  </div>
+  <p>Many enterprise teams use <b>package-by-feature</b> on the outside and layers on the inside. The capstone project (topic 71) uses that style. Both are fine — the important thing is that <b>the layering rules</b> (who calls whom) stay the same.</p>
+
+  <h3>3.11 Lombok — less boilerplate (explained, but not used here)</h3>
+  <p>Look at <code>Employee.java</code>: 8 fields and 16 getter/setter methods. That repetitive code is called <b>boilerplate</b>. <b>Lombok</b> is a library that generates it at compile time from annotations.</p>
+  <pre><code class="lang-java">import lombok.Getter;
+import lombok.Setter;
+import lombok.NoArgsConstructor;
+
+@Getter                 // generates getId(), getFirstName(), ...
+@Setter                 // generates setId(...), setFirstName(...), ...
+@NoArgsConstructor      // generates public Employee() { }
+public class Employee {
+    private Long id;
+    private String firstName;
+    // ... no getters/setters written by hand!
+}
+
+@Service
+@RequiredArgsConstructor   // generates a constructor for all FINAL fields
+public class EmployeeService {
+    private final EmployeeRepository repository;   // injected through that constructor
+    private final EmployeeMapper mapper;
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Lombok annotation</th><th>Generates</th></tr>
+    <tr><td><code>@Getter</code> / <code>@Setter</code></td><td>Getters / setters for fields</td></tr>
+    <tr><td><code>@NoArgsConstructor</code></td><td>Empty constructor</td></tr>
+    <tr><td><code>@AllArgsConstructor</code></td><td>Constructor with every field</td></tr>
+    <tr><td><code>@RequiredArgsConstructor</code></td><td>Constructor with every <code>final</code> field — perfect for constructor injection</td></tr>
+    <tr><td><code>@ToString</code>, <code>@EqualsAndHashCode</code></td><td><code>toString</code>, <code>equals</code>, <code>hashCode</code></td></tr>
+    <tr><td><code>@Data</code></td><td>All of the above together (avoid on JPA entities!)</td></tr>
+    <tr><td><code>@Builder</code></td><td>A builder: <code>Employee.builder().firstName("Asha").build()</code></td></tr>
+    <tr><td><code>@Slf4j</code></td><td>A <code>log</code> field (topic 30)</td></tr>
+  </table></div>
+  <p><b>If your team uses Lombok</b>, you need three things:</p>
+  <ol>
+    <li>The dependency in <code>pom.xml</code> (version managed by the Spring Boot parent):
+<pre><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.projectlombok&lt;/groupId&gt;
+    &lt;artifactId&gt;lombok&lt;/artifactId&gt;
+    &lt;optional&gt;true&lt;/optional&gt;
+&lt;/dependency&gt;</code></pre></li>
+    <li>The annotation processor configured for the compiler (needed reliably since JDK 23, recommended always):
+<pre><code class="lang-xml">&lt;plugin&gt;
+    &lt;groupId&gt;org.apache.maven.plugins&lt;/groupId&gt;
+    &lt;artifactId&gt;maven-compiler-plugin&lt;/artifactId&gt;
+    &lt;configuration&gt;
+        &lt;annotationProcessorPaths&gt;
+            &lt;path&gt;
+                &lt;groupId&gt;org.projectlombok&lt;/groupId&gt;
+                &lt;artifactId&gt;lombok&lt;/artifactId&gt;
+                &lt;version&gt;${lombok.version}&lt;/version&gt;
+            &lt;/path&gt;
+        &lt;/annotationProcessorPaths&gt;
+    &lt;/configuration&gt;
+&lt;/plugin&gt;</code></pre></li>
+    <li><b>VS Code setup</b>: the "Extension Pack for Java" already includes Lombok support (in the Language Support for Java extension). If VS Code shows red errors like "getFirstName() is undefined" even though Maven compiles, run <b>Ctrl+Shift+P → "Java: Clean Java Language Server Workspace"</b> and reload. In IntelliJ, enable <i>Settings → Build → Compiler → Annotation Processors → Enable annotation processing</i>.</li>
+  </ol>
+  <div class="callout tip"><strong>💡 Our choice for this course</strong> This project does <b>not</b> use Lombok. Reasons: (1) you can see every line of code that runs, (2) records already remove most boilerplate for DTOs, (3) no IDE plugin surprises. You will meet Lombok in many real projects, so now you can read it confidently. A good compromise used by many teams: records for DTOs, Lombok <code>@Getter</code>/<code>@Setter</code> for entities, <code>@RequiredArgsConstructor</code> for services.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder (all Java code is under <code>src/main/java/com/course/layered/</code>):</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>LayeredApplication.java</code></td><td>The <code>@SpringBootApplication</code> entry point. Sub-packages are scanned automatically.</td></tr>
+    <tr><td><code>controller/EmployeeController.java</code></td><td>Thin web layer: 6 endpoints, each 1–3 lines.</td></tr>
+    <tr><td><code>service/EmployeeService.java</code></td><td>Business rules and DTO ⇄ entity mapping through the mapper.</td></tr>
+    <tr><td><code>repository/EmployeeRepository.java</code></td><td>The storage contract (interface).</td></tr>
+    <tr><td><code>repository/InMemoryEmployeeRepository.java</code></td><td>Thread-safe in-memory implementation.</td></tr>
+    <tr><td><code>model/Employee.java</code></td><td>The domain model with sensitive fields (salary, internalNotes).</td></tr>
+    <tr><td><code>dto/EmployeeRequest.java</code></td><td>Input DTO (record) — no id, no notes.</td></tr>
+    <tr><td><code>dto/EmployeeResponse.java</code></td><td>Output DTO (record) — computed <code>fullName</code>, no salary.</td></tr>
+    <tr><td><code>dto/DepartmentSummary.java</code></td><td>A "report" DTO that matches no stored object.</td></tr>
+    <tr><td><code>mapper/EmployeeMapper.java</code></td><td>All conversions in one place.</td></tr>
+    <tr><td><code>exception/EmployeeNotFoundException.java</code>, <code>DuplicateEmailException.java</code></td><td>Meaningful exceptions mapped to 404 / 409 using <code>@ResponseStatus</code>.</td></tr>
+    <tr><td><code>config/SampleDataLoader.java</code></td><td>A <code>CommandLineRunner</code> that creates 3 employees <i>through the service</i>.</td></tr>
+    <tr><td><code>src/test/.../EmployeeServiceTest.java</code>, <code>EmployeeMapperTest.java</code></td><td>Plain JUnit tests — no Spring needed, thanks to the layers.</td></tr>
+    <tr><td><code>requests.http</code></td><td>Ready-made requests for the REST Client extension.</td></tr>
+  </table></div>
+
+  <h3>4.1 The domain model — <code>Employee</code></h3>
+  <pre><span class="file">model/Employee.java (fields)</span><code class="lang-java">public class Employee {
+    private Long id;                 // given by the repository when saved
+    private String firstName;
+    private String lastName;
+    private String email;
+    private String department;
+    private BigDecimal salary;       // SENSITIVE - never exposed in responses
+    private String internalNotes;    // SENSITIVE - HR only
+    private LocalDateTime createdAt; // set once, when the employee is created
+    // + no-arg constructor, getters and setters
+}</code></pre>
+  <p>A normal mutable class. Notice its <code>toString()</code> deliberately skips the salary, so it never ends up in a log file by accident (topic 30).</p>
+
+  <h3>4.2 The repository — interface + in-memory implementation</h3>
+  <pre><span class="file">repository/InMemoryEmployeeRepository.java (key part)</span><code class="lang-java">@Repository
+public class InMemoryEmployeeRepository implements EmployeeRepository {
+
+    private final Map&lt;Long, Employee&gt; storage = new ConcurrentHashMap&lt;&gt;();
+    private final AtomicLong idSequence = new AtomicLong(0);   // like a DB auto-increment
+
+    @Override
+    public Employee save(Employee employee) {
+        if (employee.getId() == null) {
+            employee.setId(idSequence.incrementAndGet());     // new -&gt; give it an id
+        }
+        storage.put(employee.getId(), employee);              // insert or replace
+        return employee;
+    }
+
+    @Override
+    public Optional&lt;Employee&gt; findById(Long id) {
+        return Optional.ofNullable(storage.get(id));
+    }
+    // findAll, findByDepartment, existsByEmail, existsById, deleteById ...
+}</code></pre>
+  <ul>
+    <li><b>Line by line:</b> <code>save</code> behaves like a database: no id → insert with a new id; has id → update (replace).</li>
+    <li><code>ConcurrentHashMap</code> + <code>AtomicLong</code> are thread-safe. Tomcat serves each request on its own thread (topic 17), so two POSTs at the same moment must not get the same id.</li>
+    <li><code>findById</code> returns <code>Optional</code> so the caller is forced to think about "not found".</li>
+    <li>There is no "email must be unique" check here. The repository only stores; the <i>rule</i> belongs to the service.</li>
+  </ul>
+
+  <h3>4.3 The service — business rules</h3>
+  <pre><span class="file">service/EmployeeService.java (key parts)</span><code class="lang-java">@Service
+public class EmployeeService {
+
+    private final EmployeeRepository repository;   // the INTERFACE
+    private final EmployeeMapper mapper;
+
+    public EmployeeService(EmployeeRepository repository, EmployeeMapper mapper) {
+        this.repository = repository;              // constructor injection (topic 24)
+        this.mapper = mapper;
+    }
+
+    public EmployeeResponse update(Long id, EmployeeRequest request) {
+        Employee existing = getExisting(id);                      // 404 if missing
+        boolean emailChanged = !existing.getEmail().equalsIgnoreCase(request.email());
+        if (emailChanged &amp;&amp; repository.existsByEmail(request.email())) {
+            throw new DuplicateEmailException(request.email());   // 409
+        }
+        mapper.updateEntity(existing, request);                   // copy new values
+        return mapper.toResponse(repository.save(existing));      // entity -&gt; DTO
+    }
+
+    private Employee getExisting(Long id) {
+        return repository.findById(id)
+                .orElseThrow(() -&gt; new EmployeeNotFoundException(id));
+    }
+}</code></pre>
+  <ul>
+    <li>The service <b>throws exceptions</b> instead of returning status codes. It does not know HTTP exists.</li>
+    <li>The exceptions carry <code>@ResponseStatus(HttpStatus.NOT_FOUND)</code> / <code>CONFLICT</code>, so Spring turns them into 404 / 409. (Topic 35 shows a cleaner, central way with <code>@RestControllerAdvice</code>.)</li>
+    <li><code>departmentSummary()</code> shows that a service can produce DTOs that do not match any stored object (a report).</li>
+  </ul>
+
+  <h3>4.4 The controller — thin and boring (that's a compliment!)</h3>
+  <pre><span class="file">controller/EmployeeController.java (key parts)</span><code class="lang-java">@RestController
+@RequestMapping("/api/employees")
+public class EmployeeController {
+
+    private final EmployeeService employeeService;
+
+    public EmployeeController(EmployeeService employeeService) {
+        this.employeeService = employeeService;
+    }
+
+    @GetMapping
+    public List&lt;EmployeeResponse&gt; getAll(@RequestParam(required = false) String department) {
+        return employeeService.findAll(department);
+    }
+
+    @GetMapping("/{id}")
+    public EmployeeResponse getOne(@PathVariable Long id) {
+        return employeeService.findById(id);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity&lt;Void&gt; delete(@PathVariable Long id) {
+        employeeService.delete(id);
+        return ResponseEntity.noContent().build();     // 204
+    }
+}</code></pre>
+  <p>The controller only ever sees <code>EmployeeRequest</code> and <code>EmployeeResponse</code>. There is no <code>import ...model.Employee</code> in this file at all — a nice quick check that the entity never leaks out.</p>
+
+  <h3>4.5 One request, start to finish</h3>
+  <p>What happens on <code>POST /api/employees</code>:</p>
+  <div class="flow">
+    <span class="box">JSON body</span><span class="arrow">→ Jackson →</span>
+    <span class="box alt">EmployeeRequest</span><span class="arrow">→</span>
+    <span class="box info">service.create()</span><span class="arrow">→ mapper.toEntity →</span>
+    <span class="box">Employee</span><span class="arrow">→ repository.save →</span>
+    <span class="box">Employee (id=4)</span><span class="arrow">→ mapper.toResponse →</span>
+    <span class="box alt">EmployeeResponse</span><span class="arrow">→ Jackson →</span>
+    <span class="box">201 + JSON</span>
+  </div>
+
+  <h3>4.6 Tests — the reward for layering</h3>
+  <pre><span class="file">src/test/java/com/course/layered/service/EmployeeServiceTest.java (part)</span><code class="lang-java">@BeforeEach
+void setUp() {
+    // No Spring, no server: just "new" the real pieces.
+    service = new EmployeeService(new InMemoryEmployeeRepository(), new EmployeeMapper());
+}
+
+@Test
+void createRejectsDuplicateEmail() {
+    service.create(request("asha@company.com"));
+    assertThatThrownBy(() -&gt; service.create(request("ASHA@company.com")))
+            .isInstanceOf(DuplicateEmailException.class);
+}</code></pre>
+  <p>These tests run in milliseconds. Because the service depends on an interface, you could also give it a Mockito mock (topic 21, deeper in topic 46).</p>
+
+  <!-- ============================================================ -->
+  <h2 id="run">5. How to run</h2>
+  <h3>In VS Code</h3>
+  <ol>
+    <li><b>File → Open Folder…</b> → choose <code>D:\Java-SpringBoot\33-Layered-Architecture-And-DTOs</code>.</li>
+    <li>Wait for the Java extension to import the Maven project (bottom status bar).</li>
+    <li>Open <code>LayeredApplication.java</code> and click <b>Run</b> above <code>main</code> (or use the Spring Boot Dashboard).</li>
+    <li>Open <code>requests.http</code> and click <b>Send Request</b> above each request.</li>
+  </ol>
+  <h3>From the terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\33-Layered-Architecture-And-DTOs"
+mvn spring-boot:run</code></pre>
+  <p>In the log you will see:</p>
+  <pre class="terminal"><code>... Tomcat started on port 8080 (http) with context path '/'
+... Started LayeredApplication in 1.9 seconds
+... c.c.layered.config.SampleDataLoader : Loaded 3 sample employees</code></pre>
+
+  <h3>Try the API with curl</h3>
+  <p>(In Windows PowerShell use <code>curl.exe</code> instead of <code>curl</code>; JSON quoting is easiest in Git Bash or with <code>requests.http</code>.)</p>
+  <pre class="terminal"><code>curl http://localhost:8080/api/employees</code></pre>
+  <pre><code class="lang-json">[{"id":1,"fullName":"Asha Rao","email":"asha.rao@company.com","department":"Engineering"},
+ {"id":2,"fullName":"Ravi Kumar","email":"ravi.kumar@company.com","department":"Engineering"},
+ {"id":3,"fullName":"Meera Shah","email":"meera.shah@company.com","department":"HR"}]</code></pre>
+  <p>No salary anywhere! Now create an employee and try to sneak in an <code>id</code> and HR notes:</p>
+  <pre class="terminal"><code>curl -i -X POST http://localhost:8080/api/employees -H "Content-Type: application/json" -d "{\"id\":999,\"firstName\":\"Kiran\",\"lastName\":\"Patel\",\"email\":\"kiran.patel@company.com\",\"department\":\"Finance\",\"salary\":72000,\"internalNotes\":\"hack\"}"</code></pre>
+  <pre class="terminal"><code>HTTP/1.1 201
+Location: http://localhost:8080/api/employees/4
+Content-Type: application/json
+
+{"id":4,"fullName":"Kiran Patel","email":"kiran.patel@company.com","department":"Finance"}</code></pre>
+  <p>The id is <b>4</b>, not 999 — the request DTO protected us. Send the same POST again:</p>
+  <pre class="terminal"><code>{"timestamp":"...","status":409,"error":"Conflict","message":"An employee with email kiran.patel@company.com already exists","path":"/api/employees"}</code></pre>
+  <p>More requests:</p>
+  <pre class="terminal"><code>curl "http://localhost:8080/api/employees?department=engineering"
+curl http://localhost:8080/api/employees/departments/summary
+curl -X PUT http://localhost:8080/api/employees/1 -H "Content-Type: application/json" -d "{\"firstName\":\"Asha\",\"lastName\":\"Rao\",\"email\":\"asha.rao@company.com\",\"department\":\"Architecture\",\"salary\":95000}"
+curl -i -X DELETE http://localhost:8080/api/employees/2
+curl http://localhost:8080/api/employees/99</code></pre>
+  <pre class="terminal"><code>[{"department":"Engineering","employeeCount":2},{"department":"Finance","employeeCount":1},{"department":"HR","employeeCount":1}]
+...
+{"timestamp":"...","status":404,"error":"Not Found","message":"Employee with id 99 was not found","path":"/api/employees/99"}</code></pre>
+  <p>The <code>"message"</code> appears because <code>application.properties</code> sets <code>server.error.include-message=always</code>.</p>
+  <h3>Run the tests</h3>
+  <pre class="terminal"><code>mvn test</code></pre>
+  <pre class="terminal"><code>[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS</code></pre>
+  <p>Stop the app with <b>Ctrl+C</b> in the terminal.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: returning the entity from the controller</strong> <code>public Employee getOne(...)</code> works, so beginners keep it. Then salary and password hashes appear in JSON.<br><strong>Fix:</strong> Controllers return only DTOs. Quick check: the controller file should not import your <code>model</code>/<code>entity</code> package.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: business logic in the controller</strong> "if email exists, return 409" written inside the controller. Now the data loader, a scheduled job or a second controller can skip that rule.<br><strong>Fix:</strong> Rules live in the service. Every entry point (REST, startup loader, messaging) goes through the service.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: the controller calls the repository directly</strong> "It's just a simple findAll, why go through the service?" Then next month someone adds a filter rule in the service and this endpoint doesn't get it.<br><strong>Fix:</strong> Always go controller → service → repository, even for trivial calls. A one-line service method is fine.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: the service returns <code>ResponseEntity</code> or uses status codes</strong> That ties the business layer to HTTP, so it cannot be reused by a message listener or a batch job.<br><strong>Fix:</strong> The service returns data or throws meaningful exceptions. The web layer decides the HTTP status.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: depending on the concrete repository class</strong> <code>private final InMemoryEmployeeRepository repo;</code> — now switching to a database means editing the service.<br><strong>Fix:</strong> Depend on the interface <code>EmployeeRepository</code>.</div>
+  <div class="callout danger"><strong>🛑 Mistake: one DTO for everything, including <code>id</code></strong> Reusing the response DTO as the request DTO lets clients send <code>"id"</code>, <code>"role"</code>, <code>"createdAt"</code>… (mass assignment).<br><strong>Fix:</strong> Separate request and response DTOs. Only put fields the client is <i>allowed</i> to set into the request DTO.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting to copy a new field in the mapper</strong> You add <code>phone</code> to the entity and DTO, but the response always shows <code>null</code>.<br><strong>Fix:</strong> Keep all mapping in the mapper class and write small mapper tests (see <code>EmployeeMapperTest</code>). MapStruct can even warn you about unmapped fields.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: putting classes outside the main package</strong> A controller in package <code>com.course.controllers</code> (not under <code>com.course.layered</code>) is never scanned, so you get 404 for every URL.<br><strong>Fix:</strong> All packages must be <i>below</i> the package of the <code>@SpringBootApplication</code> class.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><b>Thin controllers, rich services.</b> If a controller method is longer than ~10 lines, logic is probably leaking into it.</li>
+    <li><b>Never expose entities.</b> Use request DTOs for input and response DTOs for output.</li>
+    <li><b>Use records for DTOs</b>; use normal classes for entities.</li>
+    <li><b>Name DTOs by purpose:</b> <code>CreateEmployeeRequest</code>, <code>UpdateEmployeeRequest</code>, <code>EmployeeResponse</code>, <code>EmployeeSummary</code>. Avoid vague names like <code>EmployeeDTO2</code>.</li>
+    <li><b>Depend on interfaces</b> between service and repository. It makes swapping and mocking easy.</li>
+    <li><b>Constructor injection with <code>final</code> fields</b> everywhere (with or without Lombok's <code>@RequiredArgsConstructor</code>).</li>
+    <li><b>One mapper per aggregate</b> (e.g. <code>EmployeeMapper</code>). For large projects consider MapStruct.</li>
+    <li><b>Throw domain exceptions</b> (<code>EmployeeNotFoundException</code>) from the service; translate them to HTTP in one place (topic 35).</li>
+    <li><b>Package-by-feature</b> for medium/large apps; keep the same layer rules inside each feature.</li>
+    <li><b>Keep "transaction boundaries" in the service</b> — that is where <code>@Transactional</code> will go in topic 42.</li>
+    <li>Don't over-engineer: a tiny prototype may not need a mapper class. But any API that other people use deserves DTOs.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Layers: <b>Controller</b> (HTTP) → <b>Service</b> (business rules) → <b>Repository</b> (data). Each talks only to the one below.</li>
+    <li>Layers give separation of concerns, easy testing, easy change and reuse.</li>
+    <li>A <b>DTO</b> is the API's input/output contract; an <b>Entity</b> is what you store. Never return entities directly.</li>
+    <li>Separate <b>request</b> and <b>response</b> DTOs protect against data leaks and mass assignment.</li>
+    <li><b>Records</b> are ideal DTOs: immutable, short and Jackson-friendly.</li>
+    <li>A <b>mapper</b> class keeps all DTO ⇄ entity conversion in one place; <b>MapStruct</b> can generate it.</li>
+    <li>The service depends on a repository <b>interface</b>, so storage can be swapped (in-memory → JDBC → JPA) without changes.</li>
+    <li><b>Package-by-layer</b> is simple; <b>package-by-feature</b> scales better.</li>
+    <li><b>Lombok</b> generates boilerplate (<code>@Getter</code>, <code>@Setter</code>, <code>@RequiredArgsConstructor</code>) but needs annotation-processing setup; this course keeps plain Java + records.</li>
+  </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Add a phone number.</b> Add a <code>phone</code> field to <code>Employee</code>, <code>EmployeeRequest</code> and <code>EmployeeResponse</code>, and update the mapper. Which files did you have to touch? Which did you <i>not</i> have to touch?</p>
+    <details><summary>Hint / solution</summary>
+      <p>You change <code>Employee</code> (field + getter/setter), both records (add <code>String phone</code>), and the three mapper methods. You do <b>not</b> touch the controller, the service or the repository — that is the benefit of the layers and the mapper.</p>
+<pre><code class="lang-java">public record EmployeeResponse(Long id, String fullName, String email,
+                               String department, String phone) { }
+
+// mapper
+employee.setPhone(request.phone());                       // in toEntity and updateEntity
+return new EmployeeResponse(e.getId(), e.getFirstName() + " " + e.getLastName(),
+        e.getEmail(), e.getDepartment(), e.getPhone());   // in toResponse</code></pre>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Spot the layer violations.</b> What is wrong with this controller method?</p>
+<pre><code class="lang-java">@GetMapping("/{id}")
+public Employee get(@PathVariable Long id) {
+    return inMemoryEmployeeRepository.findById(id).orElse(null);
+}</code></pre>
+    <details><summary>Hint / solution</summary>
+      <p>Three problems: (1) it returns the <b>entity</b> (salary leaks), (2) the controller calls the <b>repository</b> directly, skipping the service, (3) it depends on the <b>concrete</b> class, and (4) bonus: returning <code>null</code> gives a 200 with an empty body instead of a 404. Fix: <code>return employeeService.findById(id);</code> which returns <code>EmployeeResponse</code> and throws <code>EmployeeNotFoundException</code>.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Separate update DTO + PATCH.</b> Create <code>UpdateEmployeeDepartmentRequest(String department)</code> and an endpoint <code>PATCH /api/employees/{id}/department</code> that only moves an employee to another department.</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-java">public record UpdateEmployeeDepartmentRequest(String department) { }
+
+// EmployeeService
+public EmployeeResponse changeDepartment(Long id, String department) {
+    Employee existing = getExisting(id);
+    existing.setDepartment(department);
+    return mapper.toResponse(repository.save(existing));
+}
+
+// EmployeeController
+@PatchMapping("/{id}/department")
+public EmployeeResponse changeDepartment(@PathVariable Long id,
+                                         @RequestBody UpdateEmployeeDepartmentRequest body) {
+    return employeeService.changeDepartment(id, body.department());
+}</code></pre>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>An admin-only DTO.</b> Create <code>EmployeeAdminResponse</code> that also includes <code>salary</code> and <code>createdAt</code>, and an endpoint <code>GET /api/admin/employees/{id}</code> in a new <code>EmployeeAdminController</code>. (In topic 48 we will protect it with roles.)</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-java">public record EmployeeAdminResponse(Long id, String fullName, String email, String department,
+                                    BigDecimal salary, LocalDateTime createdAt) { }
+
+// mapper
+public EmployeeAdminResponse toAdminResponse(Employee e) {
+    return new EmployeeAdminResponse(e.getId(), e.getFirstName() + " " + e.getLastName(),
+            e.getEmail(), e.getDepartment(), e.getSalary(), e.getCreatedAt());
+}
+// service: public EmployeeAdminResponse findByIdForAdmin(Long id) { return mapper.toAdminResponse(getExisting(id)); }
+// controller: @RestController @RequestMapping("/api/admin/employees") ... @GetMapping("/{id}")</code></pre>
+      <p>Notice: one entity, several DTOs — each shaped for its audience.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>Swap the repository.</b> Write a second implementation <code>LoggingEmployeeRepository</code> (or a <code>ListEmployeeRepository</code> backed by an <code>ArrayList</code>) and make Spring use it instead of the in-memory one — without changing <code>EmployeeService</code>.</p>
+    <details><summary>Hint / solution</summary>
+      <p>Create a class that <code>implements EmployeeRepository</code> and annotate it with <code>@Repository</code> and <code>@Primary</code> (topic 24). Spring now injects it into the service because it is the primary candidate. Alternatively remove <code>@Repository</code> from the in-memory class, or use <code>@Profile</code> (topic 26) to choose at startup. The service code stays exactly the same — proof of loose coupling.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>Refactor to package-by-feature.</b> Move the code into <code>com.course.layered.employee</code> (controller, service, repository, mapper, dto together) and <code>com.course.layered.common.exception</code>. Make the in-memory repository and mapper <b>package-private</b> (no <code>public</code> keyword). Does it still work?</p>
+    <details><summary>Hint / solution</summary>
+      <p>Yes. Spring can create beans from package-private classes. Only the classes that other packages need (the controller, the DTOs, maybe the service) must remain <code>public</code>. Package-private classes give you stronger encapsulation: nothing outside the <code>employee</code> feature can reach the repository directly. In VS Code, right-click a file → <b>Refactor → Move</b> (or drag it in the Java Projects view) to update packages automatically.</p>
+    </details>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. Explain layered architecture in a Spring Boot application.</summary><p>The code is split into the web layer (<code>@RestController</code>: HTTP mapping, DTOs, status codes), the service layer (<code>@Service</code>: business rules, transactions, orchestration) and the data access layer (<code>@Repository</code>: persistence). Each layer depends only on the one below it, which gives separation of concerns, testability and the ability to change one layer without touching others.</p></details>
+  <details><summary>Q2. What is a DTO and why do we use it?</summary><p>A Data Transfer Object is a simple object that carries data across a boundary — for example between the API and its clients. We use DTOs to control exactly what is exposed (no sensitive fields), to prevent mass assignment, to decouple the API contract from the database schema, to avoid JPA problems like lazy loading and infinite recursion during JSON serialization, and to shape data for the client (computed fields, summaries).</p></details>
+  <details><summary>Q3. Why should you not return JPA entities directly from a REST controller?</summary><p>It leaks internal/sensitive fields, couples your public API to your database schema, can trigger <code>LazyInitializationException</code> or N+1 queries when Jackson walks relations, can cause infinite recursion with bidirectional relationships, and if entities are also used as input it allows clients to set fields they should not (id, role). DTOs avoid all of this.</p></details>
+  <details><summary>Q4. Where should DTO-to-entity mapping happen?</summary><p>Commonly in the service layer (the service accepts and returns DTOs, using a mapper component), which keeps controllers very thin. Some teams map in the controller and keep services entity-only. Either is acceptable if applied consistently. The mapping code itself should live in a dedicated mapper (hand-written or generated by MapStruct), not scattered around.</p></details>
+  <details><summary>Q5. What is the difference between @Component, @Service, @Repository and @Controller?</summary><p>All four mark a class as a Spring bean found by component scanning. <code>@Service</code> and <code>@Controller</code>/<code>@RestController</code> mainly document the role (and <code>@Controller</code> enables request mapping). <code>@Repository</code> additionally enables exception translation: persistence exceptions are converted into Spring's <code>DataAccessException</code> hierarchy.</p></details>
+  <details><summary>Q6. Why should the service depend on a repository interface?</summary><p>Programming to an interface gives loose coupling: the implementation (in-memory, JDBC, JPA, a remote service) can change without changing the service, and tests can pass a fake or a Mockito mock. With Spring Data JPA, the interface is all you write — Spring generates the implementation.</p></details>
+  <details><summary>Q7. Package-by-layer vs package-by-feature — which do you prefer?</summary><p>Package-by-layer groups by technical role (controller, service…) — simple, good for small apps. Package-by-feature groups by business capability (employee, order…) — related code stays together, classes can be package-private, features can be extracted into modules or microservices more easily. For anything beyond a small app I prefer package-by-feature with clear layers inside each feature.</p></details>
+  <details><summary>Q8. What is Lombok? Any downsides?</summary><p>Lombok is an annotation processor that generates boilerplate (getters, setters, constructors, builders, loggers) at compile time. Downsides: it needs IDE/annotation-processor setup, it hides code (harder to debug or read for newcomers), <code>@Data</code>/<code>@EqualsAndHashCode</code>/<code>@ToString</code> on JPA entities can cause performance problems or infinite loops with relationships, and it hooks into compiler internals so JDK upgrades sometimes require a Lombok upgrade. Records remove much of the need for DTOs.</p></details>
+  <details><summary>Q9. What is MapStruct and how is it different from ModelMapper?</summary><p>MapStruct generates plain Java mapping code at compile time from an annotated interface, so it is as fast as hand-written code and reports unmapped fields as compiler warnings/errors. ModelMapper maps at runtime using reflection and naming conventions — easier to start with but slower and errors appear only at runtime.</p></details>
+  <details><summary>Q10. Should a service method ever return ResponseEntity?</summary><p>No. <code>ResponseEntity</code> is an HTTP concept and belongs to the web layer. The service should return domain data or DTOs and signal problems with exceptions; the controller (or a <code>@RestControllerAdvice</code>) decides the HTTP status. This keeps the service reusable from other entry points such as message listeners, schedulers or tests.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../32-Request-Handling-And-Responses/lesson.html"><small>← Previous</small>32. Request Handling &amp; Responses</a>
+    <a class="next" href="../34-Validation/lesson.html"><small>Next →</small>34. Validation</a>
+  </nav>
+</main>
+</body>
+</html>

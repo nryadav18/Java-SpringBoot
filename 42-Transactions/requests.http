@@ -1,0 +1,60 @@
+### Topic 42 - Transactions (VS Code "REST Client" extension)
+@base = http://localhost:8080/api
+
+########## The real bank API ##########
+
+### Accounts (look at "version" - it increases with every update)
+GET {{base}}/accounts
+
+### Total money in the bank - transfers must never change it
+GET {{base}}/accounts/total
+
+### Correct transfer
+POST {{base}}/transfers
+Content-Type: application/json
+
+{ "fromAccount": "ACC-1001", "toAccount": "ACC-1002", "amount": 250.00 }
+
+### Not enough money -> 422, nothing changes (rollback)
+POST {{base}}/transfers
+Content-Type: application/json
+
+{ "fromAccount": "ACC-1001", "toAccount": "ACC-1002", "amount": 99999 }
+
+### Unknown account -> 404
+POST {{base}}/transfers
+Content-Type: application/json
+
+{ "fromAccount": "ACC-9999", "toAccount": "ACC-1002", "amount": 10 }
+
+### Successful transfers
+GET {{base}}/transfers
+
+### Audit log (REQUIRES_NEW rows survive rollbacks)
+GET {{base}}/audit
+
+########## Demo scenarios: each resets to Alice 1000 / Bob 500 and moves 100 ##########
+
+### Reset
+POST {{base}}/demo/reset
+
+### 1. Failure midway INSIDE @Transactional -> moneyLost: false
+POST {{base}}/demo/rollback
+
+### 2. Same failure WITHOUT a transaction -> moneyLost: true
+POST {{base}}/demo/no-transaction
+
+### 3. Checked exception, default rules -> committed, moneyLost: true
+POST {{base}}/demo/checked-exception
+
+### 4. Checked exception with rollbackFor -> moneyLost: false
+POST {{base}}/demo/checked-exception-rollback-for
+
+### 5. Self-invocation -> @Transactional ignored, moneyLost: true
+POST {{base}}/demo/self-invocation
+
+### 6. Insufficient funds in the real transfer -> rollback, attempt audited
+POST {{base}}/demo/insufficient-funds
+
+### 7. Optimistic locking with @Version -> second update rejected
+POST {{base}}/demo/optimistic-lock

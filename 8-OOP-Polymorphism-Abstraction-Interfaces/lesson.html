@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>8 · Polymorphism, Abstraction &amp; Interfaces</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 8</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>8. Polymorphism, Abstraction &amp; Interfaces</h1>
+  <p class="subtitle">Write code that works with "any kind of payment" or "any kind of shape" — and learn the single most important design idea behind Spring: program to an interface.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="8-OOP-Polymorphism-Abstraction-Interfaces"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li><strong>Polymorphism</strong>: compile-time (overloading) vs runtime (overriding + dynamic dispatch).</li>
+      <li><strong>Upcasting</strong> and <strong>downcasting</strong>, <code>ClassCastException</code>, and <code>instanceof</code> — including <strong>pattern matching</strong> (Java 16+).</li>
+      <li><strong>Abstraction</strong> with abstract classes and abstract methods.</li>
+      <li><strong>Interfaces</strong>: abstract, <code>default</code>, <code>static</code> and <code>private</code> methods, constants.</li>
+      <li>Abstract class vs interface — when to use which.</li>
+      <li>Implementing <strong>multiple interfaces</strong> and resolving default-method conflicts.</li>
+      <li>A preview of <strong>functional interfaces</strong> and lambdas.</li>
+      <li><strong>Programming to an interface</strong> and <strong>loose coupling</strong> — the foundation of Spring's dependency injection.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../7-OOP-Encapsulation-And-Inheritance/lesson.html">Topic 7 · Encapsulation &amp; Inheritance</a> (especially overriding).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- =========================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Imagine an online shop's checkout. Today it accepts credit cards. Next month: UPI. Next year: PayPal and a "buy now, pay later" app.
+     Without polymorphism, the checkout code turns into a growing tower of <code>if (type.equals("CARD")) ... else if (type.equals("UPI")) ...</code>,
+     and every new payment method means editing (and possibly breaking) the checkout.</p>
+  <p>With polymorphism and interfaces, the checkout says only: "<em>give me something that can <code>pay()</code></em>". Any class that keeps that promise
+     can be plugged in — without changing a single line of the checkout.</p>
+  <p>This is not just theory. <strong>Spring is built entirely on this idea:</strong></p>
+  <ul>
+    <li>Your services depend on interfaces (<code>PaymentGateway</code>, <code>ProductRepository</code>), and Spring <strong>injects</strong> the implementation (Topics 22–24).</li>
+    <li>Spring Data JPA (Topic 38): you write only an <strong>interface</strong> <code>ProductRepository extends JpaRepository</code> — Spring generates the class for you!</li>
+    <li>Spring Security, caching, transactions: all wrap your objects in "proxy" objects that implement the same interface (Topic 27).</li>
+    <li>In tests (Topics 21, 46), you replace real dependencies with fakes or mocks — possible only because code depends on interfaces.</li>
+  </ul>
+  <p>If you understand this topic deeply, Spring will feel natural instead of magical.</p>
+
+  <!-- =========================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🔌 The wall socket</strong>
+    A wall socket is an <strong>interface</strong>: a standard shape and voltage. It doesn't care what you plug in — a phone charger, a laptop, a fan, a TV.
+    Each device <strong>implements</strong> the plug standard in its own way inside. The socket works with devices that were invented <em>after</em> the socket was installed.
+    That's <strong>polymorphism</strong> (one socket, many devices) and <strong>loose coupling</strong> (the wiring in your wall doesn't know your TV's brand).
+    <br><br>
+    Now imagine a fan whose wire is <strong>soldered directly</strong> into the wall. It works, but to replace it you need an electrician and a hammer.
+    That's <strong>tight coupling</strong> — what happens when a class does <code>new RazorpayGateway()</code> inside itself.
+  </div>
+  <div class="callout analogy"><strong>🚗 Abstraction = driving a car</strong>
+    You use the steering wheel, accelerator and brake. You don't need to know about fuel injection or ABS sensors.
+    The car shows you <strong>what</strong> it can do and hides <strong>how</strong>. A petrol car and an electric car have the same pedals but totally different insides.
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 What is polymorphism?</h3>
+  <p><em>Poly</em> = many, <em>morph</em> = form. <strong>Polymorphism</strong> means "<strong>one name, many forms</strong>": the same method call
+     can behave differently depending on the situation. Java has two kinds:</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Compile-time polymorphism</th><th>Runtime polymorphism</th></tr>
+    <tr><td>Also called</td><td>Static polymorphism, early binding</td><td>Dynamic polymorphism, late binding, dynamic method dispatch</td></tr>
+    <tr><td>Achieved by</td><td>Method <strong>overloading</strong></td><td>Method <strong>overriding</strong> + parent-type references</td></tr>
+    <tr><td>Who decides which method runs?</td><td>The <strong>compiler</strong>, by the argument types</td><td>The <strong>JVM</strong>, by the real object's class at runtime</td></tr>
+    <tr><td>Example</td><td><code>total(100, 2)</code> vs <code>total(99.5, 3)</code></td><td><code>Notification n = new SmsNotification(); n.send()</code></td></tr>
+  </table></div>
+
+  <h3>3.2 Compile-time polymorphism (overloading)</h3>
+  <p>You met overloading in Topic 4. Same method name, different parameter list — by <strong>number</strong>, <strong>type</strong> or <strong>order</strong> of parameters:</p>
+  <pre><code class="lang-java">int    total(int unitPrice, int quantity)                    // 2 ints
+double total(double unitPrice, int quantity)                 // different type
+int    total(int unitPrice, int quantity, int discount)      // different number
+String total(String product, int quantity)
+String total(int quantity, String product)                   // different order</code></pre>
+  <ul>
+    <li>The compiler picks the best match by looking at the arguments. If no exact match, it tries <strong>widening</strong> (e.g. <code>short</code> → <code>int</code>).</li>
+    <li>Changing <strong>only the return type</strong> is <strong>not</strong> overloading → compile error "already defined".</li>
+    <li>You use it daily: <code>System.out.println</code> has versions for <code>int</code>, <code>double</code>, <code>char</code>, <code>boolean</code>, <code>String</code>, <code>Object</code> …</li>
+  </ul>
+
+  <h3>3.3 Runtime polymorphism (overriding + parent references)</h3>
+  <p>The key rule: <strong>a variable of a parent type can hold an object of any child type.</strong></p>
+  <pre><code class="lang-java">Notification n1 = new EmailNotification("priya@shop.com");
+Notification n2 = new SmsNotification("98480-12345");
+
+n1.send("Your order has shipped");   // EMAIL to priya@shop.com | ...
+n2.send("Your order has shipped");   // SMS to 98480-12345: ...</code></pre>
+  <p>Both variables have the type <code>Notification</code>, but each <code>send</code> runs the version from the <strong>real object</strong>. The JVM looks at the object
+     at runtime and "dispatches" the call to the right override — that's <strong>dynamic method dispatch</strong>.</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 600 190" width="600" role="img" aria-label="A Notification variable pointing at an SmsNotification object; send dispatches to SmsNotification.send">
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="20" y="70" width="170" height="50" rx="8"/>
+        <rect x="270" y="20" width="310" height="150" rx="10"/>
+        <rect x="290" y="60" width="270" height="36" rx="6"/>
+        <rect x="290" y="112" width="270" height="36" rx="6"/>
+        <path d="M190 95 L265 95"/>
+        <path d="M257 89 L267 95 L257 101"/>
+      </g>
+      <g fill="currentColor" font-family="Segoe UI, sans-serif" font-size="14">
+        <text x="32" y="92">Notification n2</text>
+        <text x="32" y="110" font-size="11">(variable type: what you CAN call)</text>
+        <text x="282" y="44" font-size="12">SmsNotification object (real type: WHICH version runs)</text>
+        <text x="300" y="83">send() from Notification — overridden</text>
+        <text x="300" y="135" font-weight="bold">send() from SmsNotification ✔ runs</text>
+      </g>
+    </svg>
+    <figcaption>The <strong>variable type</strong> decides which methods you may call. The <strong>object type</strong> decides which version runs.</figcaption>
+  </figure>
+  <div class="callout tip"><strong>💡 Remember this sentence</strong>
+    "<em>Reference type decides WHAT you can call (checked at compile time). Object type decides WHICH implementation runs (at runtime).</em>"</div>
+  <p>Why is this so powerful? Because you can write code against the parent type <strong>once</strong>:</p>
+  <pre><code class="lang-java">static void alertCustomer(Notification notification, String message) {
+    notification.send(message);    // works for Email, SMS, Push ... and any future channel
+}</code></pre>
+  <p>Add a <code>WhatsAppNotification</code> class next month — <code>alertCustomer</code> works with it immediately, unchanged. This is called the
+     <strong>Open/Closed Principle</strong>: code should be <em>open for extension</em> (new classes) but <em>closed for modification</em> (no edits to old code).</p>
+  <div class="callout info"><strong>ℹ️ What is NOT polymorphic</strong>
+    Only <strong>instance methods</strong> are dispatched at runtime. <strong>Fields</strong> and <strong>static methods</strong> are chosen by the variable type
+    (remember field hiding in Topic 7). One more reason to keep fields private.</div>
+
+  <h3>3.4 Upcasting and downcasting</h3>
+  <p><strong>Casting</strong> means treating an object as a different type in its family tree.</p>
+  <div class="flow">
+    <span class="box info">Employee (parent)</span>
+    <span class="arrow">⇄</span>
+    <span class="box alt">Manager (child)</span>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Upcasting</th><th>Downcasting</th></tr>
+    <tr><td>Direction</td><td>Child → parent type</td><td>Parent → child type</td></tr>
+    <tr><td>Syntax</td><td>Automatic: <code>Employee e = manager;</code></td><td>Explicit: <code>Manager m = (Manager) e;</code></td></tr>
+    <tr><td>Safe?</td><td>Always (a Manager IS-A Employee)</td><td>Only if the object really is that child type — otherwise <code>ClassCastException</code> at runtime</td></tr>
+    <tr><td>Why do it?</td><td>To treat many types uniformly (polymorphism)</td><td>To use a child-only method like <code>approveLeave()</code></td></tr>
+  </table></div>
+  <pre><code class="lang-java">Employee employee = new Manager("Anil", 8);   // upcast
+// employee.approveLeave();                    // ❌ compile error: Employee has no approveLeave()
+Manager m = (Manager) employee;                // downcast - OK, the object IS a Manager
+m.approveLeave();                              // ✅
+
+Employee intern = new Intern("Zoya", "Spring Boot");
+Manager wrong = (Manager) intern;              // compiles, but 💥 ClassCastException at runtime</code></pre>
+  <p>Note: casting never changes the object itself. It only changes how you <em>look</em> at it (which methods the compiler lets you call).</p>
+
+  <h3>3.5 <code>instanceof</code> and pattern matching (Java 16+)</h3>
+  <p><code>obj instanceof Type</code> returns <code>true</code> if the object is that type (or a subtype). It returns <code>false</code> for <code>null</code> — it never crashes.
+     Use it to check <strong>before</strong> downcasting.</p>
+  <pre><code class="lang-java">// Old style (before Java 16): check, then cast on a separate line
+if (e instanceof Manager) {
+    Manager m = (Manager) e;
+    System.out.println(m.getTeamSize());
+}
+
+// Java 16+ pattern matching: check + cast + new variable, in one step
+if (e instanceof Manager m) {
+    System.out.println(m.getTeamSize());       // m is already a Manager
+}
+
+// The pattern variable can be used in the same condition after &amp;&amp;
+if (e instanceof Intern i &amp;&amp; i.getTopic().contains("Spring")) { ... }</code></pre>
+  <div class="callout warn"><strong>⚠️ instanceof chains are a design smell</strong>
+    If you find yourself writing <code>if (p instanceof Card) ... else if (p instanceof Upi) ... else if ...</code> to decide <em>behaviour</em>,
+    that behaviour should usually be an <strong>overridden method</strong> instead (<code>p.pay()</code>). Use <code>instanceof</code> sparingly — e.g. in <code>equals()</code>
+    or when dealing with objects you don't control.</div>
+  <div class="callout info"><strong>ℹ️ In newer Java</strong> Java 21 adds pattern matching in <code>switch</code> and record patterns. We stay on Java 17 in this course,
+    where <code>instanceof</code> pattern matching is fully available.</div>
+
+  <h3>3.6 Abstraction and abstract classes</h3>
+  <p><strong>Abstraction</strong> = expose <strong>what</strong> an object does, hide <strong>how</strong>. Java gives two tools: abstract classes and interfaces.</p>
+  <p>Look at the <code>Shape</code> idea: every shape has an area, but "a shape" in general has no formula. It makes no sense to create <code>new Shape()</code>.
+     So we mark it <code>abstract</code>:</p>
+  <pre><span class="file">Example04_AbstractClasses.java (part)</span><code class="lang-java">abstract class Shape {
+    private final String name;              // fields: allowed
+
+    protected Shape(String name) {          // constructor: allowed (called via super)
+        this.name = name;
+    }
+
+    abstract double area();                 // abstract method: NO body, ends with ;
+    abstract double perimeter();
+
+    void printReport() {                    // concrete method: shared by all shapes
+        System.out.printf("%-9s area = %7.2f%n", name, area());
+    }
+}
+
+class Circle extends Shape {
+    private final double radius;
+    Circle(double radius) { super("Circle"); this.radius = radius; }
+
+    @Override
+    double area() { return Math.PI * radius * radius; }   // MUST implement
+
+    @Override
+    double perimeter() { return 2 * Math.PI * radius; }
+}</code></pre>
+  <p>Rules for abstract classes:</p>
+  <ul>
+    <li>Declared with <code>abstract class</code>. <strong>Cannot be instantiated</strong> (<code>new Shape(...)</code> → compile error).</li>
+    <li>May contain <strong>abstract methods</strong> (no body) <em>and</em> normal methods, fields, constructors.</li>
+    <li>A concrete (non-abstract) child <strong>must implement every abstract method</strong>, otherwise it must be abstract too.</li>
+    <li>You can still have variables of the abstract type: <code>Shape s = new Circle(7);</code> — that's polymorphism.</li>
+    <li>If a class has even one abstract method, the class must be abstract.</li>
+  </ul>
+  <p>Notice <code>printReport()</code>: a <em>concrete</em> method in the parent calls <code>area()</code>, which is <em>abstract</em>. At runtime the child's version is used.
+     This "parent defines the steps, children fill in the details" idea is called the <strong>Template Method pattern</strong> — Spring's <code>JdbcTemplate</code> (Topic 37) is built this way.</p>
+
+  <h3>3.7 Interfaces — pure contracts</h3>
+  <p>An <strong>interface</strong> is a contract: a list of methods a class promises to provide. It says <em>what</em>, never <em>how</em> (except default methods, see below).
+     A class signs the contract with <code>implements</code>.</p>
+  <pre><code class="lang-java">interface Payment {
+    boolean pay(double amount);       // automatically public abstract
+    String methodName();
+}
+
+class UpiPayment implements Payment {
+    @Override
+    public boolean pay(double amount) { ... }    // must be public
+    @Override
+    public String methodName() { return "UPI"; }
+}
+
+Payment p = new UpiPayment("neha@okbank");       // interface type, concrete object
+p.pay(1500);</code></pre>
+  <p>What can go inside an interface?</p>
+  <div class="table-wrap"><table>
+    <tr><th>Member</th><th>Since</th><th>Notes</th><th>Example</th></tr>
+    <tr><td>Abstract methods</td><td>Java 1</td><td>Implicitly <code>public abstract</code>; implementing class must provide them</td><td><code>boolean pay(double amount);</code></td></tr>
+    <tr><td>Constants</td><td>Java 1</td><td>Every field is implicitly <code>public static final</code></td><td><code>double MIN_AMOUNT = 1.0;</code></td></tr>
+    <tr><td><code>default</code> methods</td><td>Java 8</td><td>Have a body; implementations inherit it and <em>may</em> override</td><td><code>default double fee(double a) { return 0; }</code></td></tr>
+    <tr><td><code>static</code> methods</td><td>Java 8</td><td>Helpers called on the interface name; not inherited by classes</td><td><code>Payment.isValidAmount(250)</code></td></tr>
+    <tr><td><code>private</code> methods</td><td>Java 9</td><td>Internal helpers for default/static methods</td><td><code>private String line()</code></td></tr>
+    <tr><td>Instance fields / constructors</td><td>—</td><td><strong>Not allowed</strong> — interfaces have no state</td><td></td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Why were default methods added?</strong>
+    To let Java's designers add new methods to old interfaces (like <code>forEach</code> on <code>Iterable</code>, <code>stream()</code> on <code>Collection</code>) without breaking
+    millions of existing classes that implemented them.</div>
+
+  <h3>3.8 Abstract class vs interface</h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Abstract class</th><th>Interface</th></tr>
+    <tr><td>Keyword</td><td><code>abstract class</code> / <code>extends</code></td><td><code>interface</code> / <code>implements</code></td></tr>
+    <tr><td>How many can a class use?</td><td><strong>One</strong> (single inheritance)</td><td><strong>Many</strong></td></tr>
+    <tr><td>Instance fields (state)</td><td>Yes</td><td>No (only constants)</td></tr>
+    <tr><td>Constructors</td><td>Yes</td><td>No</td></tr>
+    <tr><td>Method bodies</td><td>Any concrete methods</td><td>Only <code>default</code>, <code>static</code>, <code>private</code></td></tr>
+    <tr><td>Access modifiers of methods</td><td>Any (<code>private</code>, <code>protected</code> …)</td><td>Abstract/default methods are always <code>public</code></td></tr>
+    <tr><td>Relationship expressed</td><td>IS-A, with shared code ("a Circle <em>is a</em> Shape")</td><td>CAN-DO / capability ("a SmartPhone <em>can</em> take photos")</td></tr>
+    <tr><td>Typical use</td><td>Closely related classes sharing code and state</td><td>Contracts between parts of a system; multiple capabilities; Spring dependencies</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Rule of thumb</strong>
+    Start with an <strong>interface</strong>. If several implementations end up sharing a lot of code or state, add an abstract class that implements the interface
+    (Java's own <code>List</code> interface + <code>AbstractList</code> class do exactly this). You get the best of both.</div>
+
+  <h3>3.9 Multiple interfaces</h3>
+  <p>A class may extend <strong>one</strong> class but implement <strong>any number</strong> of interfaces. This is how Java offers multiple inheritance — of <em>type</em> and
+     <em>contracts</em> — without the diamond problem of state.</p>
+  <pre><code class="lang-java">class SmartPhone extends Gadget implements Camera, MusicPlayer, Phone { ... }
+
+Camera camera = phone;          // the same object, seen as a Camera
+MusicPlayer player = phone;     // ... or as a MusicPlayer</code></pre>
+  <p><strong>Default method conflict:</strong> if two interfaces provide the same <code>default</code> method, the compiler forces the class to override it.
+     Inside, you can call a specific parent's version with <code>InterfaceName.super.method()</code>:</p>
+  <pre><code class="lang-java">@Override
+public void powerOn() {
+    Camera.super.powerOn();
+    MusicPlayer.super.powerOn();
+    System.out.println(name + " is ready");
+}</code></pre>
+  <p>Interfaces can also <strong>extend</strong> other interfaces (even several): <code>interface Camera extends Device</code>. And if a class and an interface both supply a method,
+     the <strong>class wins</strong>.</p>
+
+  <h3>3.10 Functional interfaces — a preview</h3>
+  <p>An interface with <strong>exactly one abstract method</strong> is a <strong>functional interface</strong>. Mark it with <code>@FunctionalInterface</code> so the compiler checks the rule.
+     Its special power: you can implement it with a short <strong>lambda expression</strong> instead of writing a whole class.</p>
+  <pre><code class="lang-java">@FunctionalInterface
+interface DiscountRule {
+    double apply(double price);
+}
+
+// Full class (long way)
+class FestivalDiscount implements DiscountRule {
+    public double apply(double price) { return price * 0.8; }
+}
+
+// Lambda (short way):   parameter -&gt; result
+DiscountRule tenPercent = price -&gt; price * 0.9;
+DiscountRule flat100    = price -&gt; price - 100;
+
+tenPercent.apply(2000);    // 1800.0</code></pre>
+  <p>A lambda is just "a tiny implementation of the one method". You can now pass <strong>behaviour</strong> as an argument:
+     <code>printFinalPrice(2000, p -&gt; p &gt; 1500 ? p - 300 : p)</code>. Java has many built-in functional interfaces
+     (<code>Runnable</code>, <code>Comparator</code>, <code>Predicate</code>, <code>Function</code> …). All of that is <a href="../13-Lambdas-And-Functional-Interfaces/lesson.html">Topic 13</a>.</p>
+
+  <h3>3.11 Programming to an interface — loose coupling (KEY for Spring)</h3>
+  <p><strong>Coupling</strong> = how strongly one class depends on another. <strong>Tight coupling</strong> means a class is glued to a specific concrete class;
+     <strong>loose coupling</strong> means it depends only on a contract (interface).</p>
+  <h4>❌ Tightly coupled</h4>
+  <pre><code class="lang-java">class TightCheckoutService {
+    private final RazorpayGateway gateway = new RazorpayGateway();   // glued to Razorpay
+    ...
+}</code></pre>
+  <ul>
+    <li>Switch to Stripe? <strong>Edit</strong> this class.</li>
+    <li>Run a test without charging real money? <strong>Impossible</strong> — it always creates the real gateway.</li>
+    <li>Razorpay's constructor changes? This class breaks too.</li>
+  </ul>
+  <h4>✅ Loosely coupled</h4>
+  <pre><code class="lang-java">interface PaymentGateway {
+    boolean charge(String orderId, double amount);
+}
+
+class CheckoutService {
+    private final PaymentGateway gateway;          // depends on the INTERFACE
+
+    CheckoutService(PaymentGateway gateway) {      // the implementation is GIVEN to us
+        this.gateway = gateway;
+    }
+    ...
+}
+
+// Somebody else (main today, Spring tomorrow) decides which implementation to use:
+new CheckoutService(new RazorpayGateway());
+new CheckoutService(new StripeGateway());
+new CheckoutService(new FakePaymentGateway(false));   // for tests</code></pre>
+  <figure class="diagram">
+    <svg viewBox="0 0 600 200" width="600" role="img" aria-label="CheckoutService depends on PaymentGateway interface, implemented by Razorpay, Stripe and Fake gateways">
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="20" y="20" width="160" height="46" rx="8"/>
+        <rect x="230" y="20" width="180" height="46" rx="8" stroke-dasharray="6 4"/>
+        <rect x="150" y="140" width="130" height="40" rx="8"/>
+        <rect x="300" y="140" width="130" height="40" rx="8"/>
+        <rect x="450" y="140" width="130" height="40" rx="8"/>
+        <path d="M180 43 L224 43"/><path d="M216 37 L226 43 L216 49"/>
+        <path d="M215 140 L300 72" stroke-dasharray="5 4"/><path d="M365 140 L325 72" stroke-dasharray="5 4"/><path d="M515 140 L350 72" stroke-dasharray="5 4"/>
+        <path d="M292 76 L302 68 L304 80 Z" fill="currentColor"/>
+      </g>
+      <g fill="currentColor" font-family="Segoe UI, sans-serif" font-size="14" text-anchor="middle">
+        <text x="100" y="48">CheckoutService</text>
+        <text x="320" y="40" font-size="12">«interface»</text>
+        <text x="320" y="58">PaymentGateway</text>
+        <text x="215" y="165">Razorpay</text>
+        <text x="365" y="165">Stripe</text>
+        <text x="515" y="165">Fake (tests)</text>
+        <text x="200" y="110" font-size="11">uses</text>
+        <text x="470" y="110" font-size="11">implements</text>
+      </g>
+    </svg>
+    <figcaption><code>CheckoutService</code> knows only the interface. Implementations can be swapped freely.</figcaption>
+  </figure>
+  <p>This pattern — <em>depend on an interface, receive the implementation from outside</em> — has a name: <strong>Dependency Injection (DI)</strong>.
+     The outside "assembler" that creates objects and plugs them together is, in a Spring app, the <strong>Spring container</strong>. In Topic 22 you will
+     replace our hand-written <code>main</code> wiring with Spring doing it for you, and in Topic 24 you'll choose between multiple implementations with
+     <code>@Qualifier</code> and <code>@Primary</code>.</p>
+  <div class="callout tip"><strong>💡 Declare variables with the interface type</strong>
+    Write <code>List&lt;String&gt; names = new ArrayList&lt;&gt;();</code> rather than <code>ArrayList&lt;String&gt; names = ...</code>. The rest of your code then depends only on
+    <code>List</code>, so switching to <code>LinkedList</code> later is a one-word change. Same idea, everyday scale.</div>
+
+  <!-- =========================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>Example01_CompileTimePolymorphism.java</code></td><td><code>PriceCalculator.total(...)</code> overloaded by number, type and order; type promotion; <code>println</code> overloads.</td></tr>
+    <tr><td><code>Example02_RuntimePolymorphism.java</code></td><td><code>Notification</code> → Email/SMS/Push; one loop for all channels; a method that accepts the parent type.</td></tr>
+    <tr><td><code>Example03_CastingAndInstanceof.java</code></td><td>Upcasting, downcasting, a caught <code>ClassCastException</code>, <code>instanceof</code> with <code>null</code>, old-style vs pattern matching.</td></tr>
+    <tr><td><code>Example04_AbstractClasses.java</code></td><td><code>abstract class Shape</code> with <code>Circle</code>, <code>Rectangle</code>, <code>Triangle</code>; total area; biggest shape.</td></tr>
+    <tr><td><code>Example05_Interfaces.java</code></td><td><code>Payment</code> interface with constant, abstract, default, static and private methods; three implementations.</td></tr>
+    <tr><td><code>Example06_MultipleInterfacesAndFunctional.java</code></td><td><code>SmartPhone extends Gadget implements Camera, MusicPlayer, Phone</code>; default-method conflict; <code>DiscountRule</code> lambdas.</td></tr>
+    <tr><td><code>Example07_ProgrammingToInterface.java</code></td><td>Tight vs loose coupling; <code>CheckoutService</code> with Razorpay, Stripe and a fake gateway used as a test.</td></tr>
+  </table></div>
+
+  <h3>4.1 Example01 — overloading</h3>
+  <pre><span class="file">Example01_CompileTimePolymorphism.java</span><code class="lang-java">short a = 50, b = 2;
+System.out.println("total(short, short)      = " + calc.total(a, b));   // 100</code></pre>
+  <p>There is no <code>total(short, short)</code>. The compiler widens both <code>short</code>s to <code>int</code> and picks <code>total(int, int)</code>. All decisions in this file
+     happen at compile time — if no version matches, you get a compile error, not a runtime crash.</p>
+
+  <h3>4.2 Example02 — dynamic dispatch</h3>
+  <pre><span class="file">Example02_RuntimePolymorphism.java</span><code class="lang-java">Notification[] channels = { n1, n2, n3, new Notification("generic") };
+for (Notification channel : channels) {
+    channel.send("Sale starts tonight!");
+}</code></pre>
+  <p>One line of code, four behaviours. <code>SmsNotification</code> also has its own rule (shorten messages over 20 characters), showing that each class can
+     encapsulate its own logic. <code>alertCustomer(Notification, String)</code> prints the real class with <code>getClass().getSimpleName()</code>.</p>
+
+  <h3>4.3 Example03 — casting safely</h3>
+  <pre><span class="file">Example03_CastingAndInstanceof.java</span><code class="lang-java">static void describeWithPattern(Employee e) {
+    if (e instanceof Manager m) {
+        System.out.println("[new] " + m.getName() + " manages " + m.getTeamSize() + " people");
+    } else if (e instanceof Intern i &amp;&amp; i.getTopic().contains("Spring")) {
+        System.out.println("[new] " + i.getName() + " is an intern learning " + i.getTopic());
+    } else {
+        System.out.println("[new] " + e.getName() + " is a regular employee");
+    }
+}</code></pre>
+  <p>The program first proves the danger: <code>(Manager) intern</code> compiles but throws <code>ClassCastException</code> (caught with <code>try/catch</code>, Topic 10).
+     Then it shows the safe, modern way. Compare <code>describeOldStyle</code> and <code>describeWithPattern</code> — same result, less code.</p>
+
+  <h3>4.4 Example04 — abstract Shape</h3>
+  <pre><span class="file">Example04_AbstractClasses.java</span><code class="lang-java">class Triangle extends Shape {
+    private final double a, b, c;    // the three sides
+    ...
+    @Override
+    double area() {
+        double s = perimeter() / 2;                          // Heron's formula
+        return Math.sqrt(s * (s - a) * (s - b) * (s - c));
+    }
+}</code></pre>
+  <p>Each shape knows its own maths. <code>main</code> loops over <code>Shape[]</code>, calls the shared <code>printReport()</code>, adds up areas, and finds the biggest — without
+     a single <code>if (shape instanceof Circle)</code>.</p>
+
+  <h3>4.5 Example05 — the Payment interface</h3>
+  <pre><span class="file">Example05_Interfaces.java</span><code class="lang-java">interface Payment {
+    double MIN_AMOUNT = 1.0;                       // constant
+
+    boolean pay(double amount);                    // abstract
+    String methodName();
+
+    default void printReceipt(double amount) {     // default (uses a private helper)
+        System.out.println(line() + "\nReceipt: Rs. " + amount + " paid via " + methodName() + "\n" + line());
+    }
+
+    default double fee(double amount) {
+        return 0;
+    }
+
+    static boolean isValidAmount(double amount) {  // static
+        return amount &gt;= MIN_AMOUNT;
+    }
+
+    private String line() {                        // private (Java 9+)
+        return "-".repeat(30);
+    }
+}</code></pre>
+  <p><code>CreditCardPayment</code> overrides <code>fee</code> (2%), <code>UpiPayment</code> keeps the default (free), <code>PayPalPayment</code> overrides both
+     <code>printReceipt</code> and <code>fee</code>. Note the implementing methods are <code>public</code> — required because interface methods are public.</p>
+
+  <h3>4.6 Example06 — many interfaces + lambdas</h3>
+  <p><code>SmartPhone</code> must override <code>powerOn()</code> because both <code>Camera</code> and <code>MusicPlayer</code> provide a default one; it calls both with
+     <code>Camera.super.powerOn()</code> and <code>MusicPlayer.super.powerOn()</code>. The second half creates four <code>DiscountRule</code>s — one class and three lambdas — and passes a
+     lambda straight into a method.</p>
+
+  <h3>4.7 Example07 — loose coupling in practice</h3>
+  <pre><span class="file">Example07_ProgrammingToInterface.java</span><code class="lang-java">FakePaymentGateway fake = new FakePaymentGateway(false);   // simulate a declined payment
+CheckoutService underTest = new CheckoutService(fake);
+boolean ok = underTest.checkout("ORD-TEST", 500);</code></pre>
+  <p>This is a hand-made <strong>unit test</strong>: we check that <code>CheckoutService</code> handles a declined payment correctly, without any real payment provider.
+     In Topic 21 you'll do the same with JUnit and Mockito; in Topic 46 with Spring's test support.</p>
+
+  <!-- =========================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <h3>In VS Code</h3>
+  <ol>
+    <li>Open <code>D:\Java-SpringBoot</code> in VS Code.</li>
+    <li>Open a file in <code>8-OOP-Polymorphism-Abstraction-Interfaces</code> and click <strong>Run</strong> above <code>main</code>.</li>
+    <li>Experiment: in Example04 un-comment <code>new Shape("mystery")</code> and the <code>Square</code> class to see the compiler errors.</li>
+  </ol>
+  <h3>From the terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\8-OOP-Polymorphism-Abstraction-Interfaces"
+java Example01_CompileTimePolymorphism.java
+java Example02_RuntimePolymorphism.java
+java Example03_CastingAndInstanceof.java
+java Example04_AbstractClasses.java
+java Example05_Interfaces.java
+java Example06_MultipleInterfacesAndFunctional.java
+java Example07_ProgrammingToInterface.java</code></pre>
+  <p>Expected output of <code>Example01</code>:</p>
+  <pre class="terminal"><code>total(100, 2)            = 200
+total(99.5, 3)           = 298.5
+total(100, 2, 10)        = 180
+total("Pen", 3)          = 3 x Pen
+total(3, "Pen")          = Pen (qty 3)
+total(short, short)      = 100
+42
+4.2
+x
+true</code></pre>
+  <p>Expected output of <code>Example02</code>:</p>
+  <pre class="terminal"><code>EMAIL to priya@shop.com | Subject: Update | Body: Your order has shipped
+SMS to 98480-12345: Your order has shipp...
+PUSH to device-42 [bell] Your order has shipped
+
+EMAIL to priya@shop.com | Subject: Update | Body: Sale starts tonight!
+SMS to 98480-12345: Sale starts tonight!
+PUSH to device-42 [bell] Sale starts tonight!
+Generic notification to generic: Sale starts tonight!
+
+[alertCustomer] using SmsNotification
+SMS to 90000-11111: OTP is 4821
+[alertCustomer] using EmailNotification
+EMAIL to ravi@shop.com | Subject: Update | Body: Password changed</code></pre>
+  <p>Expected output of <code>Example03</code>:</p>
+  <pre class="terminal"><code>Anil is planning work for the team
+Anil approved a leave request
+ClassCastException: an Intern is not a Manager!
+
+intern instanceof Employee: true
+intern instanceof Intern  : true
+intern instanceof Manager : false
+null instanceof Employee  : false
+
+[old] Anil manages 8 people
+[new] Anil manages 8 people
+[old] Zoya is not a manager
+[new] Zoya is an intern learning Spring Boot
+[old] Kavya is not a manager
+[new] Kavya is a regular employee</code></pre>
+  <p>Expected output of <code>Example04</code>:</p>
+  <pre class="terminal"><code>Circle    area =  153.94, perimeter =  43.98
+Rectangle area =   20.00, perimeter =  18.00
+Triangle  area =    6.00, perimeter =  12.00
+Total area of all shapes: 179.94
+Biggest shape: Circle</code></pre>
+  <p>Expected output of <code>Example05</code>:</p>
+  <pre class="terminal"><code>--- Credit Card ---
+Charging Rs. 1500.0 to card ending 1111
+------------------------------
+Receipt: Rs. 1500.0 paid via Credit Card
+------------------------------
+Fee: 30.0
+--- UPI ---
+Sending UPI collect request of Rs. 1500.0 to neha@okbank
+------------------------------
+Receipt: Rs. 1500.0 paid via UPI
+------------------------------
+Fee: 0.0
+--- PayPal ---
+Redirecting neha@example.com to PayPal to pay Rs. 1500.0
+PayPal will email the receipt to neha@example.com
+Fee: 55.0
+
+Minimum amount: 1.0
+Is 0.5 valid? false
+Is 250 valid? true</code></pre>
+  <p>Expected output of <code>Example06</code>:</p>
+  <pre class="terminal"><code>Pixel calling 98480-00000
+Pixel clicked a photo
+Pixel playing Kesariya
+Camera lens opening
+Music player warming up speakers
+Pixel is ready
+Pixel is charging
+Pixel clicked a photo
+Pixel playing Naatu Naatu
+phone instanceof Camera? true
+phone instanceof Device? true (Camera extends Device)
+
+Festival    : 1600.0
+No discount : 2000.0
+Flat 100 off: 1900.0
+10% off     : 1800.0
+Final price: 1800.0
+Final price: 1700.0</code></pre>
+  <p>Expected output of <code>Example07</code>:</p>
+  <pre class="terminal"><code>=== PART A: tightly coupled ===
+Checking out ORD-1
+  [Razorpay] charged Rs. 799.0 for ORD-1
+
+=== PART B: loosely coupled (program to an interface) ===
+Checking out ORD-2
+  [Razorpay] charged Rs. 1299.0 for ORD-2
+  Order ORD-2 confirmed
+Checking out ORD-3
+  [Stripe] charged Rs. 1299.0 for ORD-3
+  Order ORD-3 confirmed
+
+=== Testing with a fake gateway ===
+Checking out ORD-TEST
+  [Fake] pretending to charge 500.0 -&gt; declined
+  Payment failed for ORD-TEST
+Test result: checkout returned false, gateway was called 1 time(s) -&gt; TEST PASSED (declined payment handled)</code></pre>
+
+  <!-- =========================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>❌ Mistake: downcasting without checking</strong>
+    <code>Manager m = (Manager) employee;</code> crashes with <code>ClassCastException</code> if the object is an <code>Intern</code>.<br>
+    <strong>Fix:</strong> <code>if (employee instanceof Manager m) { ... }</code> — or better, redesign so you don't need the cast (an overridden method).</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: calling a child-only method through a parent variable</strong>
+    <code>Employee e = new Manager(...); e.approveLeave();</code> → "cannot find symbol".<br>
+    <strong>Fix:</strong> the variable type decides what you can call. Either declare it as <code>Manager</code>, or move the method to the parent/interface if all types should have it.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: trying to instantiate an abstract class or interface</strong>
+    <code>new Shape("x")</code> / <code>new Payment()</code> → "is abstract; cannot be instantiated".<br>
+    <strong>Fix:</strong> create a concrete subclass/implementation: <code>new Circle(7)</code>, <code>new UpiPayment(...)</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting <code>public</code> when implementing an interface method</strong>
+    <code>boolean pay(double amount) { ... }</code> in the class → "attempting to assign weaker access privileges; was public".<br>
+    <strong>Fix:</strong> <code>public boolean pay(double amount)</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: not implementing every abstract method</strong>
+    "Square is not abstract and does not override abstract method area() in Shape".<br>
+    <strong>Fix:</strong> implement all of them (VS Code: click the lightbulb → <em>Add unimplemented methods</em>), or mark the class <code>abstract</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: overloading only by return type</strong>
+    <code>int total(int, int)</code> and <code>long total(int, int)</code> → "already defined".<br>
+    <strong>Fix:</strong> change the parameter list or the method name.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: long <code>if/else instanceof</code> chains</strong>
+    They grow with every new type and are easy to forget to update.<br>
+    <strong>Fix:</strong> put the varying behaviour in an overridden/implemented method and call it polymorphically.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: <code>new</code>-ing dependencies inside a class</strong>
+    <code>private final RazorpayGateway gateway = new RazorpayGateway();</code> makes the class impossible to test or reconfigure.<br>
+    <strong>Fix:</strong> depend on an interface and receive the implementation through the constructor.</div>
+
+  <!-- =========================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Program to an interface</strong>: declare fields, parameters and variables with the interface type (<code>PaymentGateway</code>, <code>List</code>, <code>Map</code>).</li>
+    <li><strong>Inject dependencies through the constructor</strong> and store them in <code>private final</code> fields. This is exactly the style Spring recommends.</li>
+    <li><strong>Prefer polymorphism over type checks.</strong> Replace <code>if/else</code> on types with overridden methods.</li>
+    <li><strong>Keep interfaces small and focused</strong> ("Interface Segregation Principle"): <code>Camera</code>, <code>MusicPlayer</code>, <code>Phone</code> instead of one giant <code>Device</code> with 30 methods.</li>
+    <li><strong>Use default methods sparingly</strong> — for convenient defaults, not to sneak state or big logic into interfaces.</li>
+    <li><strong>Mark single-method interfaces with <code>@FunctionalInterface</code></strong> so they can't accidentally gain a second abstract method.</li>
+    <li><strong>Use abstract classes</strong> when related classes really share code/state; combine with an interface for the public contract.</li>
+    <li><strong>Use <code>instanceof</code> pattern matching</strong> (Java 16+) instead of check-then-cast when you really need a type check.</li>
+    <li>Name implementations by what's special about them (<code>StripeGateway</code>, <code>JpaProductRepository</code>), not <code>PaymentGatewayImpl</code> — though you'll see <code>...Impl</code> a lot in real projects.</li>
+  </ul>
+
+  <!-- =========================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li><strong>Polymorphism</strong> = one name, many forms. Overloading is compile-time; overriding + parent references is runtime.</li>
+    <li>Reference type decides <em>what</em> you can call; object type decides <em>which version</em> runs.</li>
+    <li>Upcasting is automatic and safe; downcasting needs a cast and an <code>instanceof</code> check (use <code>if (x instanceof T t)</code>).</li>
+    <li><strong>Abstract classes</strong> can't be instantiated; they mix abstract methods (no body) with fields, constructors and concrete methods.</li>
+    <li><strong>Interfaces</strong> are contracts: abstract, <code>default</code>, <code>static</code>, <code>private</code> methods and constants — no state.</li>
+    <li>A class extends one class but can implement many interfaces; conflicting defaults must be overridden (<code>X.super.m()</code>).</li>
+    <li>A <strong>functional interface</strong> has one abstract method and can be implemented with a lambda.</li>
+    <li><strong>Program to an interface + constructor injection = loose coupling</strong>: easy to swap, extend and test. This is what Spring automates.</li>
+  </ul></div>
+
+  <!-- =========================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Overload <code>area</code>.</strong> Write a class <code>AreaCalculator</code> with overloaded <code>area</code> methods: <code>area(double side)</code> (square),
+       <code>area(double length, double width)</code> (rectangle), and <code>area(double base, double height, boolean triangle)</code> (triangle). Print all three.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public class Practice01 {
+    public static void main(String[] args) {
+        AreaCalculator c = new AreaCalculator();
+        System.out.println(c.area(4));            // 16.0
+        System.out.println(c.area(4, 5));         // 20.0
+        System.out.println(c.area(4, 5, true));   // 10.0
+    }
+}
+
+class AreaCalculator {
+    double area(double side) { return side * side; }
+    double area(double length, double width) { return length * width; }
+    double area(double base, double height, boolean triangle) { return 0.5 * base * height; }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Abstract Employee pay.</strong> Create <code>abstract class Worker</code> with a name and <code>abstract double monthlyPay()</code>.
+       Implement <code>FullTimeWorker</code> (fixed salary) and <code>HourlyWorker</code> (hours × rate). Put both in a <code>Worker[]</code> and print total payroll.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public class Practice02 {
+    public static void main(String[] args) {
+        Worker[] staff = { new FullTimeWorker("Asha", 50000), new HourlyWorker("Ben", 120, 300) };
+        double total = 0;
+        for (Worker w : staff) {
+            System.out.println(w.getName() + ": " + w.monthlyPay());
+            total += w.monthlyPay();
+        }
+        System.out.println("Total payroll: " + total);   // 86000.0
+    }
+}
+
+abstract class Worker {
+    private final String name;
+    protected Worker(String name) { this.name = name; }
+    String getName() { return name; }
+    abstract double monthlyPay();
+}
+
+class FullTimeWorker extends Worker {
+    private final double salary;
+    FullTimeWorker(String name, double salary) { super(name); this.salary = salary; }
+    @Override double monthlyPay() { return salary; }
+}
+
+class HourlyWorker extends Worker {
+    private final int hours;
+    private final double rate;
+    HourlyWorker(String name, int hours, double rate) { super(name); this.hours = hours; this.rate = rate; }
+    @Override double monthlyPay() { return hours * rate; }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Add a new payment method.</strong> Using <code>Example05_Interfaces.java</code> as a starting point, add a <code>WalletPayment</code> class that has a balance.
+       <code>pay</code> must return <code>false</code> (and print a message) if the balance is too low. Override <code>fee</code> to return <code>5</code>. Add it to the array — notice you change nothing else in <code>main</code>'s loop.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">class WalletPayment implements Payment {
+    private double balance;
+
+    WalletPayment(double balance) {
+        this.balance = balance;
+    }
+
+    @Override
+    public boolean pay(double amount) {
+        if (amount &gt; balance) {
+            System.out.println("Wallet balance too low: " + balance);
+            return false;
+        }
+        balance -= amount;
+        System.out.println("Paid Rs. " + amount + " from wallet, left " + balance);
+        return true;
+    }
+
+    @Override
+    public String methodName() {
+        return "Wallet";
+    }
+
+    @Override
+    public double fee(double amount) {
+        return 5;
+    }
+}
+// In main: add  new WalletPayment(1000)  to the payments array.</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Safe downcasting.</strong> Given <code>Object[] items = { "hello", 42, 3.14, "Java", true };</code> loop and print: for Strings their length,
+       for Integers their square, for Doubles the value rounded, otherwise "unknown". Use pattern matching for <code>instanceof</code>.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public class Practice04 {
+    public static void main(String[] args) {
+        Object[] items = { "hello", 42, 3.14, "Java", true };
+        for (Object item : items) {
+            if (item instanceof String s) {
+                System.out.println("String of length " + s.length());
+            } else if (item instanceof Integer n) {
+                System.out.println("Integer squared: " + (n * n));
+            } else if (item instanceof Double d) {
+                System.out.println("Double rounded: " + Math.round(d));
+            } else {
+                System.out.println("unknown: " + item);
+            }
+        }
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Loose coupling with notifications.</strong> Create an interface <code>MessageSender</code> with <code>void send(String to, String text)</code>, two implementations
+       (<code>EmailSender</code>, <code>SmsSender</code>) and a <code>FakeSender</code> that only <em>stores</em> the last message. Create <code>OrderService</code> that receives a <code>MessageSender</code>
+       through its constructor and calls it in <code>placeOrder(String customer)</code>. In <code>main</code>, test <code>OrderService</code> with the fake and check that the stored message contains the customer's name.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public class Practice05 {
+    public static void main(String[] args) {
+        new OrderService(new EmailSender()).placeOrder("ravi@shop.com");
+
+        FakeSender fake = new FakeSender();
+        new OrderService(fake).placeOrder("test-user");
+        boolean passed = fake.getLastText() != null &amp;&amp; fake.getLastText().contains("test-user");
+        System.out.println("Test passed? " + passed);   // true
+    }
+}
+
+interface MessageSender {
+    void send(String to, String text);
+}
+
+class EmailSender implements MessageSender {
+    @Override
+    public void send(String to, String text) {
+        System.out.println("EMAIL to " + to + ": " + text);
+    }
+}
+
+class SmsSender implements MessageSender {
+    @Override
+    public void send(String to, String text) {
+        System.out.println("SMS to " + to + ": " + text);
+    }
+}
+
+class FakeSender implements MessageSender {
+    private String lastText;
+
+    @Override
+    public void send(String to, String text) {
+        lastText = text;          // record instead of sending
+    }
+
+    String getLastText() {
+        return lastText;
+    }
+}
+
+class OrderService {
+    private final MessageSender sender;
+
+    OrderService(MessageSender sender) {
+        this.sender = sender;
+    }
+
+    void placeOrder(String customer) {
+        // ... save the order ...
+        sender.send(customer, "Thank you " + customer + ", your order is placed!");
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Default method conflict.</strong> Create interfaces <code>Flyer</code> and <code>Swimmer</code>, each with <code>default String move()</code>
+       returning "flying" / "swimming". Create <code>Duck implements Flyer, Swimmer</code>. Make <code>Duck.move()</code> return <code>"flying and swimming"</code> using both parent versions.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public class Practice06 {
+    public static void main(String[] args) {
+        System.out.println(new Duck().move());   // flying and swimming
+    }
+}
+
+interface Flyer {
+    default String move() { return "flying"; }
+}
+
+interface Swimmer {
+    default String move() { return "swimming"; }
+}
+
+class Duck implements Flyer, Swimmer {
+    @Override
+    public String move() {
+        return Flyer.super.move() + " and " + Swimmer.super.move();
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is polymorphism? What are its types in Java?</summary>
+    <p>The ability of one name/interface to take many forms. Compile-time (static) polymorphism via method overloading, resolved by the compiler from argument types;
+       runtime (dynamic) polymorphism via method overriding, where a parent-type reference calls the overridden method of the actual object, resolved by the JVM (dynamic dispatch).</p></details>
+
+  <details><summary>Q2. What is dynamic method dispatch?</summary>
+    <p>The mechanism by which a call to an overridden method through a superclass/interface reference is resolved at runtime based on the actual object type.
+       E.g. <code>Notification n = new SmsNotification(); n.send()</code> runs <code>SmsNotification.send()</code>.</p></details>
+
+  <details><summary>Q3. What is the difference between upcasting and downcasting?</summary>
+    <p>Upcasting converts a subclass reference to a superclass type — implicit and always safe. Downcasting converts a superclass reference to a subclass type —
+       requires an explicit cast and throws <code>ClassCastException</code> at runtime if the object isn't actually an instance of that subclass; guard it with <code>instanceof</code>.</p></details>
+
+  <details><summary>Q4. What is pattern matching for <code>instanceof</code>?</summary>
+    <p>Java 16+ syntax <code>if (obj instanceof Type t)</code> that tests the type and, if true, binds a new variable <code>t</code> already cast to <code>Type</code>. It removes the separate cast line and
+       the risk of casting to the wrong type. The variable is in scope only where the test is known to be true.</p></details>
+
+  <details><summary>Q5. Abstract class vs interface — differences and when to use each?</summary>
+    <p>An abstract class can have state (fields), constructors, any access modifiers and concrete methods, but a class can extend only one. An interface defines a contract
+       (abstract methods plus default/static/private methods and constants), has no instance state or constructors, and a class can implement many. Use an interface for
+       capabilities/contracts and dependencies between components; use an abstract class to share code and state among closely related classes. Often both together.</p></details>
+
+  <details><summary>Q6. Can an abstract class have a constructor? Can it have no abstract methods?</summary>
+    <p>Yes to both. The constructor is called by subclasses via <code>super(...)</code> to initialize shared fields. An abstract class with no abstract methods is legal — it simply
+       prevents direct instantiation.</p></details>
+
+  <details><summary>Q7. Why were default and static methods added to interfaces in Java 8? What about private methods?</summary>
+    <p>Default methods let library designers evolve interfaces (e.g. add <code>stream()</code> to <code>Collection</code>) without breaking existing implementations; static methods let
+       related helpers live on the interface. Java 9 added private methods so default/static methods can share helper code without exposing it.</p></details>
+
+  <details><summary>Q8. What happens if a class implements two interfaces with the same default method?</summary>
+    <p>Compilation fails unless the class overrides the method. Inside the override it can delegate to a specific one using <code>InterfaceName.super.method()</code>.
+       If a superclass provides the method, the class's version wins over interface defaults.</p></details>
+
+  <details><summary>Q9. What is a functional interface?</summary>
+    <p>An interface with exactly one abstract method (it may also have default/static methods), optionally annotated <code>@FunctionalInterface</code>. It can be implemented with a lambda
+       or method reference. Examples: <code>Runnable</code>, <code>Comparator</code>, <code>Predicate</code>, <code>Function</code>.</p></details>
+
+  <details><summary>Q10. What does "program to an interface, not an implementation" mean and why does Spring rely on it?</summary>
+    <p>Code should depend on abstract types (interfaces) rather than concrete classes, and receive concrete implementations from outside (e.g. via constructor). This gives
+       loose coupling: implementations can be swapped (Razorpay → Stripe), extended, and replaced with fakes/mocks in tests without changing the dependent class. Spring's IoC
+       container creates the implementations and injects them (dependency injection), and also wraps beans in proxies implementing the same interfaces for transactions, security, caching, etc.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../7-OOP-Encapsulation-And-Inheritance/lesson.html"><small>← Previous</small>7. Encapsulation &amp; Inheritance</a>
+    <a class="next" href="../9-Packages-Access-Modifiers-Static-Final/lesson.html"><small>Next →</small>9. Packages, Access Modifiers, Static &amp; Final</a>
+  </nav>
+</main>
+</body>
+</html>

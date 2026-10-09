@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>2 · Variables, Data Types &amp; Operators</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 2</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>2. Variables, Data Types &amp; Operators</h1>
+  <p class="subtitle">Store values in variables, pick the right data type, convert between types safely, and do maths and comparisons with operators — the raw material of every program.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="2-Variables-DataTypes-Operators"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What a variable is, how to declare and change one, and the naming rules.</li>
+      <li>The 8 <strong>primitive types</strong> with their sizes and ranges, and a first look at <code>String</code>.</li>
+      <li><strong>Type casting</strong>: widening (automatic) and narrowing (manual), and overflow.</li>
+      <li><code>var</code> and constants with <code>final</code>.</li>
+      <li>Arithmetic, relational, logical, assignment and increment operators.</li>
+      <li>The integer-division and modulo tricks every programmer uses.</li>
+      <li>Operator precedence — which part of an expression runs first.</li>
+      <li>The <code>Math</code> class, <strong>wrapper classes</strong> and <strong>autoboxing</strong>.</li>
+      <li>Two mini-programs: a shopping bill calculator and a temperature converter.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../1-Introduction-And-Setup/lesson.html">Topic 1 · Welcome &amp; Setup</a> (running a program, println, Scanner).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Every application is about <strong>data</strong>. A shopping app stores prices and quantities. A bank stores balances. A college system stores marks and names. Before you can do anything clever, you must be able to <strong>store</strong> data and <strong>calculate</strong> with it.</p>
+  <p>Later in this course, when you write a Spring Boot <code>Product</code> entity, it will have fields like <code>Long id</code>, <code>String name</code>, <code>double price</code>, <code>int stock</code>. When you calculate an order total, you will use operators. When a bug says "the total is 0", it will often be <strong>integer division</strong> — which you will understand after today. This topic is small in ideas but used on <em>every single line</em> of code you will ever write.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>📦 Labelled boxes in a kitchen</strong>
+    <p>Imagine your kitchen shelf full of <strong>labelled containers</strong>: "Sugar", "Rice", "Salt". Each container:</p>
+    <ul>
+      <li>has a <strong>label</strong> — that's the variable's <strong>name</strong> (<code>sugar</code>),</li>
+      <li>is made for <strong>one kind of thing</strong> and has a <strong>fixed size</strong> — that's the <strong>data type</strong> (a tiny spice jar vs a big rice drum = <code>byte</code> vs <code>long</code>),</li>
+      <li>holds <strong>contents</strong> that can change — that's the <strong>value</strong> (you use some sugar, you refill it).</li>
+    </ul>
+    <p>You can't pour a 10&nbsp;kg rice bag into a spice jar — it overflows. That's <strong>narrowing</strong>. Pouring the spice jar into the rice drum is always fine — that's <strong>widening</strong>. And a container marked <strong>"DO NOT REFILL"</strong> is a <strong>constant</strong> (<code>final</code>).</p>
+    <p><strong>Operators</strong> are your kitchen tools: the measuring cup (<code>+</code>, <code>-</code>), the scale that compares two things (<code>&gt;</code>, <code>==</code>), and the recipe rule "only bake if you have flour <em>and</em> eggs" (<code>&amp;&amp;</code>).</p>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 What is a variable?</h3>
+  <p>A <strong>variable</strong> is a named place in memory that holds a value. In Java, every variable has a <strong>type</strong> that decides what kind of value it can hold.</p>
+  <pre><code class="lang-java">int age = 25;
+// │    │    │
+// │    │    └── value       (what's inside the box)
+// │    └─────── name        (the label)
+// └──────────── type        (what kind of box)</code></pre>
+  <p>Three things you can do with a variable:</p>
+  <pre><code class="lang-java">int studentCount;          // 1. DECLARE  – create the box (type + name)
+studentCount = 30;         // 2. ASSIGN   – put a value in (= means "store", not "equals")
+int books = 1200;          //    declare + assign in one go (called INITIALISING)
+books = books + 50;        // 3. CHANGE   – read the old value, add 50, store it back → 1250</code></pre>
+  <div class="callout info"><strong>ℹ️ <code>=</code> is not "equals"</strong>In maths, <code>x = x + 1</code> is impossible. In Java, <code>=</code> means <strong>"take the value on the right and store it in the variable on the left"</strong>. So <code>x = x + 1</code> means "add one to x". To <em>compare</em>, Java uses <code>==</code> (two equals signs).</div>
+  <p>A <strong>local variable</strong> (declared inside a method like <code>main</code>) must be given a value before you read it — Java will not guess:</p>
+  <pre><code class="lang-java">int total;
+System.out.println(total);   // ❌ error: variable total might not have been initialized</code></pre>
+
+  <h3>3.2 Naming rules and conventions</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Rule (must follow — compiler checks)</th><th>✔ OK</th><th>✘ Not OK</th></tr>
+    <tr><td>Letters, digits, <code>_</code> and <code>$</code> only</td><td><code>total_marks</code></td><td><code>total-marks</code>, <code>total marks</code></td></tr>
+    <tr><td>Cannot start with a digit</td><td><code>place2</code></td><td><code>2ndPlace</code></td></tr>
+    <tr><td>Cannot be a keyword (<code>int</code>, <code>class</code>, <code>new</code>, <code>public</code>…)</td><td><code>className</code></td><td><code>class</code></td></tr>
+    <tr><td>Case-sensitive</td><td colspan="2"><code>score</code> and <code>Score</code> are two different variables</td></tr>
+  </table></div>
+  <div class="table-wrap"><table>
+    <tr><th>Convention (should follow — everyone does)</th><th>Used for</th><th>Example</th></tr>
+    <tr><td><strong>camelCase</strong> — first word small, next words capitalised</td><td>variables, methods</td><td><code>totalMarks</code>, <code>accountBalance</code></td></tr>
+    <tr><td><strong>PascalCase</strong></td><td>classes</td><td><code>BankAccount</code>, <code>String</code></td></tr>
+    <tr><td><strong>UPPER_SNAKE_CASE</strong></td><td>constants</td><td><code>GST_RATE</code>, <code>MAX_USERS</code></td></tr>
+    <tr><td>Meaningful names, not single letters (except loop counters)</td><td>everything</td><td><code>price</code> not <code>p</code></td></tr>
+  </table></div>
+
+  <h3>3.3 The 8 primitive data types</h3>
+  <p>Java has 8 built-in <strong>primitive types</strong>. "Primitive" means simple: they hold a single raw value directly (not an object). Memorise this table — it's asked in interviews.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Type</th><th>Size</th><th>Range (approx.)</th><th>Default*</th><th>Example</th><th>Use for</th></tr>
+    <tr><td><code>byte</code></td><td>1 byte (8 bits)</td><td>-128 to 127</td><td>0</td><td><code>byte age = 25;</code></td><td>Very small numbers, raw file data</td></tr>
+    <tr><td><code>short</code></td><td>2 bytes</td><td>-32,768 to 32,767</td><td>0</td><td><code>short year = 2026;</code></td><td>Rarely used</td></tr>
+    <tr><td><code>int</code></td><td>4 bytes</td><td>about ±2.1 billion<br>(-2<sup>31</sup> to 2<sup>31</sup>-1)</td><td>0</td><td><code>int stock = 500;</code></td><td><strong>Default choice for whole numbers</strong></td></tr>
+    <tr><td><code>long</code></td><td>8 bytes</td><td>about ±9.2 × 10<sup>18</sup></td><td>0L</td><td><code>long views = 8_000_000_000L;</code></td><td>Big numbers, IDs, timestamps</td></tr>
+    <tr><td><code>float</code></td><td>4 bytes</td><td>±3.4 × 10<sup>38</sup>, ~7 digits precision</td><td>0.0f</td><td><code>float rating = 4.5f;</code></td><td>Rarely used (graphics, saving memory)</td></tr>
+    <tr><td><code>double</code></td><td>8 bytes</td><td>±1.8 × 10<sup>308</sup>, ~15–16 digits precision</td><td>0.0</td><td><code>double price = 99.99;</code></td><td><strong>Default choice for decimals</strong></td></tr>
+    <tr><td><code>char</code></td><td>2 bytes</td><td>0 to 65,535 (one Unicode character)</td><td>'\u0000'</td><td><code>char grade = 'A';</code></td><td>A single character</td></tr>
+    <tr><td><code>boolean</code></td><td>JVM-dependent (logically 1 bit)</td><td><code>true</code> or <code>false</code></td><td>false</td><td><code>boolean isPaid = true;</code></td><td>Yes/no flags, conditions</td></tr>
+  </table></div>
+  <p><small>* Defaults apply to <em>fields</em> of a class and array elements (Topics 4 and 6). Local variables have no default — you must initialise them.</small></p>
+  <p>Easy way to remember the number types: they are boxes of growing size.</p>
+  <div class="flow">
+    <span class="box">byte<br><small>1 B</small></span><span class="arrow">→</span>
+    <span class="box">short<br><small>2 B</small></span><span class="arrow">→</span>
+    <span class="box">int<br><small>4 B</small></span><span class="arrow">→</span>
+    <span class="box">long<br><small>8 B</small></span><span class="arrow">→</span>
+    <span class="box alt">float<br><small>4 B</small></span><span class="arrow">→</span>
+    <span class="box alt">double<br><small>8 B</small></span>
+  </div>
+  <p><strong>Literals</strong> are values written directly in code. A few rules:</p>
+  <ul>
+    <li>A whole number like <code>500</code> is an <code>int</code> by default. For a <code>long</code> bigger than int's range add <code>L</code>: <code>8_000_000_000L</code>.</li>
+    <li>A decimal like <code>4.5</code> is a <code>double</code> by default. For <code>float</code> add <code>f</code>: <code>4.5f</code>.</li>
+    <li>Underscores make big numbers readable: <code>1_000_000</code> is the same as <code>1000000</code>.</li>
+    <li><code>char</code> uses <strong>single</strong> quotes <code>'A'</code>; <code>String</code> uses <strong>double</strong> quotes <code>"A"</code>.</li>
+    <li>You can also write numbers in hex (<code>0xFF</code> = 255) or binary (<code>0b1010</code> = 10).</li>
+  </ul>
+  <div class="callout warn"><strong>⚠️ Decimals are not exact</strong><code>double</code> stores numbers in binary, and 0.1 cannot be written exactly in binary (just like 1/3 = 0.3333… in decimal). So <code>0.1 + 0.2</code> prints <code>0.30000000000000004</code>. For money in real banking/e-commerce code, professionals use <code>java.math.BigDecimal</code> (you'll meet it later in the course). For learning, <code>double</code> is fine.</div>
+
+  <h3>3.4 Meet String (a first look)</h3>
+  <p><code>String</code> holds text. It is <strong>not</strong> a primitive — it's a <strong>class</strong> (notice the capital S). But Java gives it special treatment so you can create it with just quotes:</p>
+  <pre><code class="lang-java">String customerName = "Meera";
+System.out.println(customerName.length());       // 5
+System.out.println(customerName.toUpperCase());  // MEERA
+System.out.println("Hi " + customerName);        // Hi Meera  (+ joins text)</code></pre>
+  <p>The <code>.length()</code> part calls a <strong>method</strong> (an ability) of the String. Primitives don't have methods; objects do. Topic 5 is entirely about Strings.</p>
+
+  <h3>3.5 Primitive vs reference types (simple picture)</h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Primitive (<code>int</code>, <code>double</code>…)</th><th>Reference (<code>String</code>, <code>Integer</code>, your own classes…)</th></tr>
+    <tr><td>Holds</td><td>The value itself</td><td>An address ("reference") pointing to an object</td></tr>
+    <tr><td>Can be <code>null</code>?</td><td>No</td><td>Yes (means "points to nothing")</td></tr>
+    <tr><td>Has methods?</td><td>No</td><td>Yes (<code>name.length()</code>)</td></tr>
+    <tr><td>Name starts with</td><td>small letter</td><td>Capital letter (by convention)</td></tr>
+  </table></div>
+
+  <h3>3.6 Type casting — converting between types</h3>
+  <p><strong>Widening (implicit / automatic)</strong>: from a smaller type to a bigger one. Always safe, so Java does it for you.</p>
+  <pre><code class="lang-java">int itemsSold = 150;
+long bigTotal = itemsSold;     // 150      (int → long)
+double asDecimal = itemsSold;  // 150.0    (int → double)</code></pre>
+  <div class="flow">
+    <span class="box">byte</span><span class="arrow">→</span><span class="box">short</span><span class="arrow">→</span><span class="box">int</span><span class="arrow">→</span><span class="box">long</span><span class="arrow">→</span><span class="box">float</span><span class="arrow">→</span><span class="box">double</span>
+    <span class="arrow">&nbsp;&nbsp;and&nbsp;&nbsp;</span><span class="box alt">char</span><span class="arrow">→</span><span class="box">int</span>
+  </div>
+  <p><strong>Narrowing (explicit / manual cast)</strong>: from a bigger type to a smaller one. Data may be lost, so Java insists you write the target type in brackets — the <strong>cast operator</strong> <code>(type)</code>:</p>
+  <pre><code class="lang-java">double price = 99.99;
+int whole = (int) price;            // 99   – decimal part is CUT OFF, not rounded!
+long huge = 3_000_000_000L;
+int squeezed = (int) huge;          // -1294967296 – doesn't fit, wraps around (garbage!)
+long rounded = Math.round(price);   // 100  – use Math.round for real rounding</code></pre>
+  <p><strong>Overflow</strong>: if a calculation goes past the maximum, it silently wraps around to the minimum — like a car's odometer going from 999999 back to 000000:</p>
+  <pre><code class="lang-java">int max = Integer.MAX_VALUE;   //  2147483647
+int oops = max + 1;            // -2147483648   (no error, just wrong!)</code></pre>
+  <p><strong>Automatic promotion in expressions</strong>: when you mix types in maths, Java converts the smaller one to the bigger one first. And <code>byte</code>, <code>short</code>, <code>char</code> are always promoted to at least <code>int</code>:</p>
+  <pre><code class="lang-java">int qty = 3;
+double price = 2.5;
+double total = qty * price;   // qty is promoted to 3.0 → 7.5
+
+byte a = 10, b = 20;
+// byte c = a + b;            // ❌ error: a + b is an int!
+byte c = (byte) (a + b);      // ✔ 30</code></pre>
+  <p><strong>char ↔ int</strong>: a <code>char</code> is stored as a number (its Unicode code):</p>
+  <pre><code class="lang-java">char letter = 'A';
+int code = letter;               // 65
+char next = (char) (code + 1);   // 'B'</code></pre>
+  <p><strong>Text ↔ number</strong> is <em>not</em> casting — you use helper methods:</p>
+  <pre><code class="lang-java">int qty = Integer.parseInt("42");          // "42" → 42
+double amt = Double.parseDouble("19.5");   // "19.5" → 19.5
+String text = String.valueOf(42);          // 42 → "42"
+String text2 = "" + 42;                    // also works (quick trick)
+// int bad = (int) "42";                   // ❌ error: you cannot cast a String to int</code></pre>
+
+  <h3>3.7 <code>var</code> — let the compiler figure out the type (Java 10+)</h3>
+  <p>For <strong>local variables</strong> you can write <code>var</code> instead of the type, if you give a value immediately. The compiler looks at the value and decides the type.</p>
+  <pre><code class="lang-java">var city = "Pune";      // String
+var year = 2026;        // int
+var temp = 31.5;        // double
+// city = 10;           // ❌ error – city is a String forever. var is NOT "any type".
+// var x;               // ❌ error – needs a value so the compiler can infer the type
+// var y = null;        // ❌ error – null tells the compiler nothing</code></pre>
+  <div class="callout tip"><strong>💡 When to use var</strong>Use it when the type is obvious from the right side (<code>var list = new ArrayList&lt;String&gt;();</code>). Avoid it when it hides the type (<code>var result = calculate();</code> — what type is result?). <code>var</code> works only for local variables — not for fields, method parameters or return types.</div>
+
+  <h3>3.8 Constants with <code>final</code></h3>
+  <p>A variable marked <code>final</code> can be assigned <strong>only once</strong>. After that, it can never change. Use it for values that shouldn't change, like tax rates or limits.</p>
+  <pre><code class="lang-java">public class Billing {
+    static final double GST_RATE = 0.18;     // class-level constant (UPPER_SNAKE_CASE)
+
+    public static void main(String[] args) {
+        final int daysInWeek = 7;            // local constant
+        // daysInWeek = 8;                   // ❌ error: cannot assign a value to final variable
+        System.out.println(1000 * GST_RATE); // 180.0
+    }
+}</code></pre>
+  <p><code>static final</code> together at class level is how Java defines "true" constants. (You'll understand <code>static</code> fully in Topic 9; for now: "one shared value for the whole class".) Why constants? No <strong>magic numbers</strong>: <code>price * GST_RATE</code> explains itself; <code>price * 0.18</code> doesn't. And if the rate changes, you change one line.</p>
+
+  <h3>3.9 Arithmetic operators</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Operator</th><th>Meaning</th><th>Example (a = 17, b = 5)</th><th>Result</th></tr>
+    <tr><td><code>+</code></td><td>Add (or join Strings)</td><td><code>a + b</code></td><td>22</td></tr>
+    <tr><td><code>-</code></td><td>Subtract</td><td><code>a - b</code></td><td>12</td></tr>
+    <tr><td><code>*</code></td><td>Multiply</td><td><code>a * b</code></td><td>85</td></tr>
+    <tr><td><code>/</code></td><td>Divide</td><td><code>a / b</code></td><td><strong>3</strong> (not 3.4!)</td></tr>
+    <tr><td><code>%</code></td><td>Modulo = remainder</td><td><code>a % b</code></td><td>2</td></tr>
+  </table></div>
+
+  <h3>3.10 Integer division and modulo — the two tricks</h3>
+  <p><strong>Integer division</strong>: when <em>both</em> sides of <code>/</code> are whole numbers, the result is a whole number. The decimal part is simply <strong>thrown away</strong> (not rounded).</p>
+  <pre><code class="lang-java">17 / 5          // 3
+7 / 2           // 3
+1 / 2           // 0     ← a very common bug!
+17 / 5.0        // 3.4   ← one side is decimal → decimal result
+(double) 17 / 5 // 3.4   ← cast BEFORE dividing
+(double) (17/5) // 3.0   ← too late: division already happened</code></pre>
+  <p><strong>Modulo <code>%</code></strong> gives the <strong>remainder</strong>. Think of sharing 17 sweets among 5 kids: each gets 3 (<code>17 / 5</code>) and 2 are left over (<code>17 % 5</code>).</p>
+  <div class="table-wrap"><table>
+    <tr><th>Task</th><th>Code</th><th>Example</th></tr>
+    <tr><td>Is a number even?</td><td><code>n % 2 == 0</code></td><td><code>14 % 2</code> → 0 → even</td></tr>
+    <tr><td>Last digit</td><td><code>n % 10</code></td><td><code>4728 % 10</code> → 8</td></tr>
+    <tr><td>Remove last digit</td><td><code>n / 10</code></td><td><code>4728 / 10</code> → 472</td></tr>
+    <tr><td>Minutes → hours + minutes</td><td><code>m / 60</code>, <code>m % 60</code></td><td>135 → 2 h 15 min</td></tr>
+    <tr><td>Is n divisible by k?</td><td><code>n % k == 0</code></td><td><code>21 % 7</code> → 0 → yes</td></tr>
+    <tr><td>Wrap around (clock)</td><td><code>(hour + x) % 24</code></td><td>(22 + 5) % 24 → 3</td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Divide by zero</strong><code>10 / 0</code> with ints crashes the program with <code>ArithmeticException: / by zero</code>. But <code>10.0 / 0</code> with doubles gives <code>Infinity</code> (and <code>0.0 / 0</code> gives <code>NaN</code> = "Not a Number"). No crash, but a useless result.</div>
+
+  <h3>3.11 Assignment operators</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Operator</th><th>Same as</th><th>Example (wallet = 100)</th></tr>
+    <tr><td><code>=</code></td><td>store</td><td><code>wallet = 100</code></td></tr>
+    <tr><td><code>+=</code></td><td><code>wallet = wallet + 50</code></td><td>150</td></tr>
+    <tr><td><code>-=</code></td><td><code>wallet = wallet - 30</code></td><td>70</td></tr>
+    <tr><td><code>*=</code></td><td><code>wallet = wallet * 2</code></td><td>200</td></tr>
+    <tr><td><code>/=</code></td><td><code>wallet = wallet / 4</code></td><td>25</td></tr>
+    <tr><td><code>%=</code></td><td><code>wallet = wallet % 7</code></td><td>2</td></tr>
+  </table></div>
+  <p>Fun fact: compound operators include a hidden cast. <code>byte b = 10; b += 5;</code> compiles, but <code>b = b + 5;</code> does not (because <code>b + 5</code> is an int).</p>
+
+  <h3>3.12 Increment and decrement: <code>++</code> and <code>--</code></h3>
+  <p><code>count++</code> adds 1; <code>count--</code> subtracts 1. Used everywhere in loops (Topic 3). The tricky part is <strong>prefix vs postfix</strong> when used inside a bigger expression:</p>
+  <pre><code class="lang-java">int x = 10;
+int y = x++;   // POSTFIX: y gets OLD value (10), then x becomes 11
+int p = 10;
+int q = ++p;   // PREFIX:  p becomes 11 first, then q gets 11</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Form</th><th>Name</th><th>Step 1</th><th>Step 2</th></tr>
+    <tr><td><code>x++</code></td><td>post-increment</td><td>use the value</td><td>then add 1</td></tr>
+    <tr><td><code>++x</code></td><td>pre-increment</td><td>add 1</td><td>then use the value</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Keep it simple</strong>On its own line (<code>count++;</code>) prefix and postfix are identical. Avoid using <code>++</code> inside bigger expressions in real code — it confuses readers. But know the difference: it's a favourite interview trick.</div>
+
+  <h3>3.13 Relational (comparison) operators</h3>
+  <p>These compare two values and always give a <code>boolean</code> (<code>true</code>/<code>false</code>).</p>
+  <div class="table-wrap"><table>
+    <tr><th>Operator</th><th>Meaning</th><th>Example (age = 20)</th><th>Result</th></tr>
+    <tr><td><code>==</code></td><td>equal to</td><td><code>age == 20</code></td><td>true</td></tr>
+    <tr><td><code>!=</code></td><td>not equal to</td><td><code>age != 18</code></td><td>true</td></tr>
+    <tr><td><code>&gt;</code></td><td>greater than</td><td><code>age &gt; 18</code></td><td>true</td></tr>
+    <tr><td><code>&lt;</code></td><td>less than</td><td><code>age &lt; 18</code></td><td>false</td></tr>
+    <tr><td><code>&gt;=</code></td><td>greater or equal</td><td><code>age &gt;= 20</code></td><td>true</td></tr>
+    <tr><td><code>&lt;=</code></td><td>less or equal</td><td><code>age &lt;= 19</code></td><td>false</td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Don't compare Strings with ==</strong>For text, use <code>name.equals("Ravi")</code>, not <code>name == "Ravi"</code>. <code>==</code> on objects checks "is it the very same object in memory?", not "same text?". Full explanation in Topic 5.</div>
+
+  <h3>3.14 Logical operators</h3>
+  <p>They combine booleans:</p>
+  <div class="table-wrap"><table>
+    <tr><th>A</th><th>B</th><th><code>A &amp;&amp; B</code> (AND)</th><th><code>A || B</code> (OR)</th><th><code>!A</code> (NOT)</th></tr>
+    <tr><td>true</td><td>true</td><td>true</td><td>true</td><td>false</td></tr>
+    <tr><td>true</td><td>false</td><td>false</td><td>true</td><td>false</td></tr>
+    <tr><td>false</td><td>true</td><td>false</td><td>true</td><td>true</td></tr>
+    <tr><td>false</td><td>false</td><td>false</td><td>false</td><td>true</td></tr>
+  </table></div>
+  <ul>
+    <li><strong>AND <code>&amp;&amp;</code></strong>: "Can board the plane if they have a ticket <em>and</em> an ID" — both must be true.</li>
+    <li><strong>OR <code>||</code></strong>: "Free delivery if you're a member <em>or</em> the order is over ₹500" — one is enough.</li>
+    <li><strong>NOT <code>!</code></strong>: flips the value. <code>!isLoggedIn</code> = "not logged in".</li>
+  </ul>
+  <p><strong>Short-circuit evaluation</strong>: <code>&amp;&amp;</code> stops as soon as it finds a <code>false</code> (the answer can't become true anymore), and <code>||</code> stops at the first <code>true</code>. This is useful to guard dangerous checks:</p>
+  <pre><code class="lang-java">int items = 0;
+boolean ok = items &gt; 0 &amp;&amp; (500 / items) &gt; 100;  // right side never runs → no divide-by-zero crash</code></pre>
+  <p>(There are also single <code>&amp;</code> and <code>|</code>, which always evaluate both sides, and <code>^</code> (XOR, "exactly one is true"). You'll rarely need them for booleans.)</p>
+
+  <h3>3.15 Operator precedence — what runs first</h3>
+  <p>Like BODMAS/PEMDAS in school maths: multiplication before addition, brackets first of all.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Priority</th><th>Operators</th><th>Note</th></tr>
+    <tr><td>1 (highest)</td><td><code>()</code></td><td>brackets — always first</td></tr>
+    <tr><td>2</td><td><code>x++ x--</code></td><td>postfix</td></tr>
+    <tr><td>3</td><td><code>++x --x ! (type)</code> unary <code>-</code></td><td>prefix, NOT, cast</td></tr>
+    <tr><td>4</td><td><code>* / %</code></td><td>left to right</td></tr>
+    <tr><td>5</td><td><code>+ -</code></td><td>left to right</td></tr>
+    <tr><td>6</td><td><code>&lt; &gt; &lt;= &gt;=</code></td><td>comparison</td></tr>
+    <tr><td>7</td><td><code>== !=</code></td><td>equality</td></tr>
+    <tr><td>8</td><td><code>&amp;&amp;</code></td><td>AND before OR</td></tr>
+    <tr><td>9</td><td><code>||</code></td><td></td></tr>
+    <tr><td>10</td><td><code>? :</code></td><td>ternary (Topic 3)</td></tr>
+    <tr><td>11 (lowest)</td><td><code>= += -= *= /= %=</code></td><td>assignment — right to left</td></tr>
+  </table></div>
+  <pre><code class="lang-java">2 + 3 * 4               // 14   (* first)
+(2 + 3) * 4             // 20   (brackets first)
+20 / 2 * 5              // 50   (same level → left to right: 10 * 5)
+10 - 4 - 3              // 3    (left to right: 6 - 3)
+true || false &amp;&amp; false  // true (&amp;&amp; first: false &amp;&amp; false = false, then true || false)</code></pre>
+  <div class="callout tip"><strong>💡 When in doubt, add brackets</strong>Brackets cost nothing and make your intention obvious to the next reader: <code>(price * qty) + shipping</code>.</div>
+
+  <h3>3.16 The Math class</h3>
+  <p><code>Math</code> is a built-in class (no import needed) full of ready-made maths methods:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>What it does</th><th>Example</th><th>Result</th></tr>
+    <tr><td><code>Math.max(a, b)</code></td><td>bigger of two</td><td><code>Math.max(10, 25)</code></td><td>25</td></tr>
+    <tr><td><code>Math.min(a, b)</code></td><td>smaller of two</td><td><code>Math.min(10, 25)</code></td><td>10</td></tr>
+    <tr><td><code>Math.abs(x)</code></td><td>remove minus sign</td><td><code>Math.abs(-7)</code></td><td>7</td></tr>
+    <tr><td><code>Math.pow(a, b)</code></td><td>a to the power b (returns double)</td><td><code>Math.pow(2, 10)</code></td><td>1024.0</td></tr>
+    <tr><td><code>Math.sqrt(x)</code></td><td>square root</td><td><code>Math.sqrt(144)</code></td><td>12.0</td></tr>
+    <tr><td><code>Math.round(x)</code></td><td>nearest whole number (returns long)</td><td><code>Math.round(4.5)</code></td><td>5</td></tr>
+    <tr><td><code>Math.ceil(x)</code></td><td>round UP</td><td><code>Math.ceil(4.1)</code></td><td>5.0</td></tr>
+    <tr><td><code>Math.floor(x)</code></td><td>round DOWN</td><td><code>Math.floor(4.9)</code></td><td>4.0</td></tr>
+    <tr><td><code>Math.random()</code></td><td>random double in [0.0, 1.0)</td><td><code>(int)(Math.random()*6)+1</code></td><td>1–6 (dice)</td></tr>
+    <tr><td><code>Math.PI</code></td><td>π constant</td><td><code>Math.PI</code></td><td>3.14159…</td></tr>
+  </table></div>
+  <p>Rounding to 2 decimal places: <code>Math.round(value * 100) / 100.0</code>. (Note the <code>100.0</code> — with <code>100</code> you'd get integer division!)</p>
+
+  <h3>3.17 Wrapper classes and autoboxing</h3>
+  <p>Each primitive has a matching <strong>wrapper class</strong> — an object version of it:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Primitive</th><th>byte</th><th>short</th><th>int</th><th>long</th><th>float</th><th>double</th><th>char</th><th>boolean</th></tr>
+    <tr><th>Wrapper</th><td>Byte</td><td>Short</td><td><strong>Integer</strong></td><td>Long</td><td>Float</td><td>Double</td><td><strong>Character</strong></td><td>Boolean</td></tr>
+  </table></div>
+  <p>Why do we need them?</p>
+  <ol>
+    <li><strong>Collections</strong> like <code>List</code> (Topic 11) can only store objects: <code>List&lt;Integer&gt;</code> works, <code>List&lt;int&gt;</code> does not.</li>
+    <li><strong>null</strong>: a wrapper can be <code>null</code>, meaning "no value". In a database, a missing value is NULL — so in Spring entities you'll often see <code>Long id</code> (null until saved) instead of <code>long id</code>.</li>
+    <li><strong>Helper methods</strong>: <code>Integer.parseInt("42")</code>, <code>Integer.MAX_VALUE</code>, <code>Character.isDigit('7')</code>.</li>
+  </ol>
+  <p><strong>Autoboxing</strong> = Java automatically wraps a primitive into its wrapper. <strong>Unboxing</strong> = automatically unwraps it back.</p>
+  <pre><code class="lang-java">Integer boxed = 30;        // autoboxing:  int → Integer
+int plain = boxed;         // unboxing:    Integer → int
+Integer missing = null;
+int crash = missing;       // 💥 NullPointerException – can't unbox nothing!</code></pre>
+  <div class="callout danger"><strong>🚫 Comparing wrappers with ==</strong>
+    <pre><code class="lang-java">Integer a = 100, b = 100;
+System.out.println(a == b);       // true  (Java caches small values -128..127)
+Integer c = 1000, d = 1000;
+System.out.println(c == d);       // false (!) – two different objects
+System.out.println(c.equals(d));  // true  – compares the values</code></pre>
+    Always compare wrapper objects with <code>.equals()</code>.
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>Example01_Variables.java</code></td><td>Declare, assign, change; different types; naming rules; case-sensitivity.</td></tr>
+    <tr><td><code>Example02_PrimitiveTypes.java</code></td><td>All 8 primitives, literal suffixes, ranges (MIN/MAX_VALUE), char as a number, the 0.1 + 0.2 surprise.</td></tr>
+    <tr><td><code>Example03_TypeCastingVarAndConstants.java</code></td><td>Widening, narrowing, overflow, char↔int, parseInt, <code>var</code>, <code>final</code> constants.</td></tr>
+    <tr><td><code>Example04_Operators.java</code></td><td>Arithmetic, integer division, modulo tricks, assignment, ++/--, comparison, logical, short-circuit, precedence.</td></tr>
+    <tr><td><code>Example05_MathAndWrapperClasses.java</code></td><td>Math methods, wrappers, autoboxing/unboxing, null, <code>==</code> vs <code>equals</code> for wrappers.</td></tr>
+    <tr><td><code>Example06_ShoppingBillCalculator.java</code></td><td>Mini-program: a formatted bill with subtotal, discount, GST and grand total.</td></tr>
+    <tr><td><code>Example07_TemperatureConverter.java</code></td><td>Mini-program: reads Celsius and converts to Fahrenheit/Kelvin; shows the <code>5 / 9</code> bug.</td></tr>
+  </table></div>
+
+  <h3>4.1 Example02 — ranges from wrapper constants</h3>
+  <pre><span class="file">Example02_PrimitiveTypes.java (part)</span><code class="lang-java">long worldPopulation = 8_100_000_000L; // L is needed: this is bigger than int's max
+float rating = 4.5f;                   // f is needed: 4.5 alone is a double
+System.out.println("int   range: " + Integer.MIN_VALUE + " to " + Integer.MAX_VALUE);
+System.out.println("0.1 + 0.2 = " + (0.1 + 0.2));   // 0.30000000000000004</code></pre>
+  <p>Instead of memorising exact limits, you can always ask the wrapper class: <code>Integer.MAX_VALUE</code>, <code>Long.MIN_VALUE</code>, etc. Try removing the <code>L</code> — you'll get <code>error: integer number too large</code>.</p>
+
+  <h3>4.2 Example03 — narrowing loses data</h3>
+  <pre><span class="file">Example03_TypeCastingVarAndConstants.java (part)</span><code class="lang-java">double price = 99.99;
+int roundedDown = (int) price;      // 99  (cut off)
+long hugeNumber = 3_000_000_000L;
+int squeezed = (int) hugeNumber;    // -1294967296  (wrapped around)
+int overflowed = Integer.MAX_VALUE + 1;  // -2147483648</code></pre>
+  <p>Why the strange negative numbers? An <code>int</code> has only 32 bits. When the value needs more, the extra bits are chopped off and what remains is read as a (negative) number. Java does <strong>not</strong> warn you at runtime — that's why choosing the right type matters. (If you ever need a guaranteed error instead of a silent overflow, <code>Math.addExact(a, b)</code> throws an exception.)</p>
+
+  <h3>4.3 Example04 — the division traps</h3>
+  <pre><span class="file">Example04_Operators.java (part)</span><code class="lang-java">int a = 17, b = 5;
+System.out.println("a / b = " + (a / b));                        // 3
+System.out.println("(double) a / b = " + ((double) a / b));      // 3.4
+System.out.println("(double) (a / b) = " + ((double) (a / b)));  // 3.0
+int totalMinutes = 135;
+System.out.println(totalMinutes + " minutes = " + (totalMinutes / 60) + " h "
+        + (totalMinutes % 60) + " min");                          // 2 h 15 min</code></pre>
+  <p>Look closely at the two casts: the cast operator has higher priority than <code>/</code>, so <code>(double) a / b</code> converts <code>a</code> first, then divides as decimals. In <code>(double) (a / b)</code> the brackets force the integer division first — the 0.4 is already lost.</p>
+
+  <h3>4.4 Example05 — wrapper surprises</h3>
+  <pre><span class="file">Example05_MathAndWrapperClasses.java (part)</span><code class="lang-java">Integer big1 = 1000, big2 = 1000;
+System.out.println(big1 == big2);        // false
+System.out.println(big1.equals(big2));   // true</code></pre>
+  <p><code>==</code> on objects compares <em>addresses</em> ("same box?"), <code>equals</code> compares <em>contents</em> ("same value?"). For values -128 to 127, Java reuses cached Integer objects, so <code>==</code> accidentally works — which makes the bug sneaky.</p>
+
+  <h3>4.5 Example06 — the shopping bill</h3>
+  <pre><span class="file">Example06_ShoppingBillCalculator.java (part)</span><code class="lang-java">static final double GST_RATE = 0.18;
+static final double DISCOUNT_RATE = 0.10;
+static final double DISCOUNT_THRESHOLD = 1000;
+...
+double subtotal = line1 + line2 + line3;
+boolean eligibleForDiscount = subtotal &gt;= DISCOUNT_THRESHOLD;
+double discount = eligibleForDiscount ? subtotal * DISCOUNT_RATE : 0;
+double afterDiscount = subtotal - discount;
+double gst = afterDiscount * GST_RATE;
+double grandTotal = afterDiscount + gst;
+System.out.printf("%-10s %3d x %7.2f = %8.2f%n", item1, qty1, price1, line1);</code></pre>
+  <ul>
+    <li>Constants at the top: no magic numbers in the calculations.</li>
+    <li><code>condition ? a : b</code> is the <strong>ternary operator</strong> — "if condition then a else b" in one expression. Topic 3 explains it fully.</li>
+    <li><code>printf</code> widths line the bill up: <code>%-10s</code> = text left-aligned in 10 characters, <code>%8.2f</code> = number in 8 characters with 2 decimals, <code>%%</code> = a literal % sign.</li>
+  </ul>
+
+  <h3>4.6 Example07 — temperature converter</h3>
+  <pre><span class="file">Example07_TemperatureConverter.java (part)</span><code class="lang-java">double fahrenheit = celsius * 9.0 / 5.0 + 32;
+double wrong = (fahrenheit - 32) * (5 / 9);   // 5 / 9 == 0  → always 0.0!</code></pre>
+  <p>The bug line is left in on purpose so you can see it happen. This exact mistake appears in real code reviews all the time.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <p><strong>VS Code:</strong> open the folder <code>D:\Java-SpringBoot\2-Variables-DataTypes-Operators</code>, open any example and click <strong>Run</strong> above <code>main</code>.</p>
+  <p><strong>Terminal:</strong></p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\2-Variables-DataTypes-Operators"
+java Example01_Variables.java
+java Example02_PrimitiveTypes.java
+java Example03_TypeCastingVarAndConstants.java
+java Example04_Operators.java
+java Example05_MathAndWrapperClasses.java
+java Example06_ShoppingBillCalculator.java
+java Example07_TemperatureConverter.java</code></pre>
+  <p>Expected output of <code>Example03_TypeCastingVarAndConstants.java</code>:</p>
+  <pre class="terminal"><code>Widening: int 150 -&gt; long 150 -&gt; double 150.0
+Narrowing: double 99.99 -&gt; int 99
+Narrowing overflow: long 3000000000 -&gt; int -1294967296
+Math.round(99.99) = 100
+Overflow: 2147483647 + 1 = -2147483648
+'A' has code 65, next letter is B
+Parsed: 43 and 39.0
+As text again: 42!
+var: Pune, 2026, 31.5
+Days in week: 7
+GST on 1000 = 180.0
+Max login attempts: 3</code></pre>
+  <p>Expected output of <code>Example06_ShoppingBillCalculator.java</code>:</p>
+  <pre class="terminal"><code>=========== BILL ===========
+Notebook     5 x   60.00 =   300.00
+Pen         10 x   15.50 =   155.00
+Backpack     1 x  799.00 =   799.00
+----------------------------
+Items: 16
+Subtotal         :   1254.00
+Discount (10%)   :    125.40
+After discount   :   1128.60
+GST (18%)        :    203.15
+----------------------------
+GRAND TOTAL      :   1331.75
+Rounded to rupee :      1332</code></pre>
+  <p>Sample run of <code>Example07_TemperatureConverter.java</code> (you type <code>37</code>):</p>
+  <pre class="terminal"><code>Enter temperature in Celsius: 37
+37.00 C = 98.60 F
+37.00 C = 310.15 K
+Check: 98.60 F = 37.00 C
+Buggy formula with (5 / 9) gives: 0.0</code></pre>
+  <p>Every other file has its full expected output in a comment at the bottom — compare your screen with it.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: integer division</strong>
+    <code>double avg = total / count;</code> where both are <code>int</code> → the decimals are lost before the value reaches <code>avg</code>.<br>
+    <strong>Fix:</strong> <code>double avg = (double) total / count;</code> or use <code>5.0</code> instead of <code>5</code> in formulas.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting <code>L</code> or <code>f</code></strong>
+    <code>long big = 9000000000;</code> → <code>error: integer number too large</code>. <code>float r = 4.5;</code> → <code>error: incompatible types: possible lossy conversion from double to float</code>.<br>
+    <strong>Fix:</strong> <code>9000000000L</code> and <code>4.5f</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: "possible lossy conversion"</strong>
+    <code>int x = 9.99;</code> → <code>error: incompatible types: possible lossy conversion from double to int</code>.<br>
+    <strong>Fix:</strong> decide what you want: <code>(int) 9.99</code> (cut off → 9) or <code>(int) Math.round(9.99)</code> (round → 10), or just keep it a <code>double</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: <code>=</code> instead of <code>==</code></strong>
+    Writing <code>if (age = 18)</code> → <code>error: incompatible types: int cannot be converted to boolean</code>. Java protects you here, but remember: <code>=</code> stores, <code>==</code> compares.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: using an uninitialised local variable</strong>
+    <code>int total; total++;</code> → <code>error: variable total might not have been initialized</code>.<br>
+    <strong>Fix:</strong> give it a starting value: <code>int total = 0;</code></div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: silent overflow</strong>
+    <code>int millis = 30 * 24 * 60 * 60 * 1000;</code> (30 days in ms) → <code>-1702967296</code>! The maths is done in <code>int</code> and overflows <em>before</em> it is stored.<br>
+    <strong>Fix:</strong> make the first number a long: <code>30L * 24 * 60 * 60 * 1000</code>.</div>
+
+  <div class="callout danger"><strong>🚫 Mistake: unboxing null</strong>
+    <code>Integer discount = null; int d = discount;</code> → <code>NullPointerException</code> at runtime.<br>
+    <strong>Fix:</strong> check for null first, or use a primitive if "no value" is not possible.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: comparing wrappers or Strings with <code>==</code></strong>
+    Works for small numbers by luck, fails for larger ones.<br>
+    <strong>Fix:</strong> <code>a.equals(b)</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: special characters in source files</strong>
+    On Windows with Java 17, <code>javac</code> may read files using the old Windows encoding, so characters like <code>₹</code> or <code>é</code> typed directly into a .java file can produce <code>illegal character</code> or garbled output.<br>
+    <strong>Fix:</strong> use a Unicode escape (backslash + <code>u20B9</code>, as in Example02), or compile with <code>javac -encoding UTF-8</code>. (From Java 18 the default is UTF-8. Maven projects set the encoding in <code>pom.xml</code> — Topic 20.)</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Default to <code>int</code> and <code>double</code></strong>. Use <code>long</code> for IDs, counts that may grow huge and timestamps. Rarely use <code>byte</code>, <code>short</code>, <code>float</code>.</li>
+    <li><strong>Use <code>BigDecimal</code> for money</strong> in real applications (banking, payments). <code>double</code> rounding errors can cost real money.</li>
+    <li><strong>Meaningful camelCase names</strong>: <code>totalAmount</code>, not <code>ta</code> or <code>x1</code>. Booleans read like questions: <code>isActive</code>, <code>hasDiscount</code>.</li>
+    <li><strong>No magic numbers</strong>: put fixed values in <code>static final</code> constants with clear names.</li>
+    <li><strong>Declare variables close to where they're used</strong>, and give them a value immediately.</li>
+    <li><strong>Prefer <code>final</code></strong> for local variables that shouldn't change — it prevents accidental changes and documents your intention.</li>
+    <li><strong>Use brackets</strong> to make precedence obvious; don't make readers remember the table.</li>
+    <li><strong>Use <code>var</code> only when the type is obvious</strong> from the right-hand side.</li>
+    <li><strong>Avoid <code>++</code>/<code>--</code> inside bigger expressions</strong> — use them as standalone statements.</li>
+    <li><strong>Primitives for calculations, wrappers when you need null or collections</strong>. In JPA entities (Topic 38), IDs are usually <code>Long</code> because a new, unsaved entity has no ID yet (null).</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>A variable = type + name + value. <code>=</code> stores; <code>==</code> compares.</li>
+    <li>8 primitives: <code>byte, short, int, long, float, double, char, boolean</code>. Defaults to use: <code>int</code>, <code>double</code>, <code>boolean</code>.</li>
+    <li><code>String</code> is a class (reference type), not a primitive.</li>
+    <li>Widening is automatic and safe; narrowing needs a cast <code>(int)</code> and may lose data. Overflow wraps around silently.</li>
+    <li><code>int / int</code> gives an int (decimals dropped). <code>%</code> gives the remainder — great for even/odd, digits and time.</li>
+    <li><code>x++</code> uses then increments; <code>++x</code> increments then uses.</li>
+    <li><code>&amp;&amp;</code> and <code>||</code> short-circuit. Precedence: brackets → <code>* / %</code> → <code>+ -</code> → comparisons → <code>&amp;&amp;</code> → <code>||</code> → assignment.</li>
+    <li><code>var</code> infers the type of local variables; <code>final</code> makes a value unchangeable.</li>
+    <li>Wrappers (<code>Integer</code>, <code>Double</code>…) allow null and collections; autoboxing converts automatically; compare them with <code>equals</code>.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Student profile.</strong> Create variables for a student: name (String), roll number (int), percentage (double), grade (char), passed (boolean). Print them all in one nicely formatted line using <code>printf</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public class StudentProfile {
+    public static void main(String[] args) {
+        String name = "Anil";
+        int rollNumber = 101;
+        double percentage = 87.456;
+        char grade = 'A';
+        boolean passed = true;
+        System.out.printf("%s (Roll %d): %.2f%%, Grade %c, Passed: %b%n",
+                name, rollNumber, percentage, grade, passed);
+        // Anil (Roll 101): 87.46%, Grade A, Passed: true
+    }
+}</code></pre><p><code>%c</code> prints a char, <code>%b</code> a boolean, <code>%%</code> a percent sign.</p></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Predict the output.</strong> Write down your answers first, then run.</p>
+    <pre><code class="lang-java">System.out.println(7 / 2);
+System.out.println(7 % 2);
+System.out.println(7 / 2.0);
+System.out.println((int) 7.9);
+System.out.println(10 + 20 + "30");
+System.out.println(1 + 2 * 3 - 4 / 2);</code></pre>
+    <details><summary>Hint / solution</summary><pre class="terminal"><code>3
+1
+3.5
+7
+3030
+5</code></pre><p>Last line: <code>2*3=6</code>, <code>4/2=2</code>, then left to right: <code>1+6=7</code>, <code>7-2=5</code>.</p></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Seconds converter.</strong> Given <code>int totalSeconds = 100000;</code> print how many days, hours, minutes and seconds that is. Expected: <code>1 days, 3 hours, 46 minutes, 40 seconds</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public class SecondsConverter {
+    public static void main(String[] args) {
+        int totalSeconds = 100000;
+        int days = totalSeconds / 86400;          // 86400 seconds in a day
+        int hours = (totalSeconds % 86400) / 3600;
+        int minutes = (totalSeconds % 3600) / 60;
+        int seconds = totalSeconds % 60;
+        System.out.println(days + " days, " + hours + " hours, "
+                + minutes + " minutes, " + seconds + " seconds");
+    }
+}</code></pre><p>The pattern: <code>/</code> to get how many full units, <code>%</code> to get what's left.</p></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Simple interest &amp; EMI-style calculator.</strong> Read principal (double), yearly rate % (double) and years (int) with Scanner. Print simple interest <code>P × R × T / 100</code> and the total amount, both with 2 decimals. Use a constant for the number of months in a year and also print the monthly payment (total / (years × 12)).</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">import java.util.Scanner;
+
+public class InterestCalculator {
+    static final int MONTHS_PER_YEAR = 12;
+
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        System.out.print("Principal: ");
+        double principal = sc.nextDouble();
+        System.out.print("Rate % per year: ");
+        double rate = sc.nextDouble();
+        System.out.print("Years: ");
+        int years = sc.nextInt();
+
+        double interest = principal * rate * years / 100;
+        double total = principal + interest;
+        double monthly = total / (years * MONTHS_PER_YEAR);
+
+        System.out.printf("Interest: %.2f%nTotal: %.2f%nMonthly: %.2f%n",
+                interest, total, monthly);
+        sc.close();
+    }
+}
+// Input 100000, 8.5, 3 →  Interest: 25500.00  Total: 125500.00  Monthly: 3486.11</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Digit sum without loops.</strong> Given a 4-digit number <code>int n = 4728;</code>, print the sum of its digits (4+7+2+8 = 21) and the number reversed (8274), using only <code>/</code> and <code>%</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public class DigitTricks {
+    public static void main(String[] args) {
+        int n = 4728;
+        int d4 = n % 10;           // 8
+        int d3 = (n / 10) % 10;    // 2
+        int d2 = (n / 100) % 10;   // 7
+        int d1 = n / 1000;         // 4
+        System.out.println("Sum: " + (d1 + d2 + d3 + d4));                     // 21
+        System.out.println("Reversed: " + (d4 * 1000 + d3 * 100 + d2 * 10 + d1)); // 8274
+    }
+}</code></pre><p>In Topic 3 you'll do the same for any length using a loop.</p></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Spot the bugs.</strong> This code should print the average of three marks (85, 90, 92 → 89.0) and whether the student has distinction (average ≥ 75 <em>and</em> no subject below 40). Find and fix every bug.</p>
+    <pre><code class="lang-java">int m1 = 85, m2 = 90, m3 = 92;
+double average = m1 + m2 + m3 / 3;
+boolean distinction = average &gt;= 75 || m1 &gt;= 40 &amp;&amp; m2 &gt;= 40 &amp;&amp; m3 &gt;= 40;
+System.out.println("Average: " + average + " Distinction: " + distinction);</code></pre>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">int m1 = 85, m2 = 90, m3 = 92;
+double average = (m1 + m2 + m3) / 3.0;      // bug 1: precedence; bug 2: integer division
+boolean distinction = average &gt;= 75 &amp;&amp; m1 &gt;= 40 &amp;&amp; m2 &gt;= 40 &amp;&amp; m3 &gt;= 40; // bug 3: || should be &amp;&amp;
+System.out.println("Average: " + average + " Distinction: " + distinction);
+// Average: 89.0 Distinction: true</code></pre><p>The original computed <code>85 + 90 + (92/3)</code> = 85 + 90 + 30 = 205.0!</p></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What are the primitive data types in Java? Give their sizes.</summary>
+    <p>Eight: <code>byte</code> (1 byte), <code>short</code> (2), <code>int</code> (4), <code>long</code> (8), <code>float</code> (4), <code>double</code> (8), <code>char</code> (2, unsigned Unicode), <code>boolean</code> (true/false; size is JVM-dependent). Everything else is a reference type.</p></details>
+  <details><summary>Q2. What is the difference between widening and narrowing conversion?</summary>
+    <p>Widening converts a smaller type to a larger one (e.g. <code>int</code> → <code>long</code>/<code>double</code>). It's automatic and safe. Narrowing converts larger to smaller (e.g. <code>double</code> → <code>int</code>); it requires an explicit cast and can lose data (decimal truncation, overflow).</p></details>
+  <details><summary>Q3. What is the output of <code>int x = 5; int y = x++ + ++x;</code>?</summary>
+    <p><code>y = 12</code>, <code>x = 7</code>. <code>x++</code> contributes 5 (then x becomes 6), <code>++x</code> makes x 7 and contributes 7. 5 + 7 = 12.</p></details>
+  <details><summary>Q4. What is autoboxing and unboxing?</summary>
+    <p>Autoboxing is the automatic conversion of a primitive to its wrapper (<code>int</code> → <code>Integer</code>) by the compiler; unboxing is the reverse. It lets you put primitives in collections. Danger: unboxing a <code>null</code> wrapper throws <code>NullPointerException</code>.</p></details>
+  <details><summary>Q5. Why does <code>Integer a = 127, b = 127; a == b</code> give true but with 128 gives false?</summary>
+    <p><code>Integer.valueOf</code> (used by autoboxing) caches Integer objects for -128 to 127. Within that range both variables point to the same cached object, so <code>==</code> (reference comparison) is true. Outside it, new objects are created, so <code>==</code> is false. Always use <code>equals()</code> for wrapper values.</p></details>
+  <details><summary>Q6. What is the difference between <code>&amp;&amp;</code> and <code>&amp;</code>?</summary>
+    <p><code>&amp;&amp;</code> is the logical AND with short-circuiting: if the left side is false, the right side is not evaluated. <code>&amp;</code> evaluates both sides always (and is also the bitwise AND for integers). Same idea for <code>||</code> vs <code>|</code>.</p></details>
+  <details><summary>Q7. What does <code>var</code> do? Is Java dynamically typed now?</summary>
+    <p><code>var</code> (Java 10) is local variable type inference: the compiler infers the static type from the initializer. The type is fixed at compile time — Java remains statically typed. It works only for local variables with an initializer (not fields, parameters or return types).</p></details>
+  <details><summary>Q8. Why shouldn't you use <code>double</code> for money?</summary>
+    <p>Floating-point types use binary fractions and can't represent many decimal values exactly (0.1 + 0.2 = 0.30000000000000004). Rounding errors add up. Use <code>BigDecimal</code> (or store amounts in the smallest unit, like paise, as a <code>long</code>).</p></details>
+  <details><summary>Q9. What is the result of <code>Integer.MAX_VALUE + 1</code>?</summary>
+    <p><code>Integer.MIN_VALUE</code> (-2147483648). Integer arithmetic overflows silently by wrapping around (two's complement). Use <code>long</code>, or <code>Math.addExact</code> to get an exception on overflow.</p></details>
+  <details><summary>Q10. What is the difference between <code>final</code> and a constant?</summary>
+    <p><code>final</code> means a variable can be assigned only once. A "constant" in Java convention is a <code>static final</code> field with a fixed value, named in UPPER_SNAKE_CASE (e.g. <code>static final double GST_RATE = 0.18;</code>) — shared by the class and never changing.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../1-Introduction-And-Setup/lesson.html"><small>← Previous</small>1. Welcome &amp; Setup</a>
+    <a class="next" href="../3-Control-Flow/lesson.html"><small>Next →</small>3. Control Flow</a>
+  </nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Topic 27 - Spring AOP (Aspect-Oriented Programming).
+
+  Plain Spring project (no Spring Boot).
+    - spring-context  : the IoC container (includes spring-aop, Spring's proxy-based AOP engine)
+    - spring-aspects  : brings aspectjweaver, which provides the @Aspect, @Before, @Around ...
+                        annotations and the pointcut expression language.
+                        (In Spring Boot you would add spring-boot-starter-aop instead.)
+
+  Run it with:   mvn -q compile exec:java
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.course</groupId>
+    <artifactId>spring-aop</artifactId>
+    <version>1.0.0</version>
+    <name>27 - Spring AOP</name>
+
+    <properties>
+        <maven.compiler.release>17</maven.compiler.release>
+        <!-- keep parameter names in .class files (Spring 6.1+ uses them; AOP uses them for argument binding) -->
+        <maven.compiler.parameters>true</maven.compiler.parameters>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring.version>6.2.11</spring.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+            <version>${spring.version}</version>
+        </dependency>
+
+        <!-- AspectJ annotations + pointcut language (pulls in org.aspectj:aspectjweaver) -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-aspects</artifactId>
+            <version>${spring.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- mvn compile exec:java  ->  runs com.course.aop.App.main() -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <mainClass>com.course.aop.App</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

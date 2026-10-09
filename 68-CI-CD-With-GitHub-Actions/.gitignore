@@ -1,0 +1,11 @@
+# Build output - CI builds it fresh every time, never commit it
+target/
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+
+# Secrets and logs
+.env
+*.log

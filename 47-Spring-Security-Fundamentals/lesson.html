@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>47 · Spring Security Fundamentals</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part D · Security › Topic 47</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part D · Security</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>47. Spring Security Fundamentals</h1>
+  <p class="subtitle">Lock your REST API properly: decide who may come in, what they may do, and understand every step Spring Security takes for each request.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="47-Spring-Security-Fundamentals"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>The difference between <b>authentication</b> (who are you?) and <b>authorization</b> (what may you do?).</li>
+      <li>What happens the moment you add <code>spring-boot-starter-security</code> (generated password, login form).</li>
+      <li>How the <b>security filter chain</b> works – with diagrams and step-by-step request traces.</li>
+      <li>Writing your own <code>SecurityFilterChain</code> bean with the Lambda DSL: <code>permitAll</code>, <code>authenticated</code>, <code>hasRole</code>.</li>
+      <li>In-memory users with <code>InMemoryUserDetailsManager</code> and password hashing with <b>BCrypt</b>.</li>
+      <li>HTTP Basic vs form login, CSRF (and when to switch it off), CORS with security, and <b>401 vs 403</b>.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../31-Spring-MVC-And-REST-Fundamentals/lesson.html">Topic 31 · REST fundamentals</a> (HTTP methods, status codes, headers),
+    <a href="../32-Request-Handling-And-Responses/lesson.html">Topic 32 · Request handling</a> (CORS basics) and
+    <a href="../46-Testing-Spring-Boot-Applications/lesson.html">Topic 46 · Testing</a> (MockMvc).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Until now every API we built was <b>wide open</b>. Anybody who knew the URL could read, change or delete data.
+     In a real company that is unthinkable. A bank API must know <i>who</i> is calling before it shows a balance.
+     A shop must make sure only staff can change prices. A hospital system must hide patient records from everyone except doctors.</p>
+  <p><b>Spring Security</b> is the standard way to protect Spring applications. Almost every Spring Boot project you will meet at work uses it.
+     It is powerful, but it has a reputation for being "magic" and confusing. The good news: once you understand <b>one picture</b>
+     – the <i>filter chain</i> – everything else falls into place. This lesson builds that picture slowly.</p>
+  <div class="callout info"><strong>ℹ️ Where you will see this at work</strong>
+    Login screens, "Access denied" pages, admin-only buttons, API keys and tokens, "Your session expired" messages, CORS errors in the browser console…
+    All of these are Spring Security (or something like it) doing its job. Topics 47–50 cover the whole journey:
+    <b>47</b> fundamentals → <b>48</b> users in a database → <b>49</b> JWT tokens → <b>50</b> OAuth2 / "Login with Google".</div>
+
+  <!-- ============================================================ -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>✈️ Think of an airport</strong>
+    <p><b>Authentication = the passport check.</b> At the counter an officer looks at your passport and your face. The question is only:
+       <i>"Are you really the person you claim to be?"</i> If you cannot prove it, you do not get in at all.</p>
+    <p><b>Authorization = the boarding pass.</b> Now they <i>know</i> who you are. But your boarding pass says <i>Gate 12, Economy</i>.
+       You may not walk into the Business lounge or board the flight to Tokyo. The question is: <i>"Is this person allowed to do this?"</i></p>
+    <p><b>The security checkpoints = the filter chain.</b> Every traveller passes the same row of checkpoints in the same order:
+       ticket scan → passport → baggage scanner → gate. Each checkpoint does <i>one</i> job and either lets you through to the next one or stops you.
+       Spring Security works exactly like this: every HTTP request walks through a row of <b>filters</b>.</p>
+    <p><b>401 vs 403.</b> No passport at all? <i>"Sorry, who are you?"</i> → <b>401 Unauthorized</b>.
+       Valid passport but trying to enter the pilots' room? <i>"We know who you are, but you are not allowed"</i> → <b>403 Forbidden</b>.</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Authentication vs Authorization</h3>
+  <p>These two long words are the heart of security. People mix them up all the time, even in interviews, so let us fix them in our heads now.</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Authentication (AuthN)</th><th>Authorization (AuthZ)</th></tr>
+    <tr><td>Question</td><td>Who are you?</td><td>What are you allowed to do?</td></tr>
+    <tr><td>Happens</td><td>First</td><td>After authentication</td></tr>
+    <tr><td>Proof</td><td>Password, token, fingerprint, certificate</td><td>Roles / permissions of the known user</td></tr>
+    <tr><td>Failure status</td><td><b>401 Unauthorized</b> (badly named – it really means "unauthenticated")</td><td><b>403 Forbidden</b></td></tr>
+    <tr><td>Spring Security piece</td><td><code>AuthenticationManager</code>, <code>UserDetailsService</code>, <code>PasswordEncoder</code></td><td><code>authorizeHttpRequests(...)</code>, <code>hasRole(...)</code>, <code>@PreAuthorize</code> (topic 48)</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Memory trick</strong>Authenti<b>cation</b> = <b>identity card</b>. Authori<b>zation</b> = <b>permission</b>. You need the first before the second makes any sense.</div>
+
+  <h3>3.2 What happens when you just add the starter?</h3>
+  <p>Take any web project and add one dependency:</p>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-security&lt;/artifactId&gt;
+&lt;/dependency&gt;</code></pre>
+  <p>Restart the app. Without writing a single line of code, Spring Boot's auto-configuration (topic 28) does all of this:</p>
+  <ul>
+    <li><b>Every URL is locked.</b> Even <code>/api/books</code> that worked a minute ago now answers <b>401</b>.</li>
+    <li>It creates <b>one user</b> called <code>user</code> with a <b>random password</b> printed in the console:</li>
+  </ul>
+  <pre class="terminal"><code>Using generated security password: 8e557245-73e2-4286-969a-ff57fe326336
+
+This generated password is for development use only. Your security configuration must be updated before running your application in production.</code></pre>
+  <ul>
+    <li>A browser gets an automatic <b>login page</b> at <code>/login</code> and a <b>logout page</b> at <code>/logout</code>.</li>
+    <li>curl / Postman can use <b>HTTP Basic</b>: <code>curl -u user:8e557245-... http://localhost:8080/api/books</code>.</li>
+    <li>Protection against common attacks is switched on: CSRF tokens, security headers (<code>X-Content-Type-Options</code>, <code>X-Frame-Options</code>, cache control…), session fixation protection.</li>
+  </ul>
+  <p>You can fix the default user's name and password in <code>application.properties</code> – handy for a quick demo:</p>
+  <pre><code class="lang-properties">spring.security.user.name=admin
+spring.security.user.password=secret
+spring.security.user.roles=ADMIN</code></pre>
+  <div class="callout info"><strong>ℹ️ "Secure by default"</strong>
+    Spring Security prefers to lock too much rather than too little. Your job is to <b>open up</b> what should be public and to <b>describe</b> the rest.
+    As soon as you declare your own <code>SecurityFilterChain</code> and <code>UserDetailsService</code> beans (we do that in this project),
+    the generated user and password disappear.</div>
+
+  <h3>3.3 Filters – the checkpoints in front of your controllers</h3>
+  <p>A <b>servlet filter</b> is a small piece of code that the web server (Tomcat) runs <i>before</i> a request reaches Spring MVC's <code>DispatcherServlet</code>
+     (remember the diagram from topic 31). A filter can look at the request, change it, stop it (for example answer 401 immediately), or pass it on to the next filter.</p>
+  <p>Spring Security is, at its core, <b>a list of filters</b>. Here is the full picture – read it from left to right, the way a request travels:</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 860 380" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Spring Security filter chain">
+      <defs>
+        <marker id="ar47" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g font-family="Segoe UI, sans-serif" font-size="13" fill="currentColor">
+        <!-- client -->
+        <rect x="10" y="150" width="90" height="60" rx="8" fill="none" stroke="currentColor" stroke-width="2"/>
+        <text x="55" y="177" text-anchor="middle" font-weight="bold">Client</text>
+        <text x="55" y="195" text-anchor="middle" font-size="11">curl / browser</text>
+        <line x1="100" y1="180" x2="135" y2="180" stroke="currentColor" stroke-width="2" marker-end="url(#ar47)"/>
+        <!-- tomcat box -->
+        <rect x="140" y="20" width="560" height="340" rx="10" fill="none" stroke="currentColor" stroke-dasharray="6 4"/>
+        <text x="150" y="40" font-weight="bold">Tomcat (servlet container)</text>
+        <!-- DelegatingFilterProxy -->
+        <rect x="155" y="150" width="110" height="60" rx="8" fill="none" stroke="var(--info)" stroke-width="2"/>
+        <text x="210" y="175" text-anchor="middle" font-size="12">Delegating</text>
+        <text x="210" y="192" text-anchor="middle" font-size="12">FilterProxy</text>
+        <line x1="265" y1="180" x2="295" y2="180" stroke="currentColor" stroke-width="2" marker-end="url(#ar47)"/>
+        <!-- FilterChainProxy -->
+        <rect x="300" y="55" width="260" height="290" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="430" y="75" text-anchor="middle" font-weight="bold">FilterChainProxy</text>
+        <text x="430" y="92" text-anchor="middle" font-size="11">→ your SecurityFilterChain</text>
+        <g font-size="12">
+          <rect x="320" y="102" width="220" height="24" rx="5" fill="none" stroke="currentColor"/><text x="430" y="119" text-anchor="middle">SecurityContextHolderFilter</text>
+          <rect x="320" y="130" width="220" height="24" rx="5" fill="none" stroke="currentColor"/><text x="430" y="147" text-anchor="middle">HeaderWriterFilter · CorsFilter</text>
+          <rect x="320" y="158" width="220" height="24" rx="5" fill="none" stroke="currentColor"/><text x="430" y="175" text-anchor="middle">CsrfFilter · LogoutFilter</text>
+          <rect x="320" y="186" width="220" height="24" rx="5" fill="none" stroke="var(--java)" stroke-width="2"/><text x="430" y="203" text-anchor="middle">UsernamePasswordAuthFilter (form)</text>
+          <rect x="320" y="214" width="220" height="24" rx="5" fill="none" stroke="var(--java)" stroke-width="2"/><text x="430" y="231" text-anchor="middle">BasicAuthenticationFilter</text>
+          <rect x="320" y="242" width="220" height="24" rx="5" fill="none" stroke="currentColor"/><text x="430" y="259" text-anchor="middle">AnonymousAuthenticationFilter</text>
+          <rect x="320" y="270" width="220" height="24" rx="5" fill="none" stroke="currentColor"/><text x="430" y="287" text-anchor="middle">ExceptionTranslationFilter</text>
+          <rect x="320" y="298" width="220" height="24" rx="5" fill="none" stroke="var(--danger)" stroke-width="2"/><text x="430" y="315" text-anchor="middle">AuthorizationFilter</text>
+        </g>
+        <line x1="560" y1="310" x2="595" y2="310" stroke="currentColor" stroke-width="2" marker-end="url(#ar47)"/>
+        <!-- Dispatcher -->
+        <rect x="600" y="280" width="90" height="60" rx="8" fill="none" stroke="var(--info)" stroke-width="2"/>
+        <text x="645" y="305" text-anchor="middle" font-size="12">Dispatcher</text>
+        <text x="645" y="322" text-anchor="middle" font-size="12">Servlet</text>
+        <line x1="690" y1="310" x2="735" y2="310" stroke="currentColor" stroke-width="2" marker-end="url(#ar47)"/>
+        <rect x="740" y="280" width="110" height="60" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="795" y="315" text-anchor="middle" font-weight="bold">Controller</text>
+        <!-- legend -->
+        <text x="600" y="110" font-size="11">orange = "who are you?"</text>
+        <text x="600" y="128" font-size="11">(authentication filters)</text>
+        <text x="600" y="155" font-size="11">red = "are you allowed?"</text>
+        <text x="600" y="173" font-size="11">(authorization)</text>
+      </g>
+    </svg>
+    <figcaption>Every request passes the same security filters, in the same order, before any controller runs.</figcaption>
+  </figure>
+
+  <p>Three names in that picture are worth knowing:</p>
+  <ul>
+    <li><b>DelegatingFilterProxy</b> – a normal servlet filter registered in Tomcat. It knows nothing about security; it simply hands the request to a Spring bean.</li>
+    <li><b>FilterChainProxy</b> – that Spring bean (named <code>springSecurityFilterChain</code>). It picks the right <code>SecurityFilterChain</code> for this URL and runs its filters.</li>
+    <li><b>SecurityFilterChain</b> – <i>your</i> configuration: the list of filters and rules. You can even have several chains (e.g. one for <code>/api/**</code>, one for the website).</li>
+  </ul>
+  <p>The most important filters, in the order they run:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Filter</th><th>Its one job</th></tr>
+    <tr><td><code>SecurityContextHolderFilter</code></td><td>Loads the "who is logged in" information for this request (e.g. from the HTTP session) and cleans it up afterwards.</td></tr>
+    <tr><td><code>HeaderWriterFilter</code></td><td>Adds protective response headers (<code>X-Content-Type-Options: nosniff</code>, <code>X-Frame-Options</code>, cache control…).</td></tr>
+    <tr><td><code>CorsFilter</code></td><td>Answers browser CORS "preflight" requests (3.10).</td></tr>
+    <tr><td><code>CsrfFilter</code></td><td>For POST/PUT/DELETE: checks that a valid CSRF token is present (3.9).</td></tr>
+    <tr><td><code>LogoutFilter</code></td><td>Handles <code>POST /logout</code>.</td></tr>
+    <tr><td><code>UsernamePasswordAuthenticationFilter</code></td><td>Handles the login form: <code>POST /login</code> with username + password.</td></tr>
+    <tr><td><code>BasicAuthenticationFilter</code></td><td>Reads the <code>Authorization: Basic ...</code> header and logs the user in for this request.</td></tr>
+    <tr><td><code>AnonymousAuthenticationFilter</code></td><td>If nobody logged in so far, marks the request as "anonymous user".</td></tr>
+    <tr><td><code>ExceptionTranslationFilter</code></td><td>Catches security exceptions from the filters after it and turns them into <b>401</b> (ask for login) or <b>403</b> (access denied).</td></tr>
+    <tr><td><code>AuthorizationFilter</code></td><td>The final gate: checks your <code>authorizeHttpRequests</code> rules. Allowed → go to the controller. Not allowed → throws an exception.</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 See it with your own eyes</strong>
+    This project sets <code>logging.level.org.springframework.security=DEBUG</code>. At startup you will see a line like
+    <code>Will secure any request with filters: DisableEncodeUrlFilter, WebAsyncManagerIntegrationFilter, SecurityContextHolderFilter, HeaderWriterFilter, CorsFilter, CsrfFilter, LogoutFilter, UsernamePasswordAuthenticationFilter, DefaultResourcesFilter, DefaultLoginPageGeneratingFilter, DefaultLogoutPageGeneratingFilter, BasicAuthenticationFilter, ...</code>
+    and for every request a log of which filter is running. Reading that log is the best way to learn.</div>
+
+  <h3>3.4 The main characters: who does what during login?</h3>
+  <p>When a filter (Basic or form) receives a username and password, it does not check them itself. It asks a small team of objects:</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 860 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Authentication flow">
+      <defs>
+        <marker id="ar47b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g font-family="Segoe UI, sans-serif" font-size="12" fill="currentColor">
+        <rect x="10" y="30" width="150" height="56" rx="8" fill="none" stroke="var(--java)" stroke-width="2"/>
+        <text x="85" y="53" text-anchor="middle" font-weight="bold">BasicAuthentication</text>
+        <text x="85" y="70" text-anchor="middle" font-weight="bold">Filter</text>
+        <line x1="160" y1="58" x2="215" y2="58" stroke="currentColor" stroke-width="2" marker-end="url(#ar47b)"/>
+        <text x="187" y="48" text-anchor="middle" font-size="10">① user+pass</text>
+        <rect x="220" y="30" width="150" height="56" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="295" y="53" text-anchor="middle" font-weight="bold">Authentication</text>
+        <text x="295" y="70" text-anchor="middle" font-weight="bold">Manager</text>
+        <line x1="370" y1="58" x2="425" y2="58" stroke="currentColor" stroke-width="2" marker-end="url(#ar47b)"/>
+        <text x="397" y="48" text-anchor="middle" font-size="10">② delegate</text>
+        <rect x="430" y="30" width="170" height="56" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="515" y="53" text-anchor="middle" font-weight="bold">DaoAuthentication</text>
+        <text x="515" y="70" text-anchor="middle" font-weight="bold">Provider</text>
+        <line x1="600" y1="45" x2="665" y2="45" stroke="currentColor" stroke-width="2" marker-end="url(#ar47b)"/>
+        <text x="632" y="37" text-anchor="middle" font-size="10">③ load user</text>
+        <rect x="670" y="20" width="180" height="50" rx="8" fill="none" stroke="var(--info)" stroke-width="2"/>
+        <text x="760" y="42" text-anchor="middle" font-weight="bold">UserDetailsService</text>
+        <text x="760" y="59" text-anchor="middle" font-size="11">memory / DB (topic 48)</text>
+        <line x1="600" y1="75" x2="665" y2="110" stroke="currentColor" stroke-width="2" marker-end="url(#ar47b)"/>
+        <text x="610" y="105" font-size="10">④ matches?</text>
+        <rect x="670" y="90" width="180" height="50" rx="8" fill="none" stroke="var(--info)" stroke-width="2"/>
+        <text x="760" y="112" text-anchor="middle" font-weight="bold">PasswordEncoder</text>
+        <text x="760" y="129" text-anchor="middle" font-size="11">BCrypt</text>
+        <line x1="295" y1="86" x2="295" y2="165" stroke="currentColor" stroke-width="2" marker-end="url(#ar47b)"/>
+        <text x="305" y="130" font-size="10">⑤ success: Authentication</text>
+        <rect x="160" y="170" width="290" height="66" rx="8" fill="none" stroke="var(--danger)" stroke-width="2"/>
+        <text x="305" y="192" text-anchor="middle" font-weight="bold">SecurityContextHolder</text>
+        <text x="305" y="210" text-anchor="middle" font-size="11">└ SecurityContext</text>
+        <text x="305" y="226" text-anchor="middle" font-size="11">  └ Authentication (name, authorities)</text>
+        <text x="470" y="200" font-size="11">⑥ later: AuthorizationFilter and your</text>
+        <text x="470" y="216" font-size="11">controllers read "who is this?" from here</text>
+      </g>
+    </svg>
+    <figcaption>The authentication team. You usually only provide the two blue boxes as beans.</figcaption>
+  </figure>
+  <div class="table-wrap"><table>
+    <tr><th>Object</th><th>Simple meaning</th></tr>
+    <tr><td><code>Authentication</code></td><td>"A user's ID card" – name (<i>principal</i>), credentials, and <b>authorities</b>. Before login it holds the typed password; after login it is marked <i>authenticated</i>.</td></tr>
+    <tr><td><code>GrantedAuthority</code></td><td>One permission string, e.g. <code>ROLE_ADMIN</code> or <code>REPORT_READ</code>.</td></tr>
+    <tr><td><code>SecurityContext</code> / <code>SecurityContextHolder</code></td><td>The "pocket" where the current request's <code>Authentication</code> is kept. Technically a <code>ThreadLocal</code> (topic 17): each request thread has its own pocket.</td></tr>
+    <tr><td><code>AuthenticationManager</code></td><td>The "reception desk" that receives a login attempt and decides yes/no by asking its providers.</td></tr>
+    <tr><td><code>DaoAuthenticationProvider</code></td><td>The standard username + password checker.</td></tr>
+    <tr><td><code>UserDetailsService</code></td><td><b>You provide this.</b> One method: <code>loadUserByUsername(String)</code> → returns a <code>UserDetails</code>.</td></tr>
+    <tr><td><code>UserDetails</code></td><td>What Spring needs to know about a user: username, password <i>hash</i>, authorities, enabled/locked flags.</td></tr>
+    <tr><td><code>PasswordEncoder</code></td><td><b>You provide this.</b> Hashes passwords and checks <code>matches(raw, hash)</code>.</td></tr>
+  </table></div>
+
+  <h3>3.5 Your own rules: the <code>SecurityFilterChain</code> bean (Lambda DSL)</h3>
+  <p>To describe your own rules, you create a <code>@Bean</code> method that receives an <code>HttpSecurity</code> builder, configures it, and returns <code>http.build()</code>.
+     Each part is configured with a <b>lambda</b> (topic 13) – this style is called the <b>Lambda DSL</b> (DSL = "domain specific language", a mini language for one job).</p>
+  <pre><span class="file">SecurityConfig.java (core part)</span><code class="lang-java">@Bean
+public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    http
+        .authorizeHttpRequests(auth -&gt; auth
+            .requestMatchers("/api/public/**", "/error").permitAll()
+            .requestMatchers(HttpMethod.GET, "/api/admin/**").hasRole("ADMIN")
+            .anyRequest().authenticated()
+        )
+        .httpBasic(Customizer.withDefaults())
+        .formLogin(Customizer.withDefaults());
+    return http.build();
+}</code></pre>
+  <p>Read it like English: <i>"Public URLs: everyone. GET on admin URLs: only role ADMIN. Any other request: must be logged in.
+     People may log in with HTTP Basic or with a login form."</i> <code>Customizer.withDefaults()</code> means "switch this feature on with its default settings".</p>
+  <div class="table-wrap"><table>
+    <tr><th>Rule</th><th>Meaning</th></tr>
+    <tr><td><code>permitAll()</code></td><td>Everybody, even anonymous users.</td></tr>
+    <tr><td><code>authenticated()</code></td><td>Any logged-in user, whatever their role.</td></tr>
+    <tr><td><code>hasRole("ADMIN")</code></td><td>User must have authority <code>ROLE_ADMIN</code> (Spring adds the <code>ROLE_</code> prefix for you).</td></tr>
+    <tr><td><code>hasAnyRole("ADMIN", "TEACHER")</code></td><td>At least one of these roles.</td></tr>
+    <tr><td><code>hasAuthority("REPORT_READ")</code></td><td>Exact authority string, no prefix added (topic 48).</td></tr>
+    <tr><td><code>denyAll()</code></td><td>Nobody. Useful to block old endpoints.</td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Order matters: first match wins</strong>
+    Rules are checked <b>top to bottom</b> and the <b>first</b> matching rule decides. Put <b>specific</b> rules first and the catch-all
+    <code>anyRequest()</code> <b>last</b>. If you write <code>anyRequest().authenticated()</code> first, Spring refuses to start:
+    <i>"Can't configure requestMatchers after anyRequest"</i>.</div>
+  <div class="callout info"><strong>ℹ️ Old tutorials: <code>WebSecurityConfigurerAdapter</code></strong>
+    Many blog posts extend a class called <code>WebSecurityConfigurerAdapter</code> and use <code>.antMatchers(...)</code> and <code>.and()</code>.
+    That class was <b>removed</b> in Spring Security 6 (Spring Boot 3). Today you declare a <code>SecurityFilterChain</code> bean, use
+    <code>requestMatchers(...)</code> and the Lambda DSL – exactly like this lesson.</div>
+
+  <h3>3.6 In-memory users</h3>
+  <p>The simplest <code>UserDetailsService</code> keeps users in a <code>Map</code> in memory. Spring ships one: <code>InMemoryUserDetailsManager</code>.</p>
+  <pre><code class="lang-java">@Bean
+public UserDetailsService userDetailsService(PasswordEncoder encoder) {
+    UserDetails student = User.withUsername("student")
+            .password(encoder.encode("student123"))   // store the HASH, never the plain text
+            .roles("USER")                            // becomes authority "ROLE_USER"
+            .build();
+    UserDetails admin = User.withUsername("admin")
+            .password(encoder.encode("admin123"))
+            .roles("USER", "ADMIN")
+            .build();
+    return new InMemoryUserDetailsManager(student, admin);
+}</code></pre>
+  <p><b>Roles vs authorities:</b> internally Spring only knows <i>authorities</i> (plain strings). A <b>role</b> is just an authority that starts with <code>ROLE_</code>.
+     <code>.roles("ADMIN")</code> stores <code>ROLE_ADMIN</code>; <code>hasRole("ADMIN")</code> checks for <code>ROLE_ADMIN</code>. Same thing, two spellings.</p>
+  <div class="callout warn"><strong>⚠️ In-memory users are for demos only</strong>
+    They vanish on restart, nobody can register, and passwords live in your source code. Topic 48 moves users into a database.</div>
+
+  <h3>3.7 Passwords: why hashing, and why BCrypt?</h3>
+  <p>Imagine your database is stolen (it happens to big companies every year). What does the thief see?</p>
+  <div class="table-wrap"><table>
+    <tr><th>Storage method</th><th>Thief sees</th><th>Verdict</th></tr>
+    <tr><td>Plain text</td><td><code>student123</code></td><td>❌ Disaster. People reuse passwords – now their email is also hacked.</td></tr>
+    <tr><td>Encryption (two-way)</td><td><code>x8Gh2...</code> – but the key is usually on the same server</td><td>❌ Steal the key → read all passwords.</td></tr>
+    <tr><td>Fast hash (MD5, SHA-256)</td><td><code>5e884898da...</code></td><td>❌ Graphics cards try billions of guesses per second; "rainbow tables" reverse common passwords instantly.</td></tr>
+    <tr><td><b>BCrypt</b> (slow, salted hash)</td><td><code>$2a$10$BXvSBHNhnNKb70yO925NG.33EZ0...</code></td><td>✅ Each guess is deliberately slow, and a random salt makes every hash unique.</td></tr>
+  </table></div>
+  <p>A <b>hash</b> is a one-way function: easy to go from password → hash, practically impossible to go back. At login we do not "decrypt" anything.
+     We hash what the user typed and compare. BCrypt adds two extras:</p>
+  <ul>
+    <li><b>Salt</b> – a random value mixed into each hash. Two users with the password <code>student123</code> get <i>different</i> hashes, so one cracked hash does not reveal the other.</li>
+    <li><b>Cost factor (work factor)</b> – the number of rounds (2<sup>10</sup> = 1024 by default). Checking one password takes ~0.1 s: nothing for a user logging in, but a nightmare for an attacker trying billions.</li>
+  </ul>
+  <p>Anatomy of a BCrypt hash (60 characters):</p>
+  <div class="flow">
+    <span class="box">$2a$</span><span class="arrow">+</span>
+    <span class="box alt">10$</span><span class="arrow">+</span>
+    <span class="box info">BXvSBHNhnNKb70yO925NG.</span><span class="arrow">+</span>
+    <span class="box">33EZ0SL5b5WL0kv2zxKlw8g7sjdlWhu</span>
+  </div>
+  <p style="text-align:center;color:var(--muted);font-size:14px">algorithm version · cost (2<sup>10</sup> rounds) · 22-char salt · 31-char hash</p>
+  <p>Our project's <code>PasswordHashingDemo</code> prints this at startup (real output from a run):</p>
+  <pre class="terminal"><code>---- BCrypt demo ----
+hash #1 = $2a$10$BXvSBHNhnNKb70yO925NG.33EZ0SL5b5WL0kv2zxKlw8g7sjdlWhu
+hash #2 = $2a$10$HGbyWnsTih5wTMymH3rVGO9WBEGbODCq5hTD7INtW/0eeiyoM.atm
+Same password, different hashes? true
+matches("student123", hash #1) = true
+matches("student123", hash #2) = true
+matches("wrong",      hash #1) = false</code></pre>
+  <p>How can <code>matches</code> work if the hashes differ? Because the salt is <b>stored inside</b> the hash string. BCrypt reads the salt and cost from it,
+     hashes the typed password the same way, and compares.</p>
+  <div class="callout info"><strong>ℹ️ <code>{bcrypt}</code> and <code>{noop}</code> prefixes</strong>
+    If you do <i>not</i> declare a <code>PasswordEncoder</code> bean, Spring uses a <code>DelegatingPasswordEncoder</code> that expects a prefix telling which algorithm was used:
+    <code>{bcrypt}$2a$10$...</code>, or <code>{noop}secret</code> for plain text (demo only). Without a prefix you get the famous error
+    <i>"There is no PasswordEncoder mapped for the id null"</i>. Declaring a <code>BCryptPasswordEncoder</code> bean, as we do, avoids that.
+    Other good algorithms: Argon2, SCrypt, PBKDF2.</div>
+
+  <h3>3.8 HTTP Basic vs Form login</h3>
+  <p>Both are ways for the user to hand over a username and password. They suit different clients:</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>HTTP Basic</th><th>Form login</th></tr>
+    <tr><td>Who uses it</td><td>Scripts, curl, Postman, server-to-server</td><td>Humans in a browser</td></tr>
+    <tr><td>How</td><td>Header on <b>every</b> request: <code>Authorization: Basic c3R1ZGVudDpzdHVkZW50MTIz</code></td><td>HTML form posts to <code>/login</code> <b>once</b>; then a session cookie <code>JSESSIONID</code> is sent automatically</td></tr>
+    <tr><td>Server remembers you?</td><td>No (password sent each time)</td><td>Yes, in the HTTP session</td></tr>
+    <tr><td>Logout</td><td>Not really (client just stops sending)</td><td><code>POST /logout</code> destroys the session</td></tr>
+    <tr><td>Enable with</td><td><code>.httpBasic(Customizer.withDefaults())</code></td><td><code>.formLogin(Customizer.withDefaults())</code></td></tr>
+  </table></div>
+  <p>That strange Basic header value is just <b>Base64</b> of <code>username:password</code>. Base64 is an <i>encoding</i>, not encryption – anybody can decode it:</p>
+  <pre class="terminal"><code>PS&gt; [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("c3R1ZGVudDpzdHVkZW50MTIz"))
+student:student123</code></pre>
+  <div class="callout danger"><strong>🔒 Always HTTPS in production</strong>
+    With HTTP Basic (and with form login too) the password travels over the network. Without HTTPS anyone on the same Wi-Fi can read it.
+    Locally we use plain HTTP for learning; real servers must use HTTPS (TLS).</div>
+  <p><b>Both at once?</b> Yes – our project enables both. When a protected URL is called without login, Spring looks at the request:
+     a browser (it sends <code>Accept: text/html</code>) is <b>redirected (302)</b> to the login page; curl and other API clients get <b>401</b>
+     with the header <code>WWW-Authenticate: Basic realm="Realm"</code>.</p>
+
+  <h3>3.9 CSRF – what it is and when to disable it</h3>
+  <p><b>CSRF</b> = <i>Cross-Site Request Forgery</i>. The attack works because <b>browsers send cookies automatically</b>.</p>
+  <div class="callout analogy"><strong>🏦 The trick</strong>
+    You are logged in to <code>mybank.com</code> (your browser holds the session cookie). In another tab you open a funny cat website.
+    Hidden on that page is a form that silently POSTs to <code>mybank.com/transfer?to=thief&amp;amount=1000</code>.
+    Your browser happily attaches your bank cookie – and the bank thinks <i>you</i> sent it.</div>
+  <p><b>The defence:</b> for every state-changing request (POST, PUT, PATCH, DELETE), the server demands a secret <b>CSRF token</b> that only its own pages know
+     (for example a hidden field in the form). The cat website cannot read that token, so its forged request is rejected with <b>403</b>.
+     Spring Security does this automatically – that is why a plain <code>curl -X POST</code> to a cookie-based app fails with 403.</p>
+  <p><b>When may you switch it off?</b> When the client does <b>not</b> use cookies for authentication – for example a pure REST API that is called with an
+     <code>Authorization</code> header (HTTP Basic or a token, topic 49). A foreign website cannot make the browser add that header by itself, so CSRF is impossible.</p>
+  <pre><code class="lang-java">// Option A - our project: keep CSRF for the browser pages, ignore it for the REST API
+.csrf(csrf -&gt; csrf.ignoringRequestMatchers("/api/**"))
+
+// Option B - a 100% stateless API without sessions or cookies (topic 49)
+.csrf(csrf -&gt; csrf.disable())</code></pre>
+  <div class="callout warn"><strong>⚠️ Do not disable CSRF "because POST did not work"</strong>
+    If your app uses session cookies (form login, server-side pages like Thymeleaf from topic 36), keep CSRF on. Thymeleaf forms add the token automatically.</div>
+
+  <h3>3.10 CORS with Spring Security</h3>
+  <p>Recap from topic 32: browsers follow the <b>same-origin policy</b>. JavaScript on <code>http://localhost:3000</code> (say a React app) may not read responses from
+     <code>http://localhost:8080</code> unless the server says it is OK with <code>Access-Control-Allow-Origin</code> headers.
+     For "non-simple" requests (e.g. with an <code>Authorization</code> header) the browser first sends a <b>preflight</b>: an <code>OPTIONS</code> request <i>without</i> credentials.</p>
+  <p>That is the problem: if security runs first, it sees an unauthenticated <code>OPTIONS</code> request and answers 401 – the browser then blocks the real call.
+     The fix is to let Spring Security handle CORS <i>first</i> with <code>.cors(...)</code> and a <code>CorsConfigurationSource</code> bean:</p>
+  <pre><code class="lang-java">.cors(Customizer.withDefaults())   // uses the CorsConfigurationSource bean below
+
+@Bean
+public CorsConfigurationSource corsConfigurationSource() {
+    CorsConfiguration config = new CorsConfiguration();
+    config.setAllowedOrigins(List.of("http://localhost:3000"));
+    config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+    config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+    config.setAllowCredentials(true);
+    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+    source.registerCorsConfiguration("/api/**", config);
+    return source;
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ CORS is not a lock on your server</strong>
+    CORS only tells <i>browsers</i> which other websites may read your responses. curl and Postman ignore it completely.
+    It protects users' browsers; it does not replace authentication.</div>
+
+  <h3>3.11 401 vs 403 – three requests traced step by step</h3>
+  <p>Let us follow three real requests through our project's filter chain. These traces are the most important part of this lesson.</p>
+
+  <p><b>Trace A – anonymous user calls <code>GET /api/me</code></b></p>
+  <div class="flow">
+    <span class="box">curl (no header)</span><span class="arrow">→</span>
+    <span class="box alt">BasicAuthFilter: no header, skip</span><span class="arrow">→</span>
+    <span class="box info">AnonymousFilter: "anonymous"</span><span class="arrow">→</span>
+    <span class="box">AuthorizationFilter: needs authenticated ✗</span><span class="arrow">→</span>
+    <span class="box alt">ExceptionTranslation: anonymous → <b>401</b></span>
+  </div>
+  <pre class="terminal"><code>HTTP/1.1 401
+WWW-Authenticate: Basic realm="Realm"</code></pre>
+
+  <p><b>Trace B – <code>student</code> calls <code>GET /api/admin/stats</code></b></p>
+  <div class="flow">
+    <span class="box">curl -u student:student123</span><span class="arrow">→</span>
+    <span class="box alt">BasicAuthFilter: decode, AuthenticationManager ✓, store in SecurityContext</span><span class="arrow">→</span>
+    <span class="box">AuthorizationFilter: hasRole ADMIN? has only ROLE_USER ✗</span><span class="arrow">→</span>
+    <span class="box alt">ExceptionTranslation: known user → <b>403</b></span>
+  </div>
+
+  <p><b>Trace C – <code>admin</code> calls <code>GET /api/admin/stats</code></b></p>
+  <div class="flow">
+    <span class="box">curl -u admin:admin123</span><span class="arrow">→</span>
+    <span class="box alt">BasicAuthFilter ✓</span><span class="arrow">→</span>
+    <span class="box">AuthorizationFilter: ROLE_ADMIN ✓</span><span class="arrow">→</span>
+    <span class="box info">DispatcherServlet → AdminController</span><span class="arrow">→</span>
+    <span class="box"><b>200</b> JSON</span>
+  </div>
+  <div class="callout tip"><strong>💡 The rule of thumb</strong>
+    <b>401</b> = "I don't know who you are – please (re)authenticate". <b>403</b> = "I know exactly who you are – and the answer is no."
+    A wrong password is also a <b>401</b>, because authentication failed.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>The project is a tiny "College Portal" API. Package: <code>com.course.securitybasics</code>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>Web + <code>spring-boot-starter-security</code>; test scope <code>spring-security-test</code>.</td></tr>
+    <tr><td><code>SecurityBasicsApplication.java</code></td><td>Main class; the comment lists all endpoints and users.</td></tr>
+    <tr><td><code>config/SecurityConfig.java</code></td><td>The four security beans: filter chain, users, BCrypt, CORS.</td></tr>
+    <tr><td><code>config/PasswordHashingDemo.java</code></td><td>A <code>CommandLineRunner</code> that prints BCrypt hashes at startup.</td></tr>
+    <tr><td><code>web/PublicController.java</code></td><td><code>GET /api/public/notice</code> – <code>permitAll</code>.</td></tr>
+    <tr><td><code>web/StudentController.java</code></td><td><code>GET /api/me</code> (reads the current <code>Authentication</code>) and <code>POST /api/feedback</code>.</td></tr>
+    <tr><td><code>web/AdminController.java</code></td><td><code>GET /api/admin/stats</code> – ADMIN only.</td></tr>
+    <tr><td><code>web/HomeController.java</code></td><td><code>GET /</code> – an HTML page to try form login in the browser.</td></tr>
+    <tr><td><code>src/main/resources/application.properties</code></td><td>Port and DEBUG logging for security.</td></tr>
+    <tr><td><code>src/test/.../SecurityRulesTest.java</code></td><td>7 MockMvc tests proving 200/401/403 and the CSRF rule.</td></tr>
+    <tr><td><code>requests.http</code></td><td>Ready-made requests for the REST Client extension (incl. CORS preflights).</td></tr>
+  </table></div>
+
+  <h3>4.1 <code>SecurityConfig.java</code> – the whole security in one class</h3>
+  <pre><span class="file">src/main/java/com/course/securitybasics/config/SecurityConfig.java</span><code class="lang-java">@Configuration
+@EnableWebSecurity // optional in Spring Boot, but it documents intent
+public class SecurityConfig {
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+            .authorizeHttpRequests(auth -&gt; auth
+                .requestMatchers("/api/public/**", "/error").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/admin/**").hasRole("ADMIN")
+                .anyRequest().authenticated()
+            )
+            .httpBasic(Customizer.withDefaults())
+            .formLogin(Customizer.withDefaults())
+            .logout(Customizer.withDefaults())
+            .csrf(csrf -&gt; csrf.ignoringRequestMatchers("/api/**"))
+            .cors(Customizer.withDefaults());
+        return http.build();
+    }
+    // + userDetailsService(...), passwordEncoder(), corsConfigurationSource()
+}</code></pre>
+  <p>Line by line:</p>
+  <ul>
+    <li><code>"/error"</code> is permitted on purpose. When a controller throws, Spring Boot forwards to <code>/error</code> to build the JSON error.
+        If <code>/error</code> were protected, an anonymous caller would see a confusing 401 instead of the real 400/404/500.</li>
+    <li><code>HttpMethod.GET</code> limits the admin rule to GET requests. Any other method on <code>/api/admin/**</code> falls through to <code>anyRequest().authenticated()</code>.</li>
+    <li><code>.logout(...)</code> adds <code>POST /logout</code>. Because CSRF is on for non-API URLs, logout must come from a page holding the token (Spring's <code>GET /logout</code> confirmation page does that).</li>
+  </ul>
+
+  <h3>4.2 Reading the current user in a controller</h3>
+  <pre><span class="file">web/StudentController.java</span><code class="lang-java">@GetMapping("/me")
+public Map&lt;String, Object&gt; me(Authentication authentication) {
+    List&lt;String&gt; roles = authentication.getAuthorities().stream()
+            .map(GrantedAuthority::getAuthority)
+            .toList();
+    return Map.of("username", authentication.getName(), "roles", roles);
+}
+
+@PostMapping("/feedback")
+@ResponseStatus(HttpStatus.CREATED)
+public Map&lt;String, String&gt; feedback(@RequestBody FeedbackRequest request, Principal principal) {
+    return Map.of("from", principal.getName(), "message", request.message(), "status", "received");
+}</code></pre>
+  <p>Spring MVC can inject <code>Authentication</code> or <code>java.security.Principal</code> straight into a handler method – it takes them from the
+     <code>SecurityContextHolder</code> that <code>BasicAuthenticationFilter</code> filled earlier in the chain. Topic 48 shows more ways (<code>@AuthenticationPrincipal</code>).</p>
+
+  <h3>4.3 The tests</h3>
+  <pre><span class="file">src/test/java/com/course/securitybasics/SecurityRulesTest.java (excerpt)</span><code class="lang-java">@SpringBootTest
+@AutoConfigureMockMvc
+class SecurityRulesTest {
+    @Autowired MockMvc mockMvc;
+
+    @Test
+    void studentGets403OnAdminUrl() throws Exception {
+        mockMvc.perform(get("/api/admin/stats").with(httpBasic("student", "student123")))
+               .andExpect(status().isForbidden());
+    }
+}</code></pre>
+  <p><code>httpBasic(user, pass)</code> comes from <code>spring-security-test</code>. It adds a real <code>Authorization: Basic ...</code> header, so the request
+     travels through the real filter chain, the real <code>InMemoryUserDetailsManager</code> and the real BCrypt check.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 In VS Code</h3>
+  <ol>
+    <li><b>File → Open Folder…</b> and choose <code>D:\Java-SpringBoot\47-Spring-Security-Fundamentals</code>.</li>
+    <li>Wait until the Java extension has imported the Maven project (status bar shows "Java: Ready").</li>
+    <li>Open <code>SecurityBasicsApplication.java</code> and click <b>Run</b> above <code>main</code> (or use the Spring Boot Dashboard).</li>
+    <li>Open <code>requests.http</code> and click <b>Send Request</b> above each block.</li>
+  </ol>
+  <h3>5.2 From the terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\47-Spring-Security-Fundamentals"
+mvn spring-boot:run</code></pre>
+  <p>In a <b>second</b> terminal try the calls below. In Windows PowerShell type <code>curl.exe</code> (plain <code>curl</code> is an alias for <code>Invoke-WebRequest</code> there).
+     The outputs below are real results from this project.</p>
+  <pre class="terminal"><code>curl.exe http://localhost:8080/api/public/notice
+{"notice":"College is closed on Friday for the festival."}
+
+curl.exe -i http://localhost:8080/api/me
+HTTP/1.1 401
+WWW-Authenticate: Basic realm="Realm"
+
+curl.exe -u student:student123 http://localhost:8080/api/me
+{"roles":["ROLE_USER"],"username":"student"}
+
+curl.exe -i -u student:student123 http://localhost:8080/api/admin/stats
+HTTP/1.1 403
+
+curl.exe -u admin:admin123 http://localhost:8080/api/admin/stats
+{"courses":37,"students":1250,"teachers":84}
+
+curl.exe -u student:student123 -H "Content-Type: application/json" -d "{\"message\":\"hi\"}" http://localhost:8080/api/feedback
+{"from":"student","status":"received","message":"hi"}     (status 201)
+
+curl.exe -i -X OPTIONS -H "Origin: http://localhost:3000" -H "Access-Control-Request-Method: GET" http://localhost:8080/api/me
+HTTP/1.1 200
+Access-Control-Allow-Origin: http://localhost:3000
+
+curl.exe -i -X OPTIONS -H "Origin: http://evil.example.com" -H "Access-Control-Request-Method: GET" http://localhost:8080/api/me
+HTTP/1.1 403</code></pre>
+  <h3>5.3 Try form login in the browser</h3>
+  <ol>
+    <li>Open <code>http://localhost:8080/</code>. You are redirected (302) to <code>/login</code> – Spring's generated login page.</li>
+    <li>Log in as <code>student</code> / <code>student123</code>. You land on the welcome page with your name.</li>
+    <li>Open the browser dev tools → <i>Application → Cookies</i>: there is a <code>JSESSIONID</code> cookie. That is how the server remembers you.</li>
+    <li>Visit <code>/api/admin/stats</code> → the browser shows a 403 error page. Visit <code>/logout</code> and confirm → you are logged out.</li>
+  </ol>
+  <h3>5.4 Run the tests</h3>
+  <pre class="terminal"><code>mvn test
+...
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS</code></pre>
+
+  <!-- ============================================================ -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>hasRole("ROLE_ADMIN")</code></strong>
+    <code>hasRole</code> adds <code>ROLE_</code> itself. Spring stops you at startup with <i>"ROLE_ADMIN should not start with ROLE_ since ROLE_ is automatically prepended when using hasRole. Consider using hasAuthority instead."</i><br>
+    <strong>Fix:</strong> <code>hasRole("ADMIN")</code> – or <code>hasAuthority("ROLE_ADMIN")</code> if you want the full string.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: putting <code>anyRequest()</code> first</strong>
+    Rules are checked top-down; <code>anyRequest()</code> must be the last line or the app fails at startup.<br>
+    <strong>Fix:</strong> most specific rules first, the catch-all last.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: POST/PUT/DELETE always return 403</strong>
+    Usually CSRF: your client sends no CSRF token.<br>
+    <strong>Fix:</strong> for a stateless API called with an <code>Authorization</code> header, ignore/disable CSRF for those URLs. For cookie-based browser apps, send the token instead.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "There is no PasswordEncoder mapped for the id null"</strong>
+    You stored a plain password (<code>.password("secret")</code>) without an encoder bean and without a <code>{noop}</code>/<code>{bcrypt}</code> prefix.<br>
+    <strong>Fix:</strong> declare a <code>BCryptPasswordEncoder</code> bean and store <code>encoder.encode("secret")</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: copying <code>WebSecurityConfigurerAdapter</code> code from old blogs</strong>
+    It does not exist in Spring Boot 3; <code>antMatchers</code> and <code>authorizeRequests</code> are gone or deprecated.<br>
+    <strong>Fix:</strong> <code>SecurityFilterChain</code> bean + <code>authorizeHttpRequests</code> + <code>requestMatchers</code> + Lambda DSL.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: CORS configured only in Spring MVC</strong>
+    <code>@CrossOrigin</code> or <code>WebMvcConfigurer.addCorsMappings</code> alone: the preflight is rejected by security (401) before MVC ever sees it.<br>
+    <strong>Fix:</strong> add <code>.cors(...)</code> to the filter chain (it picks up a <code>CorsConfigurationSource</code> bean).</div>
+  <div class="callout danger"><strong>🔥 Mistake: logging or returning passwords</strong>
+    Never log <code>request.getPassword()</code>, never put the hash in a JSON response, never commit real passwords to Git.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>curl</code> in PowerShell behaves strangely</strong>
+    In Windows PowerShell 5.1, <code>curl</code> means <code>Invoke-WebRequest</code> and <code>-u</code> does not work.<br>
+    <strong>Fix:</strong> type <code>curl.exe</code>, or use the <code>requests.http</code> file.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><b>Deny by default.</b> End your rules with <code>anyRequest().authenticated()</code> (or <code>denyAll()</code>) and open only what must be public.</li>
+    <li><b>One place for URL rules.</b> Keep them in one <code>SecurityConfig</code> class so reviewers can see the whole picture.</li>
+    <li><b>Hash with BCrypt</b> (or Argon2). Never store plain or reversibly encrypted passwords.</li>
+    <li><b>HTTPS everywhere</b> outside your laptop. Basic auth and session cookies are only as safe as the connection.</li>
+    <li><b>Keep CSRF on</b> for cookie/session-based browser apps; disable it only for truly stateless token APIs.</li>
+    <li><b>Allow-list CORS origins</b>; never use <code>*</code> together with credentials.</li>
+    <li><b>Do not reveal details.</b> "Invalid username or password" – never "user not found" vs "wrong password" (that helps attackers guess usernames).</li>
+    <li><b>Test your security rules</b> like any other feature: 200, 401 and 403 cases for each important URL (see <code>SecurityRulesTest</code>).</li>
+    <li><b>Keep Spring Boot up to date</b> – security fixes arrive through dependency updates.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li><b>Authentication</b> = who are you (fail → 401). <b>Authorization</b> = what may you do (fail → 403).</li>
+    <li>Adding <code>spring-boot-starter-security</code> locks everything and creates user <code>user</code> with a generated password.</li>
+    <li>Spring Security is a <b>chain of filters</b> in front of the <code>DispatcherServlet</code>; <code>AuthorizationFilter</code> is the last gate.</li>
+    <li>You describe rules in a <code>SecurityFilterChain</code> bean with the Lambda DSL; first matching rule wins.</li>
+    <li>Users come from a <code>UserDetailsService</code>; passwords are checked by a <code>PasswordEncoder</code> (BCrypt: slow + salted).</li>
+    <li>The logged-in user lives in the <code>SecurityContextHolder</code> (one per request thread).</li>
+    <li>HTTP Basic suits API clients; form login + session cookie suits browsers.</li>
+    <li>CSRF protects cookie-based apps; ignore/disable it only for stateless APIs. Configure CORS through <code>.cors(...)</code>.</li>
+  </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Add a teacher.</b> Add a third in-memory user <code>teacher</code> / <code>teacher123</code> with role <code>TEACHER</code>.
+       Add <code>GET /api/teacher/timetable</code> that only TEACHER and ADMIN may call. Verify 200 / 403 with curl.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// in userDetailsService(...)
+UserDetails teacher = User.withUsername("teacher")
+        .password(encoder.encode("teacher123"))
+        .roles("TEACHER")
+        .build();
+return new InMemoryUserDetailsManager(student, admin, teacher);
+
+// in securityFilterChain(...) - BEFORE anyRequest()
+.requestMatchers("/api/teacher/**").hasAnyRole("TEACHER", "ADMIN")
+
+// new controller
+@RestController
+@RequestMapping("/api/teacher")
+public class TeacherController {
+    @GetMapping("/timetable")
+    public List&lt;String&gt; timetable() {
+        return List.of("Mon 9:00 Java", "Tue 11:00 Spring");
+    }
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>See CSRF in action.</b> Remove the line <code>.csrf(csrf -&gt; csrf.ignoringRequestMatchers("/api/**"))</code>, restart, and call
+       <code>POST /api/feedback</code> with curl. What status do you get and why? Put the line back afterwards.</p>
+    <details><summary>Hint / solution</summary><p>You get <b>403 Forbidden</b>, even with a correct password. CSRF protection is on by default and curl sends no CSRF token.
+       In the DEBUG log you will see <code>Invalid CSRF token found for http://localhost:8080/api/feedback</code>. Our API is used with the
+       <code>Authorization</code> header (not cookies), so ignoring CSRF for <code>/api/**</code> is safe.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Write a test.</b> Add a test proving that <code>DELETE /api/admin/stats</code> (no such endpoint!) as <code>student</code> returns
+       <b>405</b> or <b>404</b> rather than 403, and explain why from the rules (hint: <code>HttpMethod.GET</code>).</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Test
+void deleteOnAdminUrlIsNotCoveredByAdminRule() throws Exception {
+    mockMvc.perform(delete("/api/admin/stats").with(httpBasic("student", "student123")))
+           .andExpect(status().isMethodNotAllowed());   // 405
+}
+// The admin rule only matches GET. DELETE falls to anyRequest().authenticated(),
+// student IS authenticated, so the request reaches Spring MVC, which answers
+// 405 Method Not Allowed because only GET is mapped. Lesson: method-specific
+// rules can leave gaps - prefer rules without a method unless you need it.</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Your own BCrypt check.</b> Write a small JUnit test that creates a <code>BCryptPasswordEncoder(12)</code>, hashes <code>"hello"</code>,
+       checks that the hash starts with <code>$2a$12$</code>, and that <code>matches</code> works. Measure how long <code>encode</code> takes for strength 10 vs 14.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Test
+void bcryptStrength() {
+    BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(12);
+    String hash = encoder.encode("hello");
+    assertThat(hash).startsWith("$2a$12$").hasSize(60);
+    assertThat(encoder.matches("hello", hash)).isTrue();
+
+    for (int strength : new int[] {10, 14}) {
+        long start = System.nanoTime();
+        new BCryptPasswordEncoder(strength).encode("hello");
+        System.out.println(strength + " -&gt; " + (System.nanoTime() - start) / 1_000_000 + " ms");
+    }
+    // Each +1 doubles the time: 14 is about 16x slower than 10.
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>Two filter chains.</b> Split the configuration into two <code>SecurityFilterChain</code> beans: one for <code>/api/**</code> (HTTP Basic only,
+       CSRF disabled, stateless) and one for everything else (form login, CSRF on). Use <code>securityMatcher</code> and <code>@Order</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Bean
+@Order(1)
+public SecurityFilterChain apiChain(HttpSecurity http) throws Exception {
+    http.securityMatcher("/api/**")                  // this chain only handles /api/**
+        .authorizeHttpRequests(auth -&gt; auth
+            .requestMatchers("/api/public/**").permitAll()
+            .requestMatchers("/api/admin/**").hasRole("ADMIN")
+            .anyRequest().authenticated())
+        .httpBasic(Customizer.withDefaults())
+        .csrf(csrf -&gt; csrf.disable())
+        .sessionManagement(s -&gt; s.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+    return http.build();
+}
+
+@Bean
+@Order(2)
+public SecurityFilterChain webChain(HttpSecurity http) throws Exception {
+    http.authorizeHttpRequests(auth -&gt; auth.anyRequest().authenticated())
+        .formLogin(Customizer.withDefaults());       // CSRF stays ON
+    return http.build();
+}
+// FilterChainProxy asks each chain in @Order: "do you match this URL?" and uses the first that does.</code></pre></details>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between authentication and authorization?</summary>
+    <p>Authentication verifies <b>identity</b> ("who are you?") using credentials such as a password or token. Authorization decides <b>access</b>
+       ("are you allowed to do this?") based on roles/permissions of the authenticated user. Authentication comes first. Failures map to 401 and 403 respectively.</p></details>
+  <details><summary>Q2. Explain the Spring Security filter chain.</summary>
+    <p>Tomcat calls <code>DelegatingFilterProxy</code>, which delegates to the Spring bean <code>FilterChainProxy</code>. It selects the matching
+       <code>SecurityFilterChain</code> and runs its ordered filters: context loading, headers, CORS, CSRF, logout, authentication filters (form, Basic, bearer…),
+       anonymous, <code>ExceptionTranslationFilter</code>, and finally <code>AuthorizationFilter</code>. Only if all pass does the request reach the <code>DispatcherServlet</code>.</p></details>
+  <details><summary>Q3. What is the difference between 401 and 403?</summary>
+    <p>401 Unauthorized means the request is not authenticated (missing or invalid credentials); the response usually includes <code>WWW-Authenticate</code>.
+       403 Forbidden means the user is authenticated but lacks permission. Spring's <code>ExceptionTranslationFilter</code> chooses: anonymous user → entry point (401/redirect to login); known user → access denied handler (403).</p></details>
+  <details><summary>Q4. Why BCrypt and not SHA-256 for passwords?</summary>
+    <p>SHA-256 is designed to be <b>fast</b>, which helps attackers brute-force billions of guesses per second. BCrypt is deliberately <b>slow</b> (configurable cost)
+       and uses a per-password random <b>salt</b>, defeating rainbow tables and making identical passwords produce different hashes.</p></details>
+  <details><summary>Q5. What are UserDetailsService and UserDetails?</summary>
+    <p><code>UserDetailsService</code> is an interface with one method, <code>loadUserByUsername</code>, used by <code>DaoAuthenticationProvider</code> to fetch a user.
+       It returns a <code>UserDetails</code>: username, password hash, authorities and account status flags. You implement it to plug in any user store (memory, JPA, LDAP…).</p></details>
+  <details><summary>Q6. What is CSRF and when is it safe to disable protection?</summary>
+    <p>Cross-Site Request Forgery tricks a logged-in user's browser into sending a state-changing request to another site, using cookies sent automatically.
+       Spring defends with a synchronizer token. It is safe to disable for stateless APIs that do not use cookies for authentication (e.g. Bearer tokens in a header), because a foreign site cannot add that header.</p></details>
+  <details><summary>Q7. Difference between hasRole and hasAuthority?</summary>
+    <p>Both check granted authorities. <code>hasRole("ADMIN")</code> automatically prefixes <code>ROLE_</code> and checks <code>ROLE_ADMIN</code>;
+       <code>hasAuthority("ADMIN")</code> checks the exact string. Roles are conventionally coarse groups, authorities fine-grained permissions.</p></details>
+  <details><summary>Q8. How is security configured in Spring Boot 3 compared with older versions?</summary>
+    <p><code>WebSecurityConfigurerAdapter</code> was removed in Spring Security 6. You now expose a <code>SecurityFilterChain</code> bean (and <code>UserDetailsService</code>,
+       <code>PasswordEncoder</code> beans), use <code>authorizeHttpRequests</code> + <code>requestMatchers</code>, and the Lambda DSL instead of <code>.and()</code> chaining.</p></details>
+  <details><summary>Q9. Why must CORS be configured in Spring Security and not only in MVC?</summary>
+    <p>The browser's preflight <code>OPTIONS</code> request carries no credentials. Security filters run before MVC and would reject it with 401.
+       <code>http.cors()</code> adds a <code>CorsFilter</code> early in the chain that answers preflights using the <code>CorsConfigurationSource</code>.</p></details>
+  <details><summary>Q10. Where is the currently logged-in user stored during a request?</summary>
+    <p>In the <code>SecurityContext</code>, held by <code>SecurityContextHolder</code> – by default in a <code>ThreadLocal</code>, so each request thread has its own.
+       With sessions, <code>SecurityContextHolderFilter</code> loads it from the <code>HttpSession</code> at the start of each request.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../46-Testing-Spring-Boot-Applications/lesson.html"><small>← Previous</small>46. Testing Spring Boot Applications</a>
+    <a class="next" href="../48-Spring-Security-With-Database-Users-And-Roles/lesson.html"><small>Next →</small>48. Security with Database Users &amp; Roles</a>
+  </nav>
+</main>
+</body>
+</html>

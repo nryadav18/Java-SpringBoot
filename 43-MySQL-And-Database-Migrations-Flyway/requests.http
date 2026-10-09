@@ -1,0 +1,42 @@
+### Topic 43 - sample requests (VS Code "REST Client" extension: click "Send Request")
+@baseUrl = http://localhost:8080
+
+### Which database am I using? Which migrations ran?
+GET {{baseUrl}}/api/db-info
+
+### All books (inserted by migration V2)
+GET {{baseUrl}}/api/books
+
+### Filter by author
+GET {{baseUrl}}/api/books?author=martin
+
+### One book
+GET {{baseUrl}}/api/books/1
+
+### Create a book
+POST {{baseUrl}}/api/books
+Content-Type: application/json
+
+{
+  "title": "Spring in Action",
+  "author": "Craig Walls",
+  "price": 650.00,
+  "publishedYear": 2022,
+  "isbn": "978-1617297571"
+}
+
+### Validation error (blank title, negative price) -> 400
+POST {{baseUrl}}/api/books
+Content-Type: application/json
+
+{
+  "title": "",
+  "author": "Nobody",
+  "price": -5
+}
+
+### Delete a book
+DELETE {{baseUrl}}/api/books/4
+
+### Unknown id -> 404
+GET {{baseUrl}}/api/books/999

@@ -1,0 +1,44 @@
+# order-service configuration (Topic 65)
+server:
+  port: 8081
+
+spring:
+  application:
+    name: order-service
+
+payment-service:
+  base-url: http://localhost:8082
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0          # trace 100 % of requests (learning); production often 0.05 - 0.2
+    baggage:
+      remote-fields: correlation-id          # propagate this baggage as an HTTP header
+      correlation:
+        fields: correlation-id               # copy it into the logging MDC too
+  zipkin:
+    tracing:
+      endpoint: http://localhost:9411/api/v2/spans
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+logging:
+  include-application-name: false
+  pattern:
+    correlation: "[${spring.application.name:},%X{traceId:-},%X{spanId:-},%X{correlation-id:-}] "
+
+---
+# ----- "json-logs" profile: structured JSON logs to a file (ready for ELK / Loki) -----
+spring:
+  config:
+    activate:
+      on-profile: json-logs
+logging:
+  file:
+    name: logs/order-service.json
+  structured:
+    format:
+      file: ecs

@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>4 · Methods &amp; Arrays</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 4</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~4 hours</span>
+  <h1>4. Methods &amp; Arrays</h1>
+  <p class="subtitle">Organise your code into reusable, named methods, and store many values in arrays — then combine both to build a student marks report.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="4-Methods-And-Arrays"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li><strong>Methods</strong>: why we need them, syntax, parameters vs arguments, return types and <code>void</code>.</li>
+      <li><strong>Overloading</strong> (same name, different parameters) and <strong>varargs</strong> (<code>int... numbers</code>).</li>
+      <li><strong>Pass-by-value</strong>: what really happens to primitives and arrays you pass into a method.</li>
+      <li><strong>Recursion</strong>: factorial and Fibonacci, base case, the call stack, StackOverflowError.</li>
+      <li><strong>Scope</strong>: where a variable lives and dies.</li>
+      <li><strong>Arrays</strong>: declare, create, initialise, <code>length</code>, loops, default values, 2D and jagged arrays.</li>
+      <li>The <strong><code>Arrays</code> utility class</strong>: sort, toString, fill, copyOf, binarySearch…</li>
+      <li>Hand-written <strong>array algorithms</strong>: max, reverse, linear &amp; binary search, bubble sort.</li>
+      <li>Mini-program: a <strong>student marks report</strong>.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../3-Control-Flow/lesson.html">Topic 3 · Control Flow</a> (if/else, loops, for-each).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Until now, all our code lived inside <code>main</code>. That's fine for 30 lines, but real applications have <strong>hundreds of thousands</strong> of lines. Imagine calculating GST in 50 different places by copy-pasting the formula — and then the tax rate changes. You'd have to find and fix all 50. Miss one, and customers are charged wrongly.</p>
+  <p><strong>Methods</strong> solve this: write the logic <em>once</em>, give it a name (<code>calculateGst</code>), and call it from anywhere. In Spring Boot, almost everything you write is a method: a controller method handles a web request, a service method contains business logic (<code>placeOrder</code>, <code>transferMoney</code>), a repository method fetches data (<code>findById</code>).</p>
+  <p><strong>Arrays</strong> solve a second problem: storing <em>many</em> values. You can't create <code>mark1</code>, <code>mark2</code>, … <code>mark500</code> variables for 500 students. An array holds them all under one name. Arrays are also the foundation of the collections (<code>ArrayList</code>, Topic 11) that you'll use every day in Spring apps — <code>ArrayList</code> literally uses an array inside.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>☕ A coffee machine and an egg tray</strong>
+    <p><strong>A method is like a coffee machine.</strong> You don't need to know how it works inside. You give it <strong>inputs</strong> (coffee beans, milk, the button "cappuccino") and it gives you an <strong>output</strong> (a cup of cappuccino). You can use it again and again. In Java terms:</p>
+    <ul>
+      <li>The button name = the <strong>method name</strong> (<code>makeCoffee</code>).</li>
+      <li>The slots for beans and milk = the <strong>parameters</strong> (<code>String type, int sugar</code>).</li>
+      <li>The actual beans and milk you put in today = the <strong>arguments</strong> (<code>"Cappuccino", 2</code>).</li>
+      <li>The cup that comes out = the <strong>return value</strong>. A machine that only cleans itself and gives you nothing back is a <code>void</code> method.</li>
+      <li>Two buttons with the same label "Coffee" — one for a small cup, one where you also choose the size — is <strong>overloading</strong>.</li>
+    </ul>
+    <p><strong>An array is like an egg tray.</strong> It has a <strong>fixed number of slots</strong>, all for the <strong>same type</strong> of thing (eggs only, no apples), and every slot has a <strong>number</strong>. Java starts numbering at <strong>0</strong>: the first egg is in slot 0. A 12-egg tray has slots 0 to 11 — asking for slot 12 is an error. A 2D array is a <strong>stack of trays</strong>, or a cinema seating chart with rows and seats.</p>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 What is a method and why use one?</h3>
+  <p>A <strong>method</strong> is a named block of code that performs one task. You define it once and <strong>call</strong> (run) it whenever you need it. Benefits:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Benefit</th><th>Meaning</th></tr>
+    <tr><td><strong>Reuse</strong> (DRY — Don't Repeat Yourself)</td><td>Write the GST formula once, use it 50 times.</td></tr>
+    <tr><td><strong>Readability</strong></td><td><code>if (isEligibleForFreeDelivery(total))</code> reads like English.</td></tr>
+    <tr><td><strong>Easy changes</strong></td><td>Fix a bug or change a rule in one place.</td></tr>
+    <tr><td><strong>Testing</strong></td><td>Small methods can be tested one by one (Topic 21).</td></tr>
+    <tr><td><strong>Divide and conquer</strong></td><td>A big problem becomes several small, named steps.</td></tr>
+  </table></div>
+  <p>You've already used methods: <code>main</code> is one, <code>System.out.println(...)</code> calls one, <code>Math.max(a, b)</code> calls one. Now you'll write your own.</p>
+
+  <h3>3.2 Method syntax</h3>
+  <pre><code class="lang-java">static double calculateGst(double amount) {
+//│     │      │            │
+//│     │      │            └─ parameter list: (type name, type name, ...)
+//│     │      └─ method name: camelCase verb ("calculate", "print", "is...")
+//│     └─ return type: what kind of value comes back (or void = nothing)
+//└─ modifier: static = can be called directly from main (Topic 6 &amp; 9 explain more)
+    double gst = amount * 0.18;     // body
+    return gst;                     // send the value back
+}</code></pre>
+  <p>The <strong>method signature</strong> is the name + the parameter types: <code>calculateGst(double)</code>. Java uses the signature to tell methods apart.</p>
+  <div class="callout info"><strong>ℹ️ Why <code>static</code> for now?</strong><code>main</code> is <code>static</code>, so it can directly call only other <code>static</code> methods of the same class (without creating an object). In Topic 6 you'll learn to create objects and write normal (instance) methods — that's what Spring uses everywhere. For this topic, every method is <code>static</code>.</div>
+
+  <h3>3.3 Calling a method — and what happens</h3>
+  <pre><code class="lang-java">public static void main(String[] args) {
+    double gst = calculateGst(1000);   // 1. jump into calculateGst with amount = 1000
+                                       // 2. run its body
+                                       // 3. return 180.0 and come back here
+    System.out.println(gst);           // 180.0
+}</code></pre>
+  <div class="flow">
+    <span class="box alt">main: calculateGst(1000)</span><span class="arrow">→ amount = 1000 →</span>
+    <span class="box">calculateGst body runs</span><span class="arrow">→ return 180.0 →</span>
+    <span class="box alt">main continues with gst = 180.0</span>
+  </div>
+
+  <h3>3.4 Parameters vs arguments</h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Parameter</th><th>Argument</th></tr>
+    <tr><td>Where</td><td>In the method <strong>definition</strong></td><td>In the method <strong>call</strong></td></tr>
+    <tr><td>What</td><td>A placeholder variable (type + name)</td><td>The actual value passed in</td></tr>
+    <tr><td>Example</td><td><code>static void greet(String name)</code></td><td><code>greet("Ravi")</code></td></tr>
+    <tr><td>Analogy</td><td>The empty slot in the coffee machine</td><td>The beans you put in today</td></tr>
+  </table></div>
+  <p>Arguments must match parameters in <strong>number, order and type</strong>. <code>lineTotal(double unitPrice, int quantity)</code> must be called as <code>lineTotal(12.5, 4)</code>, not <code>lineTotal(4, 12.5)</code> (that won't even compile: 12.5 is not an int).</p>
+
+  <h3>3.5 Return types and <code>void</code></h3>
+  <ul>
+    <li><strong><code>void</code></strong>: the method <em>does</em> something (prints, changes data) but gives nothing back. You call it as a statement: <code>printWelcomeBanner();</code></li>
+    <li><strong>Any type</strong> (<code>int</code>, <code>double</code>, <code>boolean</code>, <code>String</code>, <code>int[]</code>…): the method <em>calculates</em> something and must <code>return</code> a value of that type on <strong>every</strong> path.</li>
+  </ul>
+  <pre><code class="lang-java">static boolean isEligibleForFreeDelivery(double cartTotal) {
+    return cartTotal &gt;= 500;          // return the result of the comparison directly
+}
+
+static String withdraw(double balance, double amount) {
+    if (amount &lt;= 0) {
+        return "Rejected: amount must be positive";   // return ends the method immediately
+    }
+    if (amount &gt; balance) {
+        return "Rejected: insufficient balance";
+    }
+    return "Approved: new balance " + (balance - amount);
+}</code></pre>
+  <p>That second method uses <strong>guard clauses</strong> (early returns): handle bad cases first and leave, so the "happy path" is at the end, not buried in nested if/else. You'll see this style in professional Spring code all the time. A <code>void</code> method can also use a bare <code>return;</code> to leave early.</p>
+  <div class="callout warn"><strong>⚠️ Every path must return</strong>
+    <pre><code class="lang-java">static String grade(int marks) {
+    if (marks &gt;= 40) {
+        return "Pass";
+    }
+}   // ❌ error: missing return statement (what if marks &lt; 40?)</code></pre>
+  </div>
+
+  <h3>3.6 Method overloading</h3>
+  <p><strong>Overloading</strong> = several methods with the <strong>same name</strong> but <strong>different parameter lists</strong> (number of parameters, their types, or their order). Java picks the right one by looking at your arguments.</p>
+  <pre><code class="lang-java">static double area(double side)                 { return side * side; }          // square
+static double area(double length, double width) { return length * width; }       // rectangle
+static double area(int radius)                  { return Math.PI * radius * radius; } // circle
+
+area(4.0);       // → area(double)          = 16.0
+area(4.0, 5.0);  // → area(double, double)  = 20.0
+area(2);         // → area(int)             = 12.57  (exact type match wins)</code></pre>
+  <p>Changing <strong>only the return type</strong> is NOT overloading — it's a compile error, because the call <code>area(4.0)</code> would be ambiguous. You use overloading all the time: <code>System.out.println</code> has overloads for <code>int</code>, <code>double</code>, <code>String</code>, <code>char</code>, <code>boolean</code>…, and <code>Math.max</code> has overloads for <code>int</code>, <code>long</code>, <code>double</code>.</p>
+  <div class="callout tip"><strong>💡 Compile-time polymorphism</strong>Overloading is also called <strong>compile-time (static) polymorphism</strong> — "one name, many forms", decided by the compiler. You'll meet runtime polymorphism in Topic 8.</div>
+
+  <h3>3.7 Varargs — any number of arguments</h3>
+  <p>Sometimes you don't know how many values will be passed. Write <code>type... name</code> and Java collects all arguments into an <strong>array</strong>:</p>
+  <pre><code class="lang-java">static int sum(int... numbers) {      // numbers is an int[] inside the method
+    int total = 0;
+    for (int n : numbers) total += n;
+    return total;
+}
+
+sum();               // 0       (empty array)
+sum(5);              // 5
+sum(1, 2, 3, 4);     // 10
+sum(new int[]{10, 20, 30});  // 60 – an existing array works too</code></pre>
+  <p>Rules: only <strong>one</strong> varargs parameter per method, and it must be the <strong>last</strong> one: <code>printTags(String productName, String... tags)</code>. You already used one: <code>printf(String format, Object... args)</code>.</p>
+
+  <h3>3.8 Pass-by-value — Java's most misunderstood rule</h3>
+  <p>Java is <strong>always pass-by-value</strong>: a method receives a <strong>copy</strong> of what you pass. But <em>what</em> is copied depends on the type:</p>
+  <ul>
+    <li><strong>Primitive</strong> (<code>int</code>, <code>double</code>…) — the <strong>value</strong> is copied. The method changes its own copy; the caller's variable is untouched.</li>
+    <li><strong>Reference type</strong> (arrays, objects) — the <strong>reference</strong> (the address of the object) is copied. Both copies point to the <strong>same</strong> object, so changes to the object's <em>contents</em> are visible to the caller. But pointing the parameter to a <em>new</em> object does not affect the caller.</li>
+  </ul>
+  <figure class="diagram">
+    <svg viewBox="0 0 600 250" role="img" aria-label="Pass by value: primitive copy versus reference copy pointing to same array">
+      <text x="10" y="22" fill="currentColor" font-size="15" font-weight="bold">Primitive: value is copied</text>
+      <rect x="10" y="35" width="130" height="44" rx="8" fill="none" style="stroke:var(--java)" stroke-width="2"/>
+      <text x="75" y="62" text-anchor="middle" fill="currentColor" font-size="14">main: salary 30000</text>
+      <rect x="170" y="35" width="150" height="44" rx="8" fill="none" style="stroke:var(--info)" stroke-width="2"/>
+      <text x="245" y="62" text-anchor="middle" fill="currentColor" font-size="14">addBonus: salary 35000</text>
+      <text x="155" y="100" text-anchor="middle" fill="currentColor" font-size="12">two separate boxes – changing one never touches the other</text>
+
+      <text x="10" y="140" fill="currentColor" font-size="15" font-weight="bold">Array: reference (address) is copied</text>
+      <rect x="10" y="155" width="130" height="40" rx="8" fill="none" style="stroke:var(--java)" stroke-width="2"/>
+      <text x="75" y="180" text-anchor="middle" fill="currentColor" font-size="13">main: cartPrices</text>
+      <rect x="10" y="203" width="130" height="40" rx="8" fill="none" style="stroke:var(--info)" stroke-width="2"/>
+      <text x="75" y="228" text-anchor="middle" fill="currentColor" font-size="13">method: prices</text>
+      <rect x="360" y="175" width="220" height="48" rx="8" fill="none" style="stroke:var(--accent)" stroke-width="2.5"/>
+      <text x="470" y="204" text-anchor="middle" fill="currentColor" font-size="14">[100.0, 250.0, 40.0]</text>
+      <line x1="140" y1="175" x2="355" y2="192" stroke="currentColor" stroke-width="2"/>
+      <line x1="140" y1="223" x2="355" y2="208" stroke="currentColor" stroke-width="2"/>
+      <text x="470" y="245" text-anchor="middle" fill="currentColor" font-size="12">ONE array in memory (heap)</text>
+    </svg>
+    <figcaption>Two "remote controls" (references) for the same TV (array): press a button on either, the same TV changes.</figcaption>
+  </figure>
+  <pre><code class="lang-java">static void addBonus(int salary)        { salary = salary + 5000; }    // changes the copy only
+static void applyDiscount(double[] p)   { p[0] = p[0] * 0.9; }         // changes the SHARED array
+static void replaceArray(double[] p)    { p = new double[]{1, 1, 1}; } // re-points the copy only
+
+int salary = 30000;           addBonus(salary);          // salary still 30000
+double[] cart = {100, 250};   applyDiscount(cart);       // cart is now [90.0, 250.0]
+                              replaceArray(cart);        // cart is still [90.0, 250.0]</code></pre>
+  <p>To "change" a primitive through a method, <strong>return</strong> the new value: <code>salary = withBonus(salary);</code></p>
+
+  <h3>3.9 Recursion — a method that calls itself</h3>
+  <p><strong>Recursion</strong> solves a problem by solving a <em>smaller version of the same problem</em>. Every recursive method has two parts:</p>
+  <ol>
+    <li><strong>Base case</strong> — the simplest situation, answered directly, where the recursion <strong>stops</strong>.</li>
+    <li><strong>Recursive case</strong> — call the same method with a smaller input, and use its answer.</li>
+  </ol>
+  <p>Factorial: 5! = 5 × 4!, and 4! = 4 × 3! … down to 1! = 1.</p>
+  <pre><code class="lang-java">static long factorial(int n) {
+    if (n &lt;= 1) {                  // base case
+        return 1;
+    }
+    return n * factorial(n - 1);   // recursive case – smaller problem
+}</code></pre>
+  <p>Each call waits for the one below it. The JVM keeps track of the waiting calls on the <strong>call stack</strong> — like a stack of plates: each new call is a plate on top; when a call returns, its plate is removed.</p>
+  <div class="flow">
+    <span class="box">factorial(4)<br><small>waits: 4 × ?</small></span><span class="arrow">→</span>
+    <span class="box">factorial(3)<br><small>waits: 3 × ?</small></span><span class="arrow">→</span>
+    <span class="box">factorial(2)<br><small>waits: 2 × ?</small></span><span class="arrow">→</span>
+    <span class="box alt">factorial(1)<br><small>base case = 1</small></span>
+  </div>
+  <div class="flow">
+    <span class="box alt">returns 1</span><span class="arrow">→</span>
+    <span class="box info">2 × 1 = 2</span><span class="arrow">→</span>
+    <span class="box info">3 × 2 = 6</span><span class="arrow">→</span>
+    <span class="box info">4 × 6 = 24 ✔</span>
+  </div>
+  <p>Fibonacci: <code>fib(n) = fib(n-1) + fib(n-2)</code>, with <code>fib(0) = 0</code> and <code>fib(1) = 1</code>:</p>
+  <pre><code class="lang-java">static long fibonacci(int n) {
+    if (n &lt;= 1) return n;                          // two base cases
+    return fibonacci(n - 1) + fibonacci(n - 2);    // TWO recursive calls
+}</code></pre>
+  <p>Beautiful, but slow: <code>fib(5)</code> calls <code>fib(3)</code> twice, <code>fib(2)</code> three times… the work doubles at every level. <code>fibonacci(30)</code> makes <strong>2.7 million</strong> calls! A simple loop does it in 29 steps. (Storing already-computed answers — called <em>memoization</em> — fixes recursion's speed, but that's for later.)</p>
+  <div class="callout danger"><strong>🚫 No base case = StackOverflowError</strong>If the base case is missing or never reached (e.g. <code>factorial(n + 1)</code> by mistake), the method calls itself forever, the call stack fills up, and the program crashes with <code>java.lang.StackOverflowError</code>.</div>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Recursion</th><th>Loop (iteration)</th></tr>
+    <tr><td>Style</td><td>Elegant for problems that are naturally "self-similar" (trees, folders inside folders, divide-and-conquer)</td><td>Straightforward for counting and repeating</td></tr>
+    <tr><td>Memory</td><td>One stack frame per call; very deep recursion can overflow</td><td>Constant memory</td></tr>
+    <tr><td>Speed</td><td>Method calls have overhead; naive versions may repeat work</td><td>Usually faster</td></tr>
+    <tr><td>Use for</td><td>Tree traversal, file system walk, quicksort/merge sort</td><td>Most everyday tasks</td></tr>
+  </table></div>
+
+  <h3>3.10 Scope — where a variable lives</h3>
+  <p>The <strong>scope</strong> of a variable is the part of the code where you can use it. Rule of thumb: <strong>a variable lives from where it's declared to the closing <code>}</code> of the block that contains it.</strong></p>
+  <div class="table-wrap"><table>
+    <tr><th>Kind</th><th>Declared</th><th>Visible</th><th>Default value?</th></tr>
+    <tr><td>Class-level field (<code>static int totalVisitors</code>)</td><td>Inside the class, outside methods</td><td>All methods of the class</td><td>Yes (0, false, null)</td></tr>
+    <tr><td>Parameter</td><td>In the method's brackets</td><td>The whole method</td><td>Gets the argument's value</td></tr>
+    <tr><td>Local variable</td><td>Inside a method</td><td>From declaration to end of the method</td><td>No — must initialise</td></tr>
+    <tr><td>Block variable</td><td>Inside <code>{ }</code> of if/loop</td><td>Only inside that block</td><td>No</td></tr>
+    <tr><td>Loop variable</td><td><code>for (int i = ...)</code></td><td>Only inside the loop</td><td>—</td></tr>
+  </table></div>
+  <pre><code class="lang-java">int discount = 10;
+if (discount &gt; 5) {
+    int bonusPoints = 50;          // born here
+    System.out.println(bonusPoints);
+}                                  // bonusPoints dies here
+// System.out.println(bonusPoints);  ❌ cannot find symbol</code></pre>
+  <p><strong>Shadowing</strong>: a local variable with the same name as a field "hides" the field inside that method. It compiles, but it's confusing — avoid it (except in constructors with <code>this</code>, Topic 6).</p>
+
+  <h3>3.11 Arrays — many values under one name</h3>
+  <p>An <strong>array</strong> is a fixed-size, ordered container of elements that all have the <strong>same type</strong>. Each element has an <strong>index</strong> starting at <strong>0</strong>.</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 520 120" role="img" aria-label="Array of 5 marks with indexes 0 to 4">
+      <text x="10" y="62" fill="currentColor" font-size="15" font-weight="bold">marks</text>
+      <g font-size="16" fill="currentColor" text-anchor="middle">
+        <rect x="80"  y="35" width="80" height="44" fill="none" style="stroke:var(--accent)" stroke-width="2.5"/><text x="120" y="63">78</text>
+        <rect x="160" y="35" width="80" height="44" fill="none" style="stroke:var(--accent)" stroke-width="2.5"/><text x="200" y="63">91</text>
+        <rect x="240" y="35" width="80" height="44" fill="none" style="stroke:var(--accent)" stroke-width="2.5"/><text x="280" y="63">0</text>
+        <rect x="320" y="35" width="80" height="44" fill="none" style="stroke:var(--accent)" stroke-width="2.5"/><text x="360" y="63">0</text>
+        <rect x="400" y="35" width="80" height="44" fill="none" style="stroke:var(--accent)" stroke-width="2.5"/><text x="440" y="63">66</text>
+      </g>
+      <g font-size="13" style="fill:var(--java)" text-anchor="middle">
+        <text x="120" y="100">[0]</text><text x="200" y="100">[1]</text><text x="280" y="100">[2]</text><text x="360" y="100">[3]</text><text x="440" y="100">[4]</text>
+      </g>
+      <text x="280" y="22" text-anchor="middle" fill="currentColor" font-size="12">length = 5, indexes 0 … 4 (last index = length − 1)</text>
+    </svg>
+    <figcaption>An int array of length 5.</figcaption>
+  </figure>
+
+  <h3>3.12 Declaring, creating and initialising</h3>
+  <pre><code class="lang-java">// A) Size first, fill later – elements start with default values
+int[] marks = new int[5];        // [0, 0, 0, 0, 0]
+marks[0] = 78;
+marks[1] = 91;
+
+// B) Initializer list – size comes from the values
+String[] cities = {"Delhi", "Mumbai", "Chennai", "Kolkata"};
+
+// C) new + values – needed when not in a declaration (e.g. reassigning, or as an argument)
+double[] prices;
+prices = new double[] {99.5, 250.0, 15.75};
+printAll(new String[] {"a", "b"});</code></pre>
+  <ul>
+    <li><code>int[] marks</code> is the preferred style. <code>int marks[]</code> also works (C style) but avoid it.</li>
+    <li><strong>Size is fixed</strong> once created. To "grow", you create a bigger array and copy (<code>Arrays.copyOf</code>). This limitation is why we'll prefer <code>ArrayList</code> in Topic 11.</li>
+    <li>The size can be a variable: <code>new int[studentCount]</code>.</li>
+  </ul>
+
+  <h3>3.13 Accessing elements, <code>length</code> and looping</h3>
+  <pre><code class="lang-java">cities[0]                     // "Delhi"   – first
+cities[cities.length - 1]     // "Kolkata" – last
+cities.length                 // 4  – a FIELD, no brackets (unlike String's length())
+
+for (int i = 0; i &lt; prices.length; i++) {     // classic for: you have the index
+    System.out.println("Item " + (i + 1) + " costs " + prices[i]);
+}
+for (double price : prices) {                    // for-each: just the values
+    total += price;
+}</code></pre>
+  <p>Use the classic <code>for</code> when you need the index (to print positions, compare neighbours, or <strong>change</strong> elements). Use for-each when you just read each value.</p>
+  <div class="callout danger"><strong>🚫 ArrayIndexOutOfBoundsException</strong><code>cities[4]</code> on a 4-element array crashes: <code>Index 4 out of bounds for length 4</code>. Valid indexes are <code>0</code> to <code>length - 1</code>. Negative indexes are invalid too. The classic cause: <code>i &lt;= arr.length</code> instead of <code>i &lt; arr.length</code>.</div>
+
+  <h3>3.14 Default values</h3>
+  <p>When you create an array with <code>new type[size]</code>, Java fills it with default values:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Element type</th><th>Default</th></tr>
+    <tr><td><code>byte, short, int, long</code></td><td><code>0</code></td></tr>
+    <tr><td><code>float, double</code></td><td><code>0.0</code></td></tr>
+    <tr><td><code>char</code></td><td>the "null character" (code 0)</td></tr>
+    <tr><td><code>boolean</code></td><td><code>false</code></td></tr>
+    <tr><td>Any object (<code>String</code>, <code>Integer</code>, your classes)</td><td><code>null</code></td></tr>
+  </table></div>
+
+  <h3>3.15 Arrays are reference types</h3>
+  <p>An array variable holds a <strong>reference</strong> to the array, not the elements themselves. So:</p>
+  <pre><code class="lang-java">int[] original = {1, 2, 3};
+int[] alias = original;          // copies the reference – ONE array, two names
+alias[0] = 100;                  // original is now [100, 2, 3] too!
+
+int[] copy = Arrays.copyOf(original, original.length);   // a real, independent copy
+System.out.println(original);                   // [I@1b6d3586  (type code + hash – not useful)
+System.out.println(Arrays.toString(original));  // [100, 2, 3]
+original == copy                                // false – different arrays
+Arrays.equals(original, copy)                   // true  – same contents</code></pre>
+
+  <h3>3.16 Two-dimensional arrays</h3>
+  <p>A <strong>2D array</strong> is an <em>array of arrays</em> — a table of rows and columns. Use <code>grid[row][column]</code>.</p>
+  <pre><code class="lang-java">int[][] marks = {
+    {78, 85, 62, 90},   // row 0 = student 0
+    {92, 88, 79, 84},   // row 1
+    {55, 67, 71, 60}    // row 2
+};
+marks.length       // 3  – number of rows
+marks[0].length    // 4  – columns in row 0
+marks[1][2]        // 79 – row 1, column 2
+
+int[][] grid = new int[3][4];   // 3 rows × 4 columns, all 0
+
+for (int row = 0; row &lt; marks.length; row++) {           // walk rows
+    for (int col = 0; col &lt; marks[row].length; col++) {  // walk columns of THIS row
+        System.out.print(marks[row][col] + " ");
+    }
+    System.out.println();
+}</code></pre>
+  <p><strong>Jagged arrays</strong>: because each row is its own array, rows can have different lengths:</p>
+  <pre><code class="lang-java">int[][] ordersPerAgent = new int[3][];       // rows decided later
+ordersPerAgent[0] = new int[] {5, 7};
+ordersPerAgent[1] = new int[] {3, 4, 6, 2};
+ordersPerAgent[2] = new int[] {8};</code></pre>
+  <p>That's why we always loop with <code>marks[row].length</code>, not a fixed number. To print a 2D array, use <code>Arrays.deepToString(grid)</code>.</p>
+
+  <h3>3.17 The <code>Arrays</code> utility class</h3>
+  <p><code>java.util.Arrays</code> (add <code>import java.util.Arrays;</code>) has ready-made helpers:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>What it does</th><th>Example → result</th></tr>
+    <tr><td><code>Arrays.toString(a)</code></td><td>Readable text</td><td><code>[72, 45, 99]</code></td></tr>
+    <tr><td><code>Arrays.sort(a)</code></td><td>Sort ascending <strong>in place</strong></td><td><code>{72,45,99}</code> → <code>[45, 72, 99]</code></td></tr>
+    <tr><td><code>Arrays.fill(a, v)</code></td><td>Set all elements to v</td><td><code>fill(seats, -1)</code> → <code>[-1, -1, …]</code></td></tr>
+    <tr><td><code>Arrays.copyOf(a, n)</code></td><td>New array of length n (pads with defaults or cuts)</td><td><code>copyOf([1,2], 4)</code> → <code>[1, 2, 0, 0]</code></td></tr>
+    <tr><td><code>Arrays.copyOfRange(a, from, to)</code></td><td>Slice, <code>to</code> is exclusive</td><td><code>copyOfRange([13,45,58,72], 1, 3)</code> → <code>[45, 58]</code></td></tr>
+    <tr><td><code>Arrays.binarySearch(a, key)</code></td><td>Fast search; array <strong>must be sorted</strong>; negative if missing</td><td><code>binarySearch([13,45,58,72,99], 72)</code> → <code>3</code></td></tr>
+    <tr><td><code>Arrays.equals(a, b)</code></td><td>Compare contents</td><td><code>true</code> / <code>false</code></td></tr>
+    <tr><td><code>Arrays.deepToString(grid)</code></td><td>Readable text for 2D</td><td><code>[[1, 0], [0, 1]]</code></td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Sorting Strings</strong><code>Arrays.sort</code> on Strings uses Unicode order: all CAPITAL letters come before small letters, so <code>"Zara"</code> comes before <code>"amit"</code>. Case-insensitive sorting uses a Comparator (Topic 11 &amp; 13).</div>
+
+  <h3>3.18 Classic array algorithms</h3>
+  <p><strong>Find the maximum</strong> — start with the first element as "best so far":</p>
+  <pre><code class="lang-java">int best = numbers[0];                 // NOT 0: what if all numbers are negative?
+for (int i = 1; i &lt; numbers.length; i++) {
+    if (numbers[i] &gt; best) best = numbers[i];
+}</code></pre>
+  <p><strong>Reverse in place</strong> — two pointers moving towards each other, swapping:</p>
+  <pre><code class="lang-java">int left = 0, right = numbers.length - 1;
+while (left &lt; right) {
+    int temp = numbers[left];          // the classic 3-step swap
+    numbers[left] = numbers[right];
+    numbers[right] = temp;
+    left++;
+    right--;
+}</code></pre>
+  <p><strong>Linear search</strong> — check one by one. Works on any array. Up to <em>n</em> checks.</p>
+  <p><strong>Binary search</strong> — only on a <strong>sorted</strong> array. Look at the middle element; if the target is bigger, throw away the left half, otherwise the right half. Repeat. Like finding a word in a dictionary. For 1,000,000 elements: at most ~20 checks instead of 1,000,000!</p>
+  <div class="flow">
+    <span class="box">[11 12 22 25 64]<br><small>mid = 22 ✔ found</small></span>
+    <span class="arrow">|</span>
+    <span class="box info">search 25: mid 22 &lt; 25<br><small>→ go right</small></span><span class="arrow">→</span>
+    <span class="box info">[25 64], mid 25<br><small>✔ found at index 3</small></span>
+  </div>
+  <p><strong>Bubble sort</strong> — walk through the array swapping neighbours that are in the wrong order; after each pass the largest remaining value "bubbles" to the end. Simple to understand, but slow for big arrays (about n² comparisons). In real code, always use <code>Arrays.sort</code>; learn bubble sort for interviews and understanding.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Algorithm</th><th>Needs sorted?</th><th>Steps for n elements (roughly)</th></tr>
+    <tr><td>Max / min / sum / count</td><td>No</td><td>n</td></tr>
+    <tr><td>Linear search</td><td>No</td><td>up to n</td></tr>
+    <tr><td>Binary search</td><td><strong>Yes</strong></td><td>log₂ n (20 for a million)</td></tr>
+    <tr><td>Bubble sort</td><td>—</td><td>n² (a trillion for a million!)</td></tr>
+    <tr><td><code>Arrays.sort</code> (dual-pivot quicksort for primitives)</td><td>—</td><td>n log n</td></tr>
+  </table></div>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>Example01_MethodBasics.java</code></td><td>void vs return methods, parameters/arguments, methods calling methods, guard clauses.</td></tr>
+    <tr><td><code>Example02_OverloadingAndVarargs.java</code></td><td><code>area</code> overloads, <code>printReceipt</code> overloads, <code>sum(int...)</code>, <code>printTags(String, String...)</code>.</td></tr>
+    <tr><td><code>Example03_PassByValue.java</code></td><td>Primitive copy vs shared array, re-assigning a parameter, returning the new value.</td></tr>
+    <tr><td><code>Example04_Recursion.java</code></td><td>Countdown, factorial (with a call trace), Fibonacci (and its cost), sum of digits.</td></tr>
+    <tr><td><code>Example05_Scope.java</code></td><td>Field, parameter, local, block and loop scope; shadowing.</td></tr>
+    <tr><td><code>Example06_ArrayBasics.java</code></td><td>Creating arrays 3 ways, length, loops, default values, references, safe index check.</td></tr>
+    <tr><td><code>Example07_TwoDimensionalArrays.java</code></td><td>Marks table, row totals, column averages, multiplication grid, jagged array, transpose.</td></tr>
+    <tr><td><code>Example08_ArraysUtilityClass.java</code></td><td>toString, sort, binarySearch, fill, copyOf, copyOfRange, equals, deepToString.</td></tr>
+    <tr><td><code>Example09_ArrayAlgorithms.java</code></td><td>Max, min, average, second largest, count, linear &amp; binary search, reverse, bubble sort.</td></tr>
+    <tr><td><code>Example10_StudentMarksReport.java</code></td><td>Mini-program: a formatted report built from small methods and a 2D array.</td></tr>
+  </table></div>
+
+  <h3>4.1 Example01 — methods that call methods</h3>
+  <pre><span class="file">Example01_MethodBasics.java (part)</span><code class="lang-java">static double lineTotal(double unitPrice, int quantity) {
+    return unitPrice * quantity;
+}
+
+static double finalAmount(double unitPrice, int quantity) {
+    double subtotal = lineTotal(unitPrice, quantity);
+    return subtotal + calculateGst(subtotal);
+}
+// finalAmount(250, 2) → subtotal 500.0 → GST 90.0 → 590.0</code></pre>
+  <p>Notice how <code>finalAmount</code> reads like a recipe: get the subtotal, add GST. Each small method does one thing and is named after it. This is how big programs stay understandable. Also note <code>finalAmount(250, 2)</code>: the <code>int</code> 250 is automatically widened to the <code>double</code> parameter (Topic 2).</p>
+
+  <h3>4.2 Example03 — seeing pass-by-value</h3>
+  <pre><span class="file">Example03_PassByValue.java (part)</span><code class="lang-java">int salary = 30000;
+addBonus(salary);              // inside: 35000
+// salary is still 30000 here
+
+double[] cartPrices = {100.0, 250.0, 40.0};
+applyDiscount(cartPrices);     // writes prices[i] = prices[i] * 0.9
+// cartPrices is now [90.0, 225.0, 36.0]
+
+replaceArray(cartPrices);      // inside: prices = new double[]{1, 1, 1}
+// cartPrices is STILL [90.0, 225.0, 36.0]</code></pre>
+  <p>The last case is the one that proves Java is pass-by-value even for arrays: if Java passed the variable itself (pass-by-reference), <code>replaceArray</code> would have changed <code>cartPrices</code>. It didn't — it only changed its own copy of the address.</p>
+
+  <h3>4.3 Example04 — watching recursion</h3>
+  <pre><span class="file">Example04_Recursion.java (part)</span><code class="lang-java">static long factorialTraced(int n, String indent) {
+    System.out.println(indent + "factorial(" + n + ") called");
+    if (n &lt;= 1) {
+        System.out.println(indent + "factorial(" + n + ") returns 1   &lt;- base case");
+        return 1;
+    }
+    long result = n * factorialTraced(n - 1, indent + "   ");
+    System.out.println(indent + "factorial(" + n + ") returns " + result);
+    return result;
+}</code></pre>
+  <p>Each deeper call gets 3 more spaces of indentation, so the output literally <em>draws</em> the call stack: calls go down and to the right, returns come back up and to the left. Also look at <code>callCount</code>: <code>fibonacci(30)</code> needs 2,692,537 calls, which is why we compare it with the loop version.</p>
+
+  <h3>4.4 Example09 — bubble sort with early exit</h3>
+  <pre><span class="file">Example09_ArrayAlgorithms.java (part)</span><code class="lang-java">for (int pass = 0; pass &lt; n - 1; pass++) {
+    boolean swapped = false;
+    for (int i = 0; i &lt; n - 1 - pass; i++) {
+        if (numbers[i] &gt; numbers[i + 1]) {
+            int temp = numbers[i];
+            numbers[i] = numbers[i + 1];
+            numbers[i + 1] = temp;
+            swapped = true;
+        }
+    }
+    if (!swapped) break;    // already sorted → stop
+}</code></pre>
+  <ul>
+    <li><code>i &lt; n - 1 - pass</code>: we compare <code>numbers[i]</code> with <code>numbers[i + 1]</code>, so <code>i</code> must stop one before the end (otherwise <code>i + 1</code> is out of bounds). And after each pass the last <code>pass</code> elements are already in their final place — no need to check them again.</li>
+    <li>The <code>swapped</code> flag makes an already-sorted array finish after one pass.</li>
+  </ul>
+  <p>Also in this file: <code>int mid = low + (high - low) / 2;</code> in binary search. It equals <code>(low + high) / 2</code>, but can't overflow when <code>low + high</code> is bigger than <code>Integer.MAX_VALUE</code> (a real bug that existed in the JDK for years!).</p>
+
+  <h3>4.5 Example10 — the marks report</h3>
+  <pre><span class="file">Example10_StudentMarksReport.java (part)</span><code class="lang-java">static int total(int[] studentMarks) { ... }
+static double average(int[] studentMarks) {
+    return (double) total(studentMarks) / studentMarks.length;   // reuses total()
+}
+static boolean hasPassedAll(int[] studentMarks) {
+    for (int m : studentMarks) {
+        if (m &lt; PASS_MARK) return false;   // stop at the first failure
+    }
+    return true;
+}
+static char grade(double average, boolean passedAll) {
+    if (!passedAll) return 'F';            // guard clause
+    if (average &gt;= 90) return 'A';
+    ...
+}</code></pre>
+  <ul>
+    <li><strong>Parallel arrays</strong>: <code>names[i]</code> and <code>marks[i]</code> describe the same student. It works, but it's fragile (sort one array and forget the other…). In Topic 6 you'll replace this with a <code>Student</code> class — a much better design.</li>
+    <li><code>marks[i]</code> is one row (an <code>int[]</code>), so we can pass it straight into <code>total(int[])</code>.</li>
+    <li><code>subjectAverage(marks, s)</code> walks a <strong>column</strong>: same index <code>s</code> in every row.</li>
+    <li><code>printReport</code> only formats; the calculations live in their own methods. Separating "calculate" from "display" is the same idea as separating a service from a controller in Spring.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <p><strong>VS Code:</strong> open the folder <code>D:\Java-SpringBoot\4-Methods-And-Arrays</code>, open an example and click <strong>Run</strong>. Tip: set a breakpoint inside <code>factorial</code> and press <kbd>F5</kbd> — the <strong>Call Stack</strong> panel shows the stack of waiting calls growing and shrinking.</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\4-Methods-And-Arrays"
+java Example01_MethodBasics.java
+java Example02_OverloadingAndVarargs.java
+java Example03_PassByValue.java
+java Example04_Recursion.java
+java Example05_Scope.java
+java Example06_ArrayBasics.java
+java Example07_TwoDimensionalArrays.java
+java Example08_ArraysUtilityClass.java
+java Example09_ArrayAlgorithms.java
+java Example10_StudentMarksReport.java</code></pre>
+  <p>Expected output of <code>Example04_Recursion.java</code>:</p>
+  <pre class="terminal"><code>Countdown: 5 4 3 2 1 Go!
+5! = 120
+20! = 2432902008176640000
+--- Tracing factorial(4) ---
+factorial(4) called
+   factorial(3) called
+      factorial(2) called
+         factorial(1) called
+         factorial(1) returns 1   &lt;- base case
+      factorial(2) returns 2
+   factorial(3) returns 6
+factorial(4) returns 24
+Fibonacci 0..10: 0 1 1 2 3 5 8 13 21 34 55
+fib(30) = 832040 took 2692537 recursive calls!
+fib(30) iterative = 832040 (just a 29-step loop)
+Sum of digits of 4728 = 21</code></pre>
+  <p>Expected output of <code>Example09_ArrayAlgorithms.java</code>:</p>
+  <pre class="terminal"><code>Sales          : [420, 150, 980, 300, 760, 980, 55]
+Max            : 980
+Min            : 55
+Average        : 520.71
+Second largest : 760
+Days above 400 : 4
+Index of 300   : 3
+Index of 999   : -1
+Reversed       : [5, 4, 3, 2, 1]
+Bubble sort of [64, 25, 12, 22, 11]:
+  after pass 1: [25, 12, 22, 11, 64]
+  after pass 2: [12, 22, 11, 25, 64]
+  after pass 3: [12, 11, 22, 25, 64]
+  after pass 4: [11, 12, 22, 25, 64]
+Binary search 22 in sorted array -&gt; index 2
+Binary search 99 in sorted array -&gt; -1</code></pre>
+  <p>Expected output of <code>Example10_StudentMarksReport.java</code>:</p>
+  <pre class="terminal"><code>STUDENT MARKS REPORT
+--------------------------------------------------------------------
+Name       Maths Science English    Java  Total     Avg  Grade
+--------------------------------------------------------------------
+Asha          95      88      92      99    374   93.50      A
+Ravi          72      65      80      70    287   71.75      C
+Meera         58      35      66      74    233   58.25      F
+John          81      77      69      85    312   78.00      B
+Farhan        45      52      48      61    206   51.50      D
+--------------------------------------------------------------------
+SubjAvg     70.2    63.4    71.0    77.8
+--------------------------------------------------------------------
+Topper: Asha with 374 marks
+Passed: 4 of 5 students</code></pre>
+  <p>All other files contain their full expected output in a comment at the bottom.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>❌ Mistake: off-by-one with arrays</strong>
+    <code>for (int i = 0; i &lt;= arr.length; i++)</code> → <code>ArrayIndexOutOfBoundsException: Index 5 out of bounds for length 5</code>.<br>
+    <strong>Fix:</strong> use <code>i &lt; arr.length</code>. The last index is <code>length - 1</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: <code>length</code> vs <code>length()</code></strong>
+    Arrays: <code>arr.length</code> (a field). Strings: <code>name.length()</code> (a method). Mixing them up → <code>cannot find symbol</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: printing an array directly</strong>
+    <code>System.out.println(marks)</code> prints something like <code>[I@1b6d3586</code>.<br>
+    <strong>Fix:</strong> <code>Arrays.toString(marks)</code> (or <code>Arrays.deepToString</code> for 2D).</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: comparing arrays with <code>==</code></strong>
+    <code>a == b</code> checks "same array object?", not "same contents?".<br>
+    <strong>Fix:</strong> <code>Arrays.equals(a, b)</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: thinking <code>b = a</code> copies an array</strong>
+    It copies the reference; changing <code>b</code> changes <code>a</code>.<br>
+    <strong>Fix:</strong> <code>int[] b = Arrays.copyOf(a, a.length);</code> or <code>a.clone()</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: expecting a method to change a primitive argument</strong>
+    <code>addBonus(salary);</code> does nothing to <code>salary</code> in the caller.<br>
+    <strong>Fix:</strong> return the new value: <code>salary = withBonus(salary);</code></div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: ignoring a return value</strong>
+    <code>calculateGst(1000);</code> compiles, but the result is thrown away.<br>
+    <strong>Fix:</strong> store or use it: <code>double gst = calculateGst(1000);</code></div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: missing return / unreachable code</strong>
+    "missing return statement" — some path doesn't return. "unreachable statement" — code written after a <code>return</code>.<br>
+    <strong>Fix:</strong> make sure every path returns; don't put code after <code>return</code> in the same block.</div>
+
+  <div class="callout danger"><strong>❌ Mistake: recursion without a (reachable) base case</strong>
+    → <code>java.lang.StackOverflowError</code>.<br>
+    <strong>Fix:</strong> write the base case first, and make sure each call moves towards it (<code>n - 1</code>, not <code>n + 1</code>).</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: binarySearch on an unsorted array</strong>
+    The result is undefined (often wrong, no error!).<br>
+    <strong>Fix:</strong> <code>Arrays.sort(arr)</code> first, or use linear search.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: starting max at 0</strong>
+    For <code>{-5, -2, -9}</code> you'd get 0, which isn't even in the array.<br>
+    <strong>Fix:</strong> start with <code>numbers[0]</code> (or <code>Integer.MIN_VALUE</code>).</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>One method = one job.</strong> If you need "and" to describe it ("calculates the total <em>and</em> prints the bill"), split it.</li>
+    <li><strong>Keep methods short</strong> — ideally they fit on one screen (~20–30 lines).</li>
+    <li><strong>Name methods with verbs</strong> (<code>calculateTotal</code>, <code>printReport</code>, <code>findMax</code>); boolean methods as questions (<code>isValid</code>, <code>hasPassed</code>).</li>
+    <li><strong>Few parameters</strong> — more than 3–4 is a sign you need an object to group them (Topic 6).</li>
+    <li><strong>Prefer returning values</strong> over printing inside calculation methods. Calculate in one place, display in another.</li>
+    <li><strong>Use guard clauses</strong> (early return) instead of deep nesting.</li>
+    <li><strong>Don't reassign parameters</strong>; create a new local variable instead — it avoids confusion.</li>
+    <li><strong>Use the JDK</strong>: <code>Arrays.sort</code>, <code>Arrays.toString</code>, <code>Arrays.copyOf</code> are tested and fast. Write algorithms by hand only to learn.</li>
+    <li><strong>Prefer loops over recursion</strong> for simple repetition; use recursion when the problem is naturally recursive (trees, nested folders).</li>
+    <li><strong>Prefer collections (<code>List</code>) over arrays</strong> in application code when the size can change (Topic 11). Arrays shine for fixed-size data and performance-critical code.</li>
+    <li><strong>Avoid parallel arrays</strong> — group related data into a class (Topic 6).</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>A method = modifiers + return type + name + parameters + body. <code>void</code> returns nothing; other types must <code>return</code> a value on every path.</li>
+    <li>Parameters are the placeholders in the definition; arguments are the actual values in the call.</li>
+    <li>Overloading = same name, different parameter lists (not just a different return type). Varargs <code>type...</code> = any number of arguments, received as an array, must be last.</li>
+    <li>Java is always pass-by-value: primitives are copied; for arrays/objects the reference is copied, so the contents can change but the caller's variable can't be re-pointed.</li>
+    <li>Recursion needs a base case and a smaller recursive step; missing base case → StackOverflowError.</li>
+    <li>A variable lives from its declaration to the end of its enclosing block.</li>
+    <li>Arrays: fixed size, same type, index 0 to <code>length - 1</code>, default values 0/false/null, reference type.</li>
+    <li>2D arrays are arrays of arrays: <code>grid[row][col]</code>, rows can differ in length (jagged).</li>
+    <li><code>Arrays</code>: <code>toString</code>, <code>sort</code>, <code>fill</code>, <code>copyOf</code>, <code>copyOfRange</code>, <code>binarySearch</code> (sorted only), <code>equals</code>, <code>deepToString</code>.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Utility methods.</strong> Write <code>static boolean isEven(int n)</code>, <code>static int cube(int n)</code> and <code>static double celsiusToFahrenheit(double c)</code>. Call each from <code>main</code> and print the results for 7, 3 and 25.0.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public class Utils {
+    static boolean isEven(int n) { return n % 2 == 0; }
+    static int cube(int n) { return n * n * n; }
+    static double celsiusToFahrenheit(double c) { return c * 9.0 / 5.0 + 32; }
+
+    public static void main(String[] args) {
+        System.out.println(isEven(7));                // false
+        System.out.println(cube(3));                  // 27
+        System.out.println(celsiusToFahrenheit(25.0)); // 77.0
+    }
+}</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Overload <code>max</code>.</strong> Write three overloads: <code>max(int a, int b)</code>, <code>max(int a, int b, int c)</code> (reuse the first one!) and <code>max(double a, double b)</code>. Then write <code>max(int... numbers)</code> — what happens to a call like <code>max(1, 2)</code> now?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">static int max(int a, int b) { return a &gt; b ? a : b; }
+static int max(int a, int b, int c) { return max(max(a, b), c); }
+static double max(double a, double b) { return a &gt; b ? a : b; }
+static int max(int... numbers) {
+    int best = numbers[0];
+    for (int n : numbers) if (n &gt; best) best = n;
+    return best;
+}
+// max(1, 2)       → max(int, int)        – fixed-arity overloads are preferred over varargs
+// max(1, 2, 3, 4) → max(int...)          – only the varargs version fits</code></pre><p>Java prefers exact matches, then widening, then boxing, and varargs last.</p></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Array statistics.</strong> Write <code>static int[] minMax(int[] values)</code> that returns a 2-element array <code>{min, max}</code>, and <code>static int countOccurrences(int[] values, int target)</code>. Test with <code>{4, 9, 2, 9, 7, 9}</code> → <code>[2, 9]</code> and 9 occurs 3 times.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">import java.util.Arrays;
+
+public class ArrayStats {
+    static int[] minMax(int[] values) {
+        int min = values[0], max = values[0];
+        for (int v : values) {
+            if (v &lt; min) min = v;
+            if (v &gt; max) max = v;
+        }
+        return new int[] {min, max};     // a method can return an array
+    }
+
+    static int countOccurrences(int[] values, int target) {
+        int count = 0;
+        for (int v : values) if (v == target) count++;
+        return count;
+    }
+
+    public static void main(String[] args) {
+        int[] data = {4, 9, 2, 9, 7, 9};
+        System.out.println(Arrays.toString(minMax(data)));   // [2, 9]
+        System.out.println(countOccurrences(data, 9));      // 3
+    }
+}</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Recursive power and palindrome.</strong> Write <code>static long power(int base, int exp)</code> recursively (base case: <code>exp == 0</code> → 1). Then write <code>static boolean isPalindrome(int[] a, int left, int right)</code> recursively: an array is a palindrome if the outer elements are equal and the inside is a palindrome. Test <code>power(2, 10)</code> → 1024 and <code>{1, 2, 3, 2, 1}</code> → true.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">static long power(int base, int exp) {
+    if (exp == 0) return 1;
+    return base * power(base, exp - 1);
+}
+
+static boolean isPalindrome(int[] a, int left, int right) {
+    if (left &gt;= right) return true;            // 0 or 1 element left: palindrome
+    if (a[left] != a[right]) return false;
+    return isPalindrome(a, left + 1, right - 1);
+}
+
+// power(2, 10)                                → 1024
+// isPalindrome(new int[]{1,2,3,2,1}, 0, 4)    → true</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Selection sort + remove duplicates.</strong> (a) Implement selection sort: for each position <code>i</code>, find the smallest element in <code>i..end</code> and swap it into position <code>i</code>. (b) Write <code>static int[] removeDuplicates(int[] sorted)</code> that returns a new array without duplicates from a <em>sorted</em> array: <code>{1,1,2,3,3,3,4}</code> → <code>[1, 2, 3, 4]</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">static void selectionSort(int[] a) {
+    for (int i = 0; i &lt; a.length - 1; i++) {
+        int minIndex = i;
+        for (int j = i + 1; j &lt; a.length; j++) {
+            if (a[j] &lt; a[minIndex]) minIndex = j;
+        }
+        int temp = a[i];
+        a[i] = a[minIndex];
+        a[minIndex] = temp;
+    }
+}
+
+static int[] removeDuplicates(int[] sorted) {
+    if (sorted.length == 0) return sorted;
+    int[] result = new int[sorted.length];   // big enough for the worst case
+    int count = 0;
+    result[count++] = sorted[0];
+    for (int i = 1; i &lt; sorted.length; i++) {
+        if (sorted[i] != sorted[i - 1]) {    // new value (duplicates are neighbours)
+            result[count++] = sorted[i];
+        }
+    }
+    return Arrays.copyOf(result, count);     // trim to the real size
+}</code></pre><p><code>result[count++] = x</code> stores at <code>count</code>, then increments it (postfix, Topic 2).</p></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Tic-tac-toe winner.</strong> Given a <code>char[][] board</code> (3×3 with <code>'X'</code>, <code>'O'</code> or <code>'.'</code>), write <code>static char winner(char[][] board)</code> returning <code>'X'</code>, <code>'O'</code> or <code>'-'</code> for no winner. Check all rows, columns and both diagonals.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">static boolean same(char a, char b, char c) {
+    return a != '.' &amp;&amp; a == b &amp;&amp; b == c;
+}
+
+static char winner(char[][] b) {
+    for (int i = 0; i &lt; 3; i++) {
+        if (same(b[i][0], b[i][1], b[i][2])) return b[i][0];   // row i
+        if (same(b[0][i], b[1][i], b[2][i])) return b[0][i];   // column i
+    }
+    if (same(b[0][0], b[1][1], b[2][2])) return b[0][0];       // main diagonal
+    if (same(b[0][2], b[1][1], b[2][0])) return b[0][2];       // other diagonal
+    return '-';
+}
+
+// char[][] board = { {'X','O','X'}, {'O','X','O'}, {'.','.','X'} };
+// winner(board) → 'X' (main diagonal)</code></pre></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. Is Java pass-by-value or pass-by-reference?</summary>
+    <p>Always pass-by-value. For primitives the value is copied. For objects and arrays, the <em>reference</em> is copied — so the method can modify the object's state through it, but reassigning the parameter to a new object does not affect the caller's variable. That last point is what proves it isn't pass-by-reference.</p></details>
+  <details><summary>Q2. What is method overloading? Can we overload by return type only?</summary>
+    <p>Overloading means multiple methods in the same class with the same name but different parameter lists (number, type or order). It's resolved at compile time. You cannot overload by return type alone — the compiler couldn't tell which method a call refers to.</p></details>
+  <details><summary>Q3. Can we overload the <code>main</code> method?</summary>
+    <p>Yes, you can write other methods named <code>main</code> with different parameters, but the JVM only uses <code>public static void main(String[] args)</code> as the entry point. The other overloads are ordinary methods.</p></details>
+  <details><summary>Q4. What are varargs and what are their rules?</summary>
+    <p>Varargs (<code>type... name</code>) let a method accept zero or more arguments of a type; inside the method they're an array. Only one varargs parameter is allowed and it must be the last parameter. Overload resolution considers varargs methods last.</p></details>
+  <details><summary>Q5. What is recursion? What are its risks?</summary>
+    <p>A method calling itself on a smaller sub-problem, with a base case to stop. Risks: missing/unreachable base case → <code>StackOverflowError</code>; very deep recursion can overflow the stack even when correct; naive recursion can repeat work exponentially (e.g. Fibonacci) — fix with memoization or iteration.</p></details>
+  <details><summary>Q6. What is the default value of array elements?</summary>
+    <p>0 for numeric types, <code>'\u0000'</code> (code 0) for <code>char</code>, <code>false</code> for <code>boolean</code>, and <code>null</code> for object references. Local variables, in contrast, have no default.</p></details>
+  <details><summary>Q7. What is the difference between <code>length</code>, <code>length()</code> and <code>size()</code>?</summary>
+    <p><code>length</code> is a final field of arrays; <code>length()</code> is a method of <code>String</code>; <code>size()</code> is a method of collections like <code>ArrayList</code> (Topic 11).</p></details>
+  <details><summary>Q8. How do you copy an array? Is <code>b = a</code> a copy?</summary>
+    <p><code>b = a</code> only copies the reference — both names point to the same array. Real copies: <code>Arrays.copyOf(a, a.length)</code>, <code>a.clone()</code>, <code>System.arraycopy(src, srcPos, dest, destPos, length)</code>, or a manual loop. For 2D arrays these are <em>shallow</em> copies (rows are shared) — copy each row for a deep copy.</p></details>
+  <details><summary>Q9. Linear search vs binary search?</summary>
+    <p>Linear search checks each element: O(n), works on unsorted data. Binary search halves the search range each step: O(log n), but requires sorted data. <code>Arrays.binarySearch</code> returns a negative value (<code>-(insertionPoint) - 1</code>) if the key isn't found.</p></details>
+  <details><summary>Q10. Explain bubble sort and its time complexity.</summary>
+    <p>Repeatedly compare adjacent elements and swap if out of order; after each pass the largest unsorted element reaches its final position. Worst/average O(n²), best O(n) with the "no swaps → stop" optimisation, O(1) extra memory, stable. In practice use <code>Arrays.sort</code> (O(n log n)).</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../3-Control-Flow/lesson.html"><small>← Previous</small>3. Control Flow</a>
+    <a class="next" href="../5-Strings/lesson.html"><small>Next →</small>5. Strings</a>
+  </nav>
+</main>
+</body>
+</html>

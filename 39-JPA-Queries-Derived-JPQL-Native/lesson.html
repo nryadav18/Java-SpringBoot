@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>39 · JPA Queries: Derived, JPQL &amp; Native</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 39</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>39. JPA Queries: Derived, JPQL &amp; Native</h1>
+  <p class="subtitle">Ask the database any question you like — from a one-word method name to hand-written SQL — and get back exactly the data you need.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="39-JPA-Queries-Derived-JPQL-Native"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li><strong>Derived query methods</strong>: Spring writes the query from the method name (<code>findByTitleContainingIgnoreCase</code>, <code>findByPriceBetween</code>, <code>OrderBy</code>, <code>Top</code>/<code>First</code>, <code>exists</code>, <code>count</code>).</li>
+      <li><strong>JPQL</strong> with <code>@Query</code>, named (<code>:name</code>) and positional (<code>?1</code>) parameters.</li>
+      <li><strong>Native SQL</strong> queries and when you need them.</li>
+      <li><strong><code>@Modifying</code></strong> bulk <code>UPDATE</code>/<code>DELETE</code> queries.</li>
+      <li><strong>Projections</strong>: interface-based, record/DTO-based and dynamic.</li>
+      <li><strong>Specifications</strong> and <strong>Query by Example</strong> for dynamic search forms.</li>
+      <li>Using <code>Optional</code> correctly with single-result queries.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../38-Spring-Data-JPA-Fundamentals/lesson.html">Topic 38 · Spring Data JPA Fundamentals</a>, basic SQL from <a href="../19-JDBC-Basics/lesson.html">Topic 19</a>, and <code>Optional</code> from <a href="../14-Streams-API-And-Optional/lesson.html">Topic 14</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>In topic 38 you could load <em>one</em> product by id or <em>all</em> products. Real applications need much more:</p>
+  <ul>
+    <li>"Show all books by Tolkien."</li>
+    <li>"Search for 'java' in the title, ignoring upper/lower case."</li>
+    <li>"Books between 10 and 20 euros, cheapest first."</li>
+    <li>"The 3 most expensive books."</li>
+    <li>"How many books per genre?" (a report)</li>
+    <li>"Raise all fantasy prices by 10%." (a bulk update)</li>
+    <li>A search form where the user fills in <em>some</em> of 5 filters.</li>
+  </ul>
+  <p>Loading everything with <code>findAll()</code> and filtering in Java would be terribly slow with 1 million rows. The <strong>database</strong> must do the filtering. This lesson shows the five tools Spring Data JPA gives you to do that, from the easiest to the most powerful.</p>
+  <div class="callout info"><strong>ℹ️ At work</strong>
+    In a typical Spring Boot project, most repository methods are derived queries, a few are <code>@Query</code> JPQL, and a handful (reports, database-specific features) are native SQL. Search screens with many optional filters use Specifications (or Querydsl). Knowing which tool to pick is a skill interviewers check.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>📚 Asking a librarian</strong>
+    You walk into a library and want some books. You have several ways to ask:<br>
+    1. <strong>Use the ready-made request form</strong> — tick boxes like "Author = ___", "Sort by = ___". The librarian knows exactly what to do. → <em>Derived query methods</em> (the method name <em>is</em> the form).<br>
+    2. <strong>Write your request in the library's own language</strong> — "all Books whose title contains 'java'". You talk about <em>books and titles</em>, not shelves. → <em>JPQL</em> (talks about entities and fields).<br>
+    3. <strong>Go into the storage room yourself</strong> with the floor plan — "shelf B, rows 3 to 7". Very powerful, but you must know how the building is organised, and the plan is different in every library. → <em>Native SQL</em> (tables and columns of one specific database).<br>
+    4. <strong>"I only need the titles, not the whole books"</strong> → <em>Projections</em>.<br>
+    5. <strong>"Change the price sticker on every fantasy book"</strong> in one go → <em>@Modifying</em> bulk update.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The five tools at a glance</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Tool</th><th>You write</th><th>Uses names of</th><th>Best for</th></tr>
+    <tr><td>Derived query</td><td>A method name</td><td>Java fields</td><td>Simple filters, 1–3 conditions</td></tr>
+    <tr><td><code>@Query</code> JPQL</td><td>A JPQL string</td><td>Entities &amp; fields</td><td>Complex conditions, joins, GROUP BY, DTO results</td></tr>
+    <tr><td><code>@Query(nativeQuery = true)</code></td><td>Real SQL</td><td>Tables &amp; columns</td><td>Database-specific features, tuned reports</td></tr>
+    <tr><td><code>@Modifying</code></td><td>UPDATE / DELETE JPQL or SQL</td><td>either</td><td>Changing many rows at once</td></tr>
+    <tr><td>Specifications / Query by Example</td><td>Java code built at runtime</td><td>Java fields</td><td>Search forms with optional filters</td></tr>
+  </table></div>
+
+  <h3>3.2 Derived query methods — the method name is the query</h3>
+  <p>Spring Data reads the name of your method, splits it into pieces, and builds the query. The pattern is:</p>
+  <div class="flow">
+    <span class="box">find / exists / count / delete</span><span class="arrow">+</span>
+    <span class="box alt">(Top3 / First / Distinct)</span><span class="arrow">+</span>
+    <span class="box info">By</span><span class="arrow">+</span>
+    <span class="box">Property + Keyword</span><span class="arrow">+</span>
+    <span class="box alt">And / Or ...</span><span class="arrow">+</span>
+    <span class="box info">(OrderBy Property Asc/Desc)</span>
+  </div>
+  <pre><code class="lang-java">List&lt;Book&gt; findByTitleContainingIgnoreCase(String text);
+//         \__/\___/\________/\_________/
+//         find By  property   keywords</code></pre>
+  <p>Hibernate turns it into this SQL (copied from the console):</p>
+  <pre class="terminal"><code>select b1_0.id, b1_0.author, b1_0.available, ... b1_0.title
+from books b1_0
+where upper(b1_0.title) like upper(?) escape '\'</code></pre>
+  <p>And Spring wraps your argument in <code>%...%</code> automatically. Zero SQL from you!</p>
+
+  <h4>Keyword table</h4>
+  <div class="table-wrap"><table>
+    <tr><th>Keyword</th><th>Example method</th><th>Generated WHERE (simplified)</th></tr>
+    <tr><td>(none) / <code>Is</code> / <code>Equals</code></td><td><code>findByAuthor(String a)</code></td><td><code>author = ?</code></td></tr>
+    <tr><td><code>And</code></td><td><code>findByAuthorAndAvailableTrue(a)</code></td><td><code>author = ? AND available = TRUE</code></td></tr>
+    <tr><td><code>Or</code></td><td><code>findByTitleOrAuthor(t, a)</code></td><td><code>title = ? OR author = ?</code></td></tr>
+    <tr><td><code>Between</code></td><td><code>findByPriceBetween(min, max)</code></td><td><code>price BETWEEN ? AND ?</code></td></tr>
+    <tr><td><code>LessThan</code> / <code>LessThanEqual</code></td><td><code>findByPriceLessThan(p)</code></td><td><code>price &lt; ?</code></td></tr>
+    <tr><td><code>GreaterThan</code> / <code>GreaterThanEqual</code></td><td><code>findByPublishedYearGreaterThanEqual(y)</code></td><td><code>published_year &gt;= ?</code></td></tr>
+    <tr><td><code>Before</code> / <code>After</code></td><td><code>findByCreatedAtAfter(date)</code></td><td><code>created_at &gt; ?</code></td></tr>
+    <tr><td><code>IsNull</code> / <code>IsNotNull</code></td><td><code>findByIsbnIsNull()</code></td><td><code>isbn IS NULL</code></td></tr>
+    <tr><td><code>Like</code> / <code>NotLike</code></td><td><code>findByTitleLike("%Java%")</code></td><td><code>title LIKE ?</code> (you add the %)</td></tr>
+    <tr><td><code>StartingWith</code> / <code>EndingWith</code> / <code>Containing</code></td><td><code>findByTitleStartingWith("The")</code></td><td><code>title LIKE 'The%'</code></td></tr>
+    <tr><td><code>IgnoreCase</code></td><td><code>findByAuthorIgnoreCase(a)</code></td><td><code>UPPER(author) = UPPER(?)</code></td></tr>
+    <tr><td><code>In</code> / <code>NotIn</code></td><td><code>findByGenreIn(Collection&lt;Genre&gt; g)</code></td><td><code>genre IN (?, ?)</code></td></tr>
+    <tr><td><code>True</code> / <code>False</code></td><td><code>findByAvailableTrue()</code></td><td><code>available = TRUE</code></td></tr>
+    <tr><td><code>Not</code></td><td><code>findByGenreNot(g)</code></td><td><code>genre &lt;&gt; ?</code></td></tr>
+    <tr><td><code>OrderBy...Asc/Desc</code></td><td><code>findByGenreOrderByPriceAsc(g)</code></td><td><code>... ORDER BY price ASC</code></td></tr>
+    <tr><td><code>Top</code>/<code>First</code> + number</td><td><code>findTop3ByOrderByPriceDesc()</code></td><td><code>ORDER BY price DESC FETCH FIRST 3 ROWS ONLY</code></td></tr>
+    <tr><td><code>Distinct</code></td><td><code>findDistinctByAuthor(a)</code></td><td><code>SELECT DISTINCT ...</code></td></tr>
+  </table></div>
+
+  <h4>The four "subjects": find, exists, count, delete</h4>
+  <pre><code class="lang-java">List&lt;Book&gt;     findByAuthor(String author);          // rows
+Optional&lt;Book&gt; findByIsbn(String isbn);              // 0 or 1 row
+boolean        existsByIsbn(String isbn);            // true / false - fast, loads nothing
+long           countByGenre(Genre genre);            // a number
+long           deleteByAvailableFalse();             // deletes, returns how many (needs @Transactional)</code></pre>
+  <p>Other prefixes mean the same as <code>find</code>: <code>read</code>, <code>get</code>, <code>query</code>, <code>search</code>, <code>stream</code>. Most teams stick to <code>find</code>.</p>
+
+  <h4>Return types and <code>Optional</code></h4>
+  <div class="table-wrap"><table>
+    <tr><th>Return type</th><th>When nothing matches</th><th>When many match</th></tr>
+    <tr><td><code>List&lt;Book&gt;</code></td><td>empty list (never null)</td><td>all of them</td></tr>
+    <tr><td><code>Optional&lt;Book&gt;</code></td><td><code>Optional.empty()</code></td><td>❌ <code>IncorrectResultSizeDataAccessException</code></td></tr>
+    <tr><td><code>Book</code></td><td><code>null</code> (avoid!)</td><td>❌ exception</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Rule of thumb</strong>
+    Use <code>Optional&lt;T&gt;</code> for methods that should find <em>at most one</em> row (by a unique column like ISBN, email, SKU). Then in the service: <code>.orElseThrow(() -&gt; new ResourceNotFoundException(...))</code> or <code>.map(BookResponse::from)</code>. Never call <code>.get()</code> without checking.</div>
+
+  <h4>When the method name becomes too long</h4>
+  <p><code>findByPublishedYearGreaterThanEqualOrderByPublishedYearDesc</code> is in our project on purpose — to show it works, but also that it is hard to read. When a name gets longer than about 3 conditions, switch to <code>@Query</code>.</p>
+  <div class="callout info"><strong>ℹ️ Spring checks the names at startup</strong>
+    If you write <code>findByTitel</code> (typo), the application <strong>fails to start</strong> with <code>No property 'titel' found for type 'Book'</code>. That's great: you learn about the mistake immediately, not in production.</div>
+
+  <h3>3.3 JPQL with <code>@Query</code></h3>
+  <p><strong>JPQL</strong> (Jakarta Persistence Query Language) looks like SQL, but it talks about <strong>entities and fields</strong>, not tables and columns:</p>
+  <div class="table-wrap"><table>
+    <tr><th>JPQL (Java names)</th><th>SQL (database names)</th></tr>
+    <tr><td><code>SELECT b FROM Book b</code></td><td><code>SELECT * FROM books</code></td></tr>
+    <tr><td><code>WHERE b.publishedYear &gt; 2000</code></td><td><code>WHERE published_year &gt; 2000</code></td></tr>
+    <tr><td><code>SELECT b.title FROM Book b</code></td><td><code>SELECT title FROM books</code></td></tr>
+  </table></div>
+  <p>Because JPQL uses Java names, Hibernate can translate it into the correct SQL dialect for H2, MySQL, PostgreSQL... — your query stays <em>portable</em>.</p>
+  <pre><span class="file">BookRepository.java</span><code class="lang-java">@Query("""
+        SELECT b FROM Book b
+        WHERE LOWER(b.title)  LIKE LOWER(CONCAT('%', :keyword, '%'))
+           OR LOWER(b.author) LIKE LOWER(CONCAT('%', :keyword, '%'))
+        ORDER BY b.title
+        """)
+List&lt;Book&gt; searchByKeyword(@Param("keyword") String keyword);</code></pre>
+  <ul>
+    <li><code>b</code> is an <em>alias</em> (a short nickname) for each Book.</li>
+    <li><code>:keyword</code> is a <strong>named parameter</strong>, bound by <code>@Param("keyword")</code>. Values are sent safely as <code>PreparedStatement</code> parameters — <strong>no SQL injection</strong>.</li>
+    <li>The <code>"""</code> text block (topic 15) keeps long queries readable.</li>
+    <li>Like derived queries, JPQL is <strong>checked at startup</strong>: a typo in <code>b.titel</code> stops the app with a clear error.</li>
+  </ul>
+  <h4>Named vs positional parameters</h4>
+  <pre><code class="lang-java">@Query("SELECT b FROM Book b WHERE b.pages &gt; ?1 ORDER BY b.pages DESC")   // ?1 = first argument
+List&lt;Book&gt; findThickBooks(int minPages);
+
+@Query("SELECT b FROM Book b WHERE b.pages &gt; :minPages")                   // named - clearer
+List&lt;Book&gt; findThickBooks2(@Param("minPages") int minPages);</code></pre>
+  <p>Prefer <strong>named</strong> parameters: you can reorder method arguments without breaking the query, and the query explains itself.</p>
+  <div class="callout info"><strong>ℹ️ Do I always need <code>@Param</code>?</strong>
+    Spring Boot's Maven parent compiles with the <code>-parameters</code> flag, so Spring can read parameter names and <code>@Param</code> is often optional. Writing it anyway is safer and clearer, so this course always does.</div>
+
+  <h4>Useful JPQL features</h4>
+  <pre><code class="lang-sql">SELECT b FROM Book b WHERE b.genre IN :genres                      -- collection parameter
+SELECT b FROM Book b WHERE b.price BETWEEN :min AND :max
+SELECT b.author, COUNT(b) FROM Book b GROUP BY b.author HAVING COUNT(b) &gt; 1
+SELECT DISTINCT b.author FROM Book b
+SELECT b FROM Book b WHERE b.genre = com.course.jpaqueries.entity.Genre.FANTASY   -- enum constant
+SELECT b FROM Book b JOIN b.author a WHERE a.country = 'UK'         -- joins (topic 40)</code></pre>
+
+  <h3>3.4 Native SQL queries</h3>
+  <p>Sometimes you need real SQL: a database-specific function, a window function, a query tuned by a DBA, or a reporting query over tables that have no entity. Add <code>nativeQuery = true</code>:</p>
+  <pre><code class="lang-java">@Query(value = """
+        SELECT * FROM books
+        WHERE published_year BETWEEN :fromYear AND :toYear
+        ORDER BY published_year
+        """, nativeQuery = true)
+List&lt;Book&gt; findPublishedBetweenNative(@Param("fromYear") int fromYear, @Param("toYear") int toYear);</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>JPQL</th><th>Native SQL</th></tr>
+    <tr><td>Names used</td><td>Entity &amp; field names (<code>Book</code>, <code>publishedYear</code>)</td><td>Table &amp; column names (<code>books</code>, <code>published_year</code>)</td></tr>
+    <tr><td>Portable across databases</td><td>✅ Yes</td><td>❌ Often not</td></tr>
+    <tr><td>Checked at startup</td><td>✅ Yes</td><td>❌ Only when it runs</td></tr>
+    <tr><td>DB-specific features</td><td>Limited</td><td>✅ Everything</td></tr>
+    <tr><td>Returns</td><td>Entities, DTOs, scalars</td><td>Entities (if all columns), interface projections, <code>Object[]</code></td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Native = your responsibility</strong>
+    Hibernate doesn't check native SQL at startup, and the query may break when you switch from H2 to MySQL. Use it when JPQL can't do the job, and cover it with a test.</div>
+
+  <h3>3.5 <code>@Modifying</code> — bulk UPDATE and DELETE</h3>
+  <p>To raise the price of every fantasy book, you could load them all, call <code>setPrice</code> on each and let dirty checking update them one by one. With 50,000 books that means 50,000 UPDATE statements. A single bulk statement is much faster:</p>
+  <pre><code class="lang-java">@Modifying(clearAutomatically = true, flushAutomatically = true)
+@Query("UPDATE Book b SET b.price = b.price * :factor WHERE b.genre = :genre")
+int applyPriceFactor(@Param("genre") Genre genre, @Param("factor") BigDecimal factor);</code></pre>
+  <ul>
+    <li><code>@Modifying</code> tells Spring "this is not a SELECT". Without it you get <em>"Query executed via 'getResultList()' must be a select query"</em>.</li>
+    <li>It needs a <strong>transaction</strong>: put <code>@Transactional</code> on the service method (or you get <code>TransactionRequiredException</code>).</li>
+    <li>The return value is the number of rows changed.</li>
+    <li>Bulk statements go <strong>directly to the database</strong> and skip the persistence context. Entities you already loaded still have the <em>old</em> price. <code>clearAutomatically = true</code> empties the persistence context after the query so the next read is fresh. <code>flushAutomatically = true</code> writes pending changes <em>before</em> the bulk query so they are not lost.</li>
+    <li>Bulk updates skip entity callbacks like <code>@UpdateTimestamp</code> and <code>@Version</code> increments. Set those columns yourself in the query if you need them.</li>
+  </ul>
+
+  <h3>3.6 Projections — fetch only what you need</h3>
+  <p>Loading a whole entity when the screen only shows the title and author wastes memory and bandwidth. A <strong>projection</strong> returns a smaller shape.</p>
+  <h4>a) Interface-based projection</h4>
+  <pre><span class="file">dto/BookSummary.java</span><code class="lang-java">public interface BookSummary {
+    String getTitle();
+    String getAuthor();
+}
+
+// in the repository:
+List&lt;BookSummary&gt; findSummariesByGenre(Genre genre);</code></pre>
+  <p>Generated SQL — only two columns!</p>
+  <pre class="terminal"><code>select b1_0.title, b1_0.author from books b1_0 where b1_0.genre=?</code></pre>
+  <p>Note the method name: <code>findSummariesByGenre</code>. Anything between <code>find</code> and <code>By</code> is ignored, so we can use it to make the name clearer.</p>
+  <h4>b) Class-based (record/DTO) projection</h4>
+  <pre><code class="lang-java">public record AuthorStats(String author, Long bookCount, Double averagePrice) { }
+
+@Query("""
+        SELECT new com.course.jpaqueries.dto.AuthorStats(b.author, COUNT(b), AVG(b.price))
+        FROM Book b
+        GROUP BY b.author
+        ORDER BY COUNT(b) DESC, b.author
+        """)
+List&lt;AuthorStats&gt; authorStatistics();</code></pre>
+  <p>The <code>SELECT new ...</code> part is a <strong>constructor expression</strong>: JPQL calls the record's constructor for every row. You must write the <em>fully qualified</em> class name, and the types must match (<code>COUNT</code> returns <code>Long</code>, <code>AVG</code> returns <code>Double</code>). Records and simple DTOs can also be used with derived queries, if the constructor parameter names match the entity fields.</p>
+  <h4>c) Native query + interface projection</h4>
+  <pre><code class="lang-java">@Query(value = "SELECT genre AS genre, COUNT(*) AS total FROM books GROUP BY genre ORDER BY total DESC",
+       nativeQuery = true)
+List&lt;GenreCount&gt; countBooksPerGenre();     // interface GenreCount { String getGenre(); long getTotal(); }</code></pre>
+  <p>Here the SQL column <strong>aliases</strong> (<code>AS genre</code>, <code>AS total</code>) must match the getter names.</p>
+  <h4>d) Dynamic projection — the caller chooses</h4>
+  <pre><code class="lang-java">&lt;T&gt; List&lt;T&gt; findByAuthorIgnoreCase(String author, Class&lt;T&gt; type);
+
+repository.findByAuthorIgnoreCase("tolkien", BookSummary.class);  // light
+repository.findByAuthorIgnoreCase("tolkien", Book.class);         // full entities</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Projection type</th><th>How</th><th>Pros</th><th>Cons</th></tr>
+    <tr><td>Interface</td><td>Interface with getters</td><td>Least code, works with derived queries</td><td>Proxy objects, a bit "magic"</td></tr>
+    <tr><td>Record / DTO</td><td><code>SELECT new ...</code> or matching constructor</td><td>Plain, fast, type-safe objects; ideal for APIs</td><td>Long class name in JPQL</td></tr>
+    <tr><td>Dynamic</td><td><code>Class&lt;T&gt;</code> parameter</td><td>One method, many shapes</td><td>Less obvious to readers</td></tr>
+  </table></div>
+
+  <h3>3.7 Specifications — build the WHERE clause at runtime</h3>
+  <p>A search form has 4 optional filters: genre, title, max price, available. That's 2<sup>4</sup> = 16 combinations. You can't write 16 repository methods! A <strong>Specification</strong> is one small condition object; you combine only the ones the user filled in.</p>
+  <pre><span class="file">repository/BookSpecifications.java</span><code class="lang-java">public static Specification&lt;Book&gt; hasGenre(Genre genre) {
+    return (root, query, cb) -&gt; cb.equal(root.get("genre"), genre);
+}
+public static Specification&lt;Book&gt; priceAtMost(BigDecimal max) {
+    return (root, query, cb) -&gt; cb.lessThanOrEqualTo(root.get("price"), max);
+}</code></pre>
+  <ul>
+    <li><code>root</code> = "the Book row". <code>root.get("price")</code> = its price.</li>
+    <li><code>cb</code> = <code>CriteriaBuilder</code>, a factory of conditions: <code>equal</code>, <code>like</code>, <code>lessThan</code>, <code>between</code>, <code>and</code>, <code>or</code>...</li>
+    <li>It is a lambda (topic 13) — <code>Specification</code> is a functional interface.</li>
+  </ul>
+  <p>To use them, the repository also extends <code>JpaSpecificationExecutor&lt;Book&gt;</code>, which adds <code>findAll(Specification)</code>, <code>count(spec)</code>, <code>exists(spec)</code>, and paging variants:</p>
+  <pre><code class="lang-java">public interface BookRepository extends JpaRepository&lt;Book, Long&gt;, JpaSpecificationExecutor&lt;Book&gt; { ... }
+
+// service: add only the filters that were sent
+List&lt;Specification&lt;Book&gt;&gt; specs = new ArrayList&lt;&gt;();
+if (genre != null)    specs.add(BookSpecifications.hasGenre(genre));
+if (maxPrice != null) specs.add(BookSpecifications.priceAtMost(maxPrice));
+List&lt;Book&gt; result = repository.findAll(Specification.allOf(specs));   // AND of all
+
+// or directly:
+repository.findAll(hasGenre(Genre.PROGRAMMING).and(priceAtMost(new BigDecimal("48"))));</code></pre>
+  <p>(<code>"genre"</code> as a String is not type-safe. Big projects generate a "metamodel" class <code>Book_</code> so they can write <code>root.get(Book_.genre)</code>. Another popular alternative library is <em>Querydsl</em>.)</p>
+
+  <h3>3.8 Query by Example (QBE) — "find things that look like this"</h3>
+  <p>You create an example ("probe") object, fill in the fields you care about, and ask: find everything similar.</p>
+  <pre><code class="lang-java">Book probe = new Book(null, "martin", null, null, null, 0, 0, false);
+
+ExampleMatcher matcher = ExampleMatcher.matching()
+        .withIgnoreNullValues()                                       // null = don't care
+        .withIgnoreCase()
+        .withStringMatcher(ExampleMatcher.StringMatcher.CONTAINING)   // LIKE %martin%
+        .withIgnorePaths("publishedYear", "pages", "available");      // primitives can't be null
+
+List&lt;Book&gt; books = repository.findAll(Example.of(probe, matcher));   // Clean Code, Refactoring</code></pre>
+  <p>Every <code>JpaRepository</code> supports QBE already (it extends <code>QueryByExampleExecutor</code>). It is nice for simple "filter by these text fields" screens, but it cannot do ranges (<code>price &lt; 20</code>) or OR between different fields. For those, use Specifications.</p>
+
+  <h3>3.9 Which one should I choose?</h3>
+  <div class="flow">
+    <span class="box">Simple 1–3 conditions?</span><span class="arrow">→</span><span class="box info">Derived query</span>
+  </div>
+  <div class="flow">
+    <span class="box">Complex / joins / GROUP BY / DTO?</span><span class="arrow">→</span><span class="box info">@Query JPQL</span>
+  </div>
+  <div class="flow">
+    <span class="box">DB-specific SQL feature?</span><span class="arrow">→</span><span class="box alt">Native query</span>
+  </div>
+  <div class="flow">
+    <span class="box">Optional filters from a form?</span><span class="arrow">→</span><span class="box info">Specifications (or QBE)</span>
+  </div>
+  <div class="flow">
+    <span class="box">Change many rows?</span><span class="arrow">→</span><span class="box alt">@Modifying + @Transactional</span>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Java files are under <code>src/main/java/com/course/jpaqueries/</code>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>entity/Book.java</code></td><td>The entity. <code>@Enumerated(EnumType.STRING)</code> for the genre; <code>publishedYear</code> mapped to column <code>published_year</code>.</td></tr>
+    <tr><td><code>entity/Genre.java</code></td><td>Enum: FICTION, FANTASY, SCIENCE, HISTORY, PROGRAMMING.</td></tr>
+    <tr><td><code>resources/data.sql</code></td><td>13 sample books, loaded after Hibernate creates the table.</td></tr>
+    <tr><td><code>repository/BookRepository.java</code></td><td><strong>Main file</strong>: sections A–E with every query style.</td></tr>
+    <tr><td><code>repository/BookSpecifications.java</code></td><td>Four reusable <code>Specification&lt;Book&gt;</code> building blocks.</td></tr>
+    <tr><td><code>dto/BookResponse.java</code></td><td>Full book DTO (record).</td></tr>
+    <tr><td><code>dto/BookSummary.java</code></td><td>Interface projection (title, author).</td></tr>
+    <tr><td><code>dto/AuthorStats.java</code></td><td>Record projection for the JPQL constructor expression.</td></tr>
+    <tr><td><code>dto/GenreCount.java</code></td><td>Interface projection for the native GROUP BY query.</td></tr>
+    <tr><td><code>service/BookService.java</code></td><td>Calls everything; builds Specifications and the QBE probe; <code>@Transactional</code> on bulk methods.</td></tr>
+    <tr><td><code>controller/BookController.java</code></td><td>One endpoint per query style.</td></tr>
+    <tr><td><code>exception/*</code></td><td>404 for missing books, 400 for bad enum values / arguments.</td></tr>
+    <tr><td><code>src/test/.../BookRepositoryTest.java</code></td><td>9 <code>@DataJpaTest</code> tests proving each query returns the right books.</td></tr>
+  </table></div>
+
+  <h3>4.1 Loading sample data: <code>data.sql</code> + <code>defer-datasource-initialization</code></h3>
+  <pre><span class="file">application.properties</span><code class="lang-properties">spring.jpa.hibernate.ddl-auto=create-drop
+spring.jpa.defer-datasource-initialization=true</code></pre>
+  <p>Spring Boot runs <code>data.sql</code> for embedded databases. By default it runs <em>before</em> Hibernate creates the tables — so the INSERT would fail with "Table BOOKS not found". The <code>defer</code> flag changes the order: tables first, then <code>data.sql</code>. Note the INSERTs don't include the <code>id</code> column, so the identity column generates 1–13 and later inserts don't collide.</p>
+
+  <h3>4.2 The enum column</h3>
+  <pre><span class="file">entity/Book.java</span><code class="lang-java">@Enumerated(EnumType.STRING)
+@Column(nullable = false, length = 20)
+private Genre genre;</code></pre>
+  <p>Default <code>EnumType.ORDINAL</code> stores the position (0, 1, 2...). If someone later inserts a new genre in the middle of the enum, all the existing numbers mean something else. <code>STRING</code> stores <code>"FANTASY"</code> — safe and readable.</p>
+
+  <h3>4.3 The repository (main parts)</h3>
+  <pre><span class="file">repository/BookRepository.java</span><code class="lang-java">public interface BookRepository extends JpaRepository&lt;Book, Long&gt;, JpaSpecificationExecutor&lt;Book&gt; {
+
+    // A. derived
+    List&lt;Book&gt; findByAuthor(String author);
+    List&lt;Book&gt; findByTitleContainingIgnoreCase(String text);
+    List&lt;Book&gt; findByPriceBetween(BigDecimal min, BigDecimal max);
+    List&lt;Book&gt; findByGenreOrderByPriceAsc(Genre genre);
+    List&lt;Book&gt; findTop3ByOrderByPriceDesc();
+    Optional&lt;Book&gt; findFirstByOrderByPublishedYearAsc();
+    boolean existsByIsbn(String isbn);
+    long countByGenre(Genre genre);
+
+    // B. JPQL
+    @Query("""
+            SELECT b FROM Book b
+            WHERE LOWER(b.title)  LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(b.author) LIKE LOWER(CONCAT('%', :keyword, '%'))
+            ORDER BY b.title
+            """)
+    List&lt;Book&gt; searchByKeyword(@Param("keyword") String keyword);
+
+    // C. native
+    @Query(value = "SELECT * FROM books WHERE published_year BETWEEN :fromYear AND :toYear ORDER BY published_year",
+           nativeQuery = true)
+    List&lt;Book&gt; findPublishedBetweenNative(@Param("fromYear") int fromYear, @Param("toYear") int toYear);
+
+    // D. bulk
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Book b SET b.price = b.price * :factor WHERE b.genre = :genre")
+    int applyPriceFactor(@Param("genre") Genre genre, @Param("factor") BigDecimal factor);
+
+    // E. projections
+    List&lt;BookSummary&gt; findSummariesByGenre(Genre genre);
+    @Query("SELECT new com.course.jpaqueries.dto.AuthorStats(b.author, COUNT(b), AVG(b.price)) FROM Book b GROUP BY b.author ...")
+    List&lt;AuthorStats&gt; authorStatistics();
+    &lt;T&gt; List&lt;T&gt; findByAuthorIgnoreCase(String author, Class&lt;T&gt; type);
+}</code></pre>
+  <p>The SQL Hibernate generated for <code>findTop3ByOrderByPriceDesc</code> and for the bulk update (from the console):</p>
+  <pre class="terminal"><code>select b1_0.id, ..., b1_0.title from books b1_0
+order by b1_0.price desc
+fetch first ? rows only
+
+update books b1_0 set price=(b1_0.price*cast(? as numeric(10, 2))) where b1_0.genre=?</code></pre>
+
+  <h3>4.4 The service — Optional, transactions, Specifications, QBE</h3>
+  <pre><span class="file">service/BookService.java</span><code class="lang-java">@Service
+@Transactional(readOnly = true)
+public class BookService {
+
+    public BookResponse oldest() {
+        return repository.findFirstByOrderByPublishedYearAsc()
+                .map(BookResponse::from)                                   // Optional&lt;Book&gt; -&gt; Optional&lt;BookResponse&gt;
+                .orElseThrow(() -&gt; new ResourceNotFoundException("The library is empty"));
+    }
+
+    @Transactional                     // bulk update needs a WRITE transaction
+    public Map&lt;String, Object&gt; applyPriceFactor(Genre genre, BigDecimal factor) {
+        if (factor.signum() &lt;= 0) throw new IllegalArgumentException("factor must be positive");
+        int updated = repository.applyPriceFactor(genre, factor);
+        return Map.of("genre", genre, "factor", factor, "booksUpdated", updated);
+    }
+
+    public List&lt;BookResponse&gt; filter(Genre genre, String title, BigDecimal maxPrice, Boolean available) {
+        List&lt;Specification&lt;Book&gt;&gt; specs = new ArrayList&lt;&gt;();
+        if (genre != null) specs.add(BookSpecifications.hasGenre(genre));
+        if (title != null &amp;&amp; !title.isBlank()) specs.add(BookSpecifications.titleContains(title));
+        if (maxPrice != null) specs.add(BookSpecifications.priceAtMost(maxPrice));
+        if (available != null) specs.add(BookSpecifications.isAvailable(available));
+        return toResponses(repository.findAll(Specification.allOf(specs)));
+    }
+}</code></pre>
+  <p>Notice <code>Boolean available</code> (wrapper, not <code>boolean</code>) in <code>filter</code>: <code>null</code> means "the user didn't choose", which a primitive can't express.</p>
+
+  <h3>4.5 The controller</h3>
+  <p>Each endpoint maps to one service method, e.g. <code>GET /api/books/search?keyword=tolkien</code> → JPQL, <code>GET /api/books/stats/genres</code> → native, <code>GET /api/books/filter?...</code> → Specifications. <code>@PathVariable Genre genre</code> converts the text <code>FANTASY</code> into the enum automatically; an unknown value causes <code>MethodArgumentTypeMismatchException</code>, which our handler turns into a friendly 400.</p>
+
+  <h3>4.6 The tests</h3>
+  <pre><span class="file">src/test/java/com/course/jpaqueries/BookRepositoryTest.java</span><code class="lang-java">@DataJpaTest
+class BookRepositoryTest {
+
+    @Autowired BookRepository repository;
+
+    @Test
+    void modifyingUpdateChangesPrices() {
+        int updated = repository.applyPriceFactor(Genre.FANTASY, new BigDecimal("2"));
+        assertThat(updated).isEqualTo(2);
+        assertThat(repository.findByIsbn("978-0547928227").orElseThrow().getPrice())
+                .isEqualByComparingTo("25.98");          // The Hobbit: 12.99 * 2
+    }
+
+    @Test
+    void specificationsCombineFilters() {
+        List&lt;Book&gt; result = repository.findAll(
+                BookSpecifications.hasGenre(Genre.PROGRAMMING)
+                        .and(BookSpecifications.priceAtMost(new BigDecimal("48")))
+                        .and(BookSpecifications.isAvailable(true)));
+        assertThat(result).extracting(Book::getTitle)
+                .containsExactlyInAnyOrder("Clean Code", "Effective Java", "Refactoring");
+    }
+}</code></pre>
+  <p><code>@DataJpaTest</code> also runs <code>data.sql</code>, and rolls back after each test — so the delete test doesn't affect the others.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <h3>VS Code</h3>
+  <ol>
+    <li>Open the folder <code>D:\Java-SpringBoot\39-JPA-Queries-Derived-JPQL-Native</code>.</li>
+    <li>Run <code>JpaQueriesApplication.java</code> (Run link above <code>main</code>).</li>
+    <li>Open <code>requests.http</code> and click <em>Send Request</em> on each request. Keep an eye on the <strong>terminal</strong>: each request prints the SQL that was generated.</li>
+  </ol>
+  <h3>Terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\39-JPA-Queries-Derived-JPQL-Native"
+mvn spring-boot:run</code></pre>
+  <p>In a second terminal (PowerShell: <code>curl.exe</code>):</p>
+  <pre class="terminal"><code>curl.exe "http://localhost:8080/api/books/search?keyword=tolkien"
+curl.exe "http://localhost:8080/api/books/top-expensive"
+curl.exe "http://localhost:8080/api/books/summaries?genre=HISTORY"
+curl.exe "http://localhost:8080/api/books/stats/genres"
+curl.exe "http://localhost:8080/api/books/stats/authors"
+curl.exe "http://localhost:8080/api/books/filter?genre=PROGRAMMING&amp;maxPrice=48&amp;available=true"
+curl.exe "http://localhost:8080/api/books/example?author=martin"
+curl.exe -X PUT "http://localhost:8080/api/books/genre/FANTASY/price-factor?factor=1.10"
+curl.exe -X DELETE "http://localhost:8080/api/books/unavailable"</code></pre>
+  <p>Expected output (shortened):</p>
+  <pre class="terminal"><code>// /summaries?genre=HISTORY  (interface projection - only 2 fields)
+[{"title":"Sapiens","author":"Yuval Noah Harari"},{"title":"Guns, Germs, and Steel","author":"Jared Diamond"}]
+
+// /stats/genres  (native GROUP BY)
+[{"total":5,"genre":"PROGRAMMING"},{"total":2,"genre":"FANTASY"},{"total":2,"genre":"FICTION"},...]
+
+// /stats/authors  (record projection)
+[{"author":"J.R.R. Tolkien","bookCount":2,"averagePrice":21.49},{"author":"Brian Goetz","bookCount":1,"averagePrice":49.99},...]
+
+// /example?author=martin  (Query by Example)
+[{"id":1,"title":"Clean Code","author":"Robert C. Martin",...},{"id":5,"title":"Refactoring","author":"Martin Fowler",...}]
+
+// PUT price-factor
+{"genre":"FANTASY","booksUpdated":2,"factor":1.10}
+
+// DELETE unavailable
+{"booksDeleted":2}</code></pre>
+  <h3>Tests</h3>
+  <pre class="terminal"><code>mvn test
+[INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0</code></pre>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ "No property 'titel' found for type 'Book'"</strong>
+    A typo in a derived method name, or using the <em>column</em> name (<code>findByPublished_year</code>) instead of the <em>field</em> name.<br>
+    <strong>Fix:</strong> use the exact Java field name: <code>findByPublishedYear</code>.</div>
+  <div class="callout warn"><strong>⚠️ Using table names in JPQL</strong>
+    <code>@Query("SELECT b FROM books b")</code> → <em>"books is not mapped"</em>.<br>
+    <strong>Fix:</strong> JPQL uses the <em>entity</em> name: <code>FROM Book b</code>. Only native queries use <code>books</code>.</div>
+  <div class="callout warn"><strong>⚠️ Forgetting <code>@Modifying</code> or <code>@Transactional</code></strong>
+    An UPDATE in <code>@Query</code> without <code>@Modifying</code> → "must be a select query". Without a transaction → <code>TransactionRequiredException</code>.<br>
+    <strong>Fix:</strong> <code>@Modifying</code> on the repository method, <code>@Transactional</code> on the calling service method.</div>
+  <div class="callout warn"><strong>⚠️ Reading stale data after a bulk update</strong>
+    You loaded a book, ran a bulk price update, read the book again — and saw the old price, because it came from the persistence context.<br>
+    <strong>Fix:</strong> <code>@Modifying(clearAutomatically = true)</code>.</div>
+  <div class="callout warn"><strong>⚠️ <code>Optional</code> return type, but many rows match</strong>
+    <code>Optional&lt;Book&gt; findByAuthor(String a)</code> → <code>IncorrectResultSizeDataAccessException</code> for Tolkien (2 books).<br>
+    <strong>Fix:</strong> <code>Optional</code> only for unique columns; otherwise return <code>List</code>.</div>
+  <div class="callout danger"><strong>🛑 Building queries by string concatenation</strong>
+    <code>"SELECT b FROM Book b WHERE b.title = '" + title + "'"</code> (e.g. with <code>entityManager.createQuery</code>) opens the door to <strong>SQL/JPQL injection</strong>.<br>
+    <strong>Fix:</strong> always use parameters (<code>:title</code>), derived queries or Specifications.</div>
+  <div class="callout warn"><strong>⚠️ Wrong types in a constructor expression</strong>
+    <code>record AuthorStats(String author, int bookCount, BigDecimal avg)</code> → <em>"Cannot instantiate class"</em> / no matching constructor.<br>
+    <strong>Fix:</strong> <code>COUNT</code> → <code>Long</code>, <code>AVG</code> → <code>Double</code>, <code>SUM</code> of BigDecimal → <code>BigDecimal</code>.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Start with derived queries</strong>; move to <code>@Query</code> when the name gets longer than ~3 conditions.</li>
+    <li><strong>Prefer JPQL over native SQL</strong> — portable and checked at startup. Use native only for things JPQL can't do, and test them.</li>
+    <li><strong>Always use parameters</strong>, never concatenate user input into queries.</li>
+    <li><strong>Return projections/DTOs for read-only screens</strong> and reports — fewer columns, less memory, no accidental lazy loading.</li>
+    <li><strong>Use <code>existsBy</code>/<code>countBy</code></strong> instead of loading entities just to check or count.</li>
+    <li><strong>Use <code>Optional</code> for single results</strong> and handle the empty case in the service.</li>
+    <li><strong>Bulk updates</strong>: <code>@Modifying(clearAutomatically = true, flushAutomatically = true)</code> + <code>@Transactional</code>; remember they skip entity callbacks and versioning.</li>
+    <li><strong>Dynamic filters → Specifications</strong> (or Querydsl), not dozens of methods.</li>
+    <li><strong>Add database indexes</strong> for columns you filter/sort on often (e.g. <code>@Table(indexes = @Index(columnList = "author"))</code> or a Flyway migration).</li>
+    <li><strong>Never return huge lists</strong> — add paging (next topic!).</li>
+    <li><strong>Watch the SQL log</strong> while developing; write a <code>@DataJpaTest</code> for every non-trivial query.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Derived queries: <code>find/exists/count/delete + By + Property + Keyword</code> — Spring writes the query from the name and validates it at startup.</li>
+    <li>Keywords: <code>And</code>, <code>Or</code>, <code>Between</code>, <code>LessThan</code>, <code>Containing</code>, <code>IgnoreCase</code>, <code>In</code>, <code>True</code>, <code>OrderBy</code>, <code>Top/First</code>...</li>
+    <li>JPQL (<code>@Query</code>) uses entity/field names and named parameters (<code>:name</code> + <code>@Param</code>).</li>
+    <li>Native SQL (<code>nativeQuery = true</code>) uses table/column names — powerful but not portable.</li>
+    <li><code>@Modifying</code> + <code>@Transactional</code> for bulk UPDATE/DELETE; use <code>clearAutomatically</code>.</li>
+    <li>Projections (interface, record with <code>SELECT new</code>, dynamic) fetch only needed columns.</li>
+    <li>Specifications and Query by Example build queries at runtime for optional filters.</li>
+    <li><code>Optional&lt;T&gt;</code> for "0 or 1" results; <code>List&lt;T&gt;</code> for many.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Derived query practice.</strong> Add repository methods + endpoints for: (a) books with fewer than 300 pages, (b) available books of a genre sorted by title, (c) whether any book by a given author exists.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">List&lt;Book&gt; findByPagesLessThan(int pages);
+List&lt;Book&gt; findByGenreAndAvailableTrueOrderByTitleAsc(Genre genre);
+boolean existsByAuthorIgnoreCase(String author);</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Title starts with.</strong> Return the 2 newest books whose title starts with a given text (case-insensitive).</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">List&lt;Book&gt; findTop2ByTitleStartingWithIgnoreCaseOrderByPublishedYearDesc(String prefix);
+// findTop2ByTitleStartingWithIgnoreCaseOrderByPublishedYearDesc("the") -&gt; The Lord of the Rings, The Hobbit</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. JPQL report.</strong> Write a JPQL query returning, per genre, the number of books and the total value of stock prices, as a record <code>GenreValue(Genre genre, Long books, BigDecimal totalPrice)</code>, only for genres with more than 1 book.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public record GenreValue(Genre genre, Long books, BigDecimal totalPrice) { }
+
+@Query("""
+        SELECT new com.course.jpaqueries.dto.GenreValue(b.genre, COUNT(b), SUM(b.price))
+        FROM Book b
+        GROUP BY b.genre
+        HAVING COUNT(b) &gt; 1
+        ORDER BY SUM(b.price) DESC
+        """)
+List&lt;GenreValue&gt; genreValues();</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Bulk "mark as unavailable".</strong> Add a <code>@Modifying</code> query that marks all books published before a given year as unavailable, and an endpoint <code>PUT /api/books/retire?beforeYear=1950</code> returning how many were changed.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// repository
+@Modifying(clearAutomatically = true, flushAutomatically = true)
+@Query("UPDATE Book b SET b.available = false WHERE b.publishedYear &lt; :year")
+int retireBooksBefore(@Param("year") int year);
+
+// service
+@Transactional
+public Map&lt;String, Integer&gt; retire(int beforeYear) {
+    return Map.of("booksRetired", repository.retireBooksBefore(beforeYear));
+}
+// with beforeYear=1950: The Hobbit and 1984 -&gt; {"booksRetired":2}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. More filters.</strong> Extend <code>/api/books/filter</code> with <code>minYear</code>, <code>maxYear</code> and <code>author</code> (contains, ignore case). Add a Specification for each and a test.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public static Specification&lt;Book&gt; publishedBetween(Integer from, Integer to) {
+    return (root, query, cb) -&gt; {
+        if (from != null &amp;&amp; to != null) return cb.between(root.get("publishedYear"), from, to);
+        if (from != null) return cb.greaterThanOrEqualTo(root.get("publishedYear"), from);
+        return cb.lessThanOrEqualTo(root.get("publishedYear"), to);
+    };
+}
+public static Specification&lt;Book&gt; authorContains(String text) {
+    return (root, query, cb) -&gt; cb.like(cb.lower(root.get("author")), "%" + text.toLowerCase() + "%");
+}
+// service: if (minYear != null || maxYear != null) specs.add(publishedBetween(minYear, maxYear));</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Native vs JPQL.</strong> Write the same query "books whose title has more than 10 characters" once in JPQL and once as a native query. Compare the SQL printed in the console.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Query("SELECT b FROM Book b WHERE LENGTH(b.title) &gt; :len")
+List&lt;Book&gt; longTitlesJpql(@Param("len") int len);
+
+@Query(value = "SELECT * FROM books WHERE CHAR_LENGTH(title) &gt; :len", nativeQuery = true)
+List&lt;Book&gt; longTitlesNative(@Param("len") int len);</code></pre><p><code>LENGTH</code> is a standard JPQL function that Hibernate translates for each database. <code>CHAR_LENGTH</code> works in H2 and MySQL but may not exist in other databases — that's the portability difference.</p></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. How do derived query methods work?</summary>
+    <p>At startup Spring Data parses the method name (subject like <code>find…By</code>, <code>exists…By</code>, <code>count…By</code>; then property expressions and keywords like <code>And</code>, <code>Between</code>, <code>IgnoreCase</code>, <code>OrderBy</code>), validates the properties against the entity and builds a JPA criteria query. Invalid names make the application fail on startup.</p></details>
+  <details><summary>Q2. What is the difference between JPQL and SQL?</summary>
+    <p>JPQL is an object-oriented query language that works on entities and their fields (<code>FROM Book b WHERE b.publishedYear</code>) and is translated by the JPA provider into SQL for the configured database. SQL works on tables and columns and is database-specific. JPQL is portable and validated at startup; native SQL gives access to all database features.</p></details>
+  <details><summary>Q3. When would you use a native query?</summary>
+    <p>For database-specific features (window functions, JSON operators, full-text search, hints), heavily tuned reporting queries, or tables without entities. Downsides: not portable, not validated at startup, and results map less naturally (interface projections or <code>Object[]</code>).</p></details>
+  <details><summary>Q4. What does <code>@Modifying</code> do and what are <code>clearAutomatically</code> / <code>flushAutomatically</code>?</summary>
+    <p><code>@Modifying</code> marks a <code>@Query</code> as an INSERT/UPDATE/DELETE so it's executed with <code>executeUpdate()</code>, returning the affected row count; it requires a transaction. Bulk queries bypass the persistence context, so <code>flushAutomatically</code> flushes pending changes before the query and <code>clearAutomatically</code> clears the persistence context afterwards to avoid stale entities.</p></details>
+  <details><summary>Q5. What are projections? Name the types.</summary>
+    <p>Projections return a subset of entity data. Interface-based (closed projections with getters; Spring creates proxies, and only needed columns are selected), class-based/DTO (records or classes via constructor expressions <code>SELECT new ...</code> or matching constructor parameters), and dynamic projections (<code>&lt;T&gt; List&lt;T&gt; findBy...(…, Class&lt;T&gt; type)</code>). Open projections with <code>@Value</code> SpEL also exist but select all columns.</p></details>
+  <details><summary>Q6. Named vs positional parameters?</summary>
+    <p>Positional: <code>?1</code>, <code>?2</code> bound by argument order. Named: <code>:name</code> bound with <code>@Param("name")</code> (or the compiled parameter name). Named parameters are more readable and robust when arguments are reordered. Both are bound as prepared-statement parameters, preventing injection.</p></details>
+  <details><summary>Q7. What is the Specification API and when do you use it?</summary>
+    <p>A <code>Specification&lt;T&gt;</code> wraps a JPA Criteria predicate (<code>toPredicate(root, query, cb)</code>). Specifications are composable with <code>and</code>/<code>or</code>/<code>not</code>, and executed via <code>JpaSpecificationExecutor</code>. They are ideal for dynamic searches where filters are optional and combined at runtime.</p></details>
+  <details><summary>Q8. What is Query by Example and its limitations?</summary>
+    <p>QBE builds a query from a probe entity plus an <code>ExampleMatcher</code> (ignore nulls, case, string matching). It's simple for equality/LIKE on several fields, but cannot express ranges, OR across properties, or nested groupings, and primitive fields need explicit ignoring.</p></details>
+  <details><summary>Q9. What happens if a method returns <code>Optional&lt;T&gt;</code> but the query finds two rows?</summary>
+    <p>Spring throws <code>IncorrectResultSizeDataAccessException</code> (wrapping JPA's <code>NonUniqueResultException</code>). Single-result return types should only be used for queries that are unique by design, e.g. by a unique column or with <code>findFirst</code>/<code>findTop1</code>.</p></details>
+  <details><summary>Q10. How do <code>Top</code> / <code>First</code> work and what SQL do they produce?</summary>
+    <p><code>findTop3By...</code> / <code>findFirst3By...</code> limit the result size, usually combined with <code>OrderBy</code>. Hibernate translates the limit into the database dialect — e.g. <code>FETCH FIRST ? ROWS ONLY</code> (H2, PostgreSQL, Oracle) or <code>LIMIT ?</code> (MySQL). Without a number, <code>First</code> means 1.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../38-Spring-Data-JPA-Fundamentals/lesson.html"><small>← Previous</small>38. Spring Data JPA Fundamentals</a>
+    <a class="next" href="../40-JPA-Relationships/lesson.html"><small>Next →</small>40. JPA Relationships</a>
+  </nav>
+</main>
+</body>
+</html>

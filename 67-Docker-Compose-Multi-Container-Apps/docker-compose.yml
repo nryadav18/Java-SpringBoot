@@ -1,0 +1,110 @@
+# =====================================================================
+# docker-compose.yml  -  Topic 67
+# One file that describes the WHOLE application:
+#   app   : our Spring Boot "Library" API (built from ./Dockerfile)
+#   mysql : the MySQL 8.4 database
+#   redis : OPTIONAL cache server (only starts with: --profile cache)
+#
+# Start everything :  docker compose up -d --build
+# Watch the logs   :  docker compose logs -f app
+# Stop (keep data) :  docker compose down
+# Stop + WIPE data :  docker compose down -v
+#
+# Values like ${DB_PASSWORD:-library123} are read from the ".env" file next to
+# this file (copy .env.example to .env). The part after ":-" is the default
+# used when the variable is missing, so this file also works with no .env at all.
+# =====================================================================
+
+# Project name. Containers, networks and volumes get this prefix (library-app-1, ...)
+name: library
+
+services:
+
+  # -------------------------------------------------------------------
+  # 1) The database
+  # -------------------------------------------------------------------
+  mysql:
+    image: mysql:8.4                      # official image, pinned to a version (never "latest")
+    restart: unless-stopped               # come back after a crash / Docker restart
+    environment:                          # the mysql image reads these on FIRST start
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
+      MYSQL_DATABASE: ${DB_NAME:-librarydb}   # creates this database
+      MYSQL_USER: ${DB_USER:-library}         # creates this user ...
+      MYSQL_PASSWORD: ${DB_PASSWORD:-library123}  # ... with this password
+    ports:
+      - "3307:3306"                       # HOST:CONTAINER - 3307 on your PC, so it does not clash
+                                          # with a MySQL you may already have on 3306
+    volumes:
+      - mysql-data:/var/lib/mysql                                  # named volume: data survives restarts
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro   # bind mount: runs ONCE on first start
+    networks:
+      - backend
+    healthcheck:                          # "is MySQL really ready to accept connections?"
+      # $$ = a literal $ for the shell INSIDE the container (Compose would replace a single $)
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s                       # check every 10 seconds
+      timeout: 5s                         # one check may take at most 5 seconds
+      retries: 10                         # 10 failures in a row = "unhealthy"
+      start_period: 30s                   # grace time while MySQL initialises
+
+  # -------------------------------------------------------------------
+  # 2) Our Spring Boot application
+  # -------------------------------------------------------------------
+  app:
+    build:
+      context: .                          # folder sent to Docker (see .dockerignore)
+      dockerfile: Dockerfile
+    image: library-app:1.0.0              # name + tag for the image that gets built
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy        # wait until the MySQL healthcheck PASSES,
+                                          # not just until the container has started
+    environment:
+      SPRING_PROFILES_ACTIVE: docker      # loads application-docker.properties
+      DB_HOST: mysql                      # <-- the SERVICE NAME is the hostname!
+      DB_PORT: "3306"                     # the CONTAINER port (not 3307)
+      DB_NAME: ${DB_NAME:-librarydb}
+      DB_USER: ${DB_USER:-library}
+      DB_PASSWORD: ${DB_PASSWORD:-library123}
+    env_file:
+      - app.env                           # extra non-secret settings (JVM flags, log level)
+    ports:
+      - "8080:8080"                       # open http://localhost:8080 on your PC
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # -------------------------------------------------------------------
+  # 3) OPTIONAL: Redis. Not started by default because of "profiles".
+  #    Start it with:  docker compose --profile cache up -d
+  #    (The app in this topic does not use Redis yet - topic 51 shows how.)
+  # -------------------------------------------------------------------
+  redis:
+    image: redis:7.4-alpine
+    profiles: ["cache"]
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+# A private network. Every service on it can reach the others BY SERVICE NAME.
+networks:
+  backend:
+    driver: bridge
+
+# Named volumes are managed by Docker. They live outside the containers,
+# so "docker compose down" keeps the data; "docker compose down -v" deletes it.
+volumes:
+  mysql-data:

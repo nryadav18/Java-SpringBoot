@@ -1,0 +1,60 @@
+# order-service configuration (Topic 63)
+server:
+  port: 8082
+
+spring:
+  application:
+    name: order-service
+  cloud:
+    openfeign:
+      client:
+        config:
+          # "default" applies to ALL Feign clients ...
+          default:
+            connect-timeout: 2000     # ms to open the TCP connection
+            read-timeout: 5000        # ms to wait for the answer
+            logger-level: basic       # NONE | BASIC | HEADERS | FULL
+          # ... and a block named after the client overrides it for that client only
+          product-service:
+            connect-timeout: 1000
+            read-timeout: 2000        # product-service must answer within 2 seconds
+            logger-level: full        # log method, URL, headers AND body (great for learning)
+
+# Where is product-service? (read by @FeignClient(url = "${clients.product-service.url:}"))
+clients:
+  product-service:
+    url: http://localhost:8081
+
+# Feign writes its request/response log lines at DEBUG level, using the client interface
+# as logger name. Without this line you would see NOTHING even with logger-level: full.
+logging:
+  level:
+    com.course.feign.order.client.ProductClient: DEBUG
+
+# Eureka OFF by default (no Eureka server needed). See the "eureka" profile below.
+eureka:
+  client:
+    enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+---
+# ----- "eureka" profile: discover product-service through Eureka (topic 60) -----
+# Start the Eureka server from topic 60 first, then run BOTH services with this profile:
+#   mvn spring-boot:run -Dspring-boot.run.profiles=eureka
+spring:
+  config:
+    activate:
+      on-profile: eureka
+clients:
+  product-service:
+    url: ""                     # EMPTY url => Feign uses name "product-service" + LoadBalancer
+eureka:
+  client:
+    enabled: true
+    service-url:
+      defaultZone: http://localhost:8761/eureka

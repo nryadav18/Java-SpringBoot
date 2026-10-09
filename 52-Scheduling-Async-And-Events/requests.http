@@ -1,0 +1,40 @@
+### Topic 52 - Scheduling, Async and Events
+### Use with the VS Code "REST Client" extension. WATCH THE APPLICATION LOG while sending!
+
+@baseUrl = http://localhost:8080
+
+### 1) Register a user -> 201 in a few ms; the welcome email appears in the log ~3 s LATER on an [async-N] thread
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{
+  "name": "Asha Rao",
+  "email": "asha@example.com"
+}
+
+### 2) Staff email -> the conditional listener (condition = "...endsWith('@course.com')") also fires
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{
+  "name": "Ravi Kumar",
+  "email": "ravi@course.com"
+}
+
+### 3) Email containing "fail" -> transaction ROLLS BACK -> AFTER_ROLLBACK listener runs, NO welcome email
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+
+{
+  "name": "Broken User",
+  "email": "fail@example.com"
+}
+
+### 4) List users
+GET {{baseUrl}}/api/users
+
+### 5) Dashboard: 3 @Async calls in parallel -> timeTakenMs is about 1000, not 3000
+GET {{baseUrl}}/api/dashboard
+
+### 6) Fire-and-forget @Async job that fails -> 202 at once, error logged by AsyncUncaughtExceptionHandler
+POST {{baseUrl}}/api/dashboard/rebuild-index

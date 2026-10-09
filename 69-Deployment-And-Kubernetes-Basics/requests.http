@@ -1,0 +1,27 @@
+### Topic 69 - sample requests
+### Local:       mvn spring-boot:run                                   -> port 8080
+### Kubernetes:  kubectl port-forward service/menu-service 8080:80     -> port 8080
+
+### Which pod answered? (run several times in Kubernetes - hostname changes)
+GET http://localhost:8080/api/info
+
+### The menu (values come from the ConfigMap in Kubernetes)
+GET http://localhost:8080/api/menu
+
+### Probes used by Kubernetes
+GET http://localhost:8080/actuator/health/liveness
+
+###
+GET http://localhost:8080/actuator/health/readiness
+
+### Build info (version, time)
+GET http://localhost:8080/actuator/info
+
+### Take this instance out of the load balancer (readiness -> 503)
+POST http://localhost:8080/ops/readiness/off
+
+### Put it back
+POST http://localhost:8080/ops/readiness/on
+
+### Slow request - stop the app while it runs to see graceful shutdown
+GET http://localhost:8080/api/slow?seconds=10

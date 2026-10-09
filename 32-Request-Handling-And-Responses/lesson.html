@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>32 · Request Handling &amp; Responses</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 32</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>32. Request Handling &amp; Responses</h1>
+  <p class="subtitle">Read every part of an HTTP request, answer with exactly the right status code and headers, and build a complete CRUD API for products.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="32-Request-Handling-And-Responses"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li><code>@PathVariable</code>, <code>@RequestParam</code> (<code>required</code>, <code>defaultValue</code>), <code>@RequestBody</code> and <code>@RequestHeader</code>.</li>
+      <li><code>ResponseEntity</code>: choosing status codes, adding headers, the <code>Location</code> header for <code>201 Created</code> with <code>ServletUriComponentsBuilder</code>.</li>
+      <li>Full CRUD: GET all, GET one, POST, PUT, PATCH, DELETE on in-memory Products.</li>
+      <li>Idempotency — what it is and why it matters.</li>
+      <li>Jackson annotations: <code>@JsonProperty</code>, <code>@JsonIgnore</code>, <code>@JsonFormat</code>.</li>
+      <li>Content negotiation (brief) and CORS basics (<code>@CrossOrigin</code> and global config).</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../31-Spring-MVC-And-REST-Fundamentals/lesson.html">Topic 31 · Spring MVC &amp; REST Fundamentals</a> and <code>Optional</code> from <a href="../14-Streams-API-And-Optional/lesson.html">Topic 14</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ 1. WHY -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>In topic 31 you built a simple API. Real clients expect more precision:</p>
+  <ul>
+    <li>The mobile team wants to <strong>filter</strong> products: <code>?category=electronics&amp;maxPrice=1000</code>.</li>
+    <li>After creating a product they need to know <strong>where</strong> it lives (the <code>Location</code> header) and get <strong>201</strong>, not 200.</li>
+    <li>They want to change only the price (<strong>PATCH</strong>) without sending the whole product.</li>
+    <li>The web team's React app on <code>localhost:5173</code> gets blocked by the browser until you configure <strong>CORS</strong>.</li>
+    <li>The JSON field must be called <code>stock</code>, the internal supplier code must <strong>never</strong> appear, dates must look like <code>09-10-2026 14:30:00</code>.</li>
+  </ul>
+  <p>These are everyday tasks in a backend job. A well-behaved API is predictable: the right status code, the right headers, consistent JSON. Front-end developers love
+    working with such APIs — and interviewers love asking about them.</p>
+
+  <!-- ============================================================ 2. ANALOGY -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>📦 Ordering at a courier counter</strong>
+    <ul>
+      <li><strong>The address on the parcel</strong> (<code>/products/<strong>42</strong></code>) identifies exactly which thing → <code>@PathVariable</code>.</li>
+      <li><strong>Tick-boxes on the form</strong> ("express? fragile? max price?") are optional choices → <code>@RequestParam</code>.</li>
+      <li><strong>The parcel itself</strong> — the actual content you hand over → <code>@RequestBody</code>.</li>
+      <li><strong>The sticker "sent by: mobile-app"</strong> — information <em>about</em> the delivery → <code>@RequestHeader</code>.</li>
+      <li><strong>The receipt</strong> you get back: a status ("Accepted"), a tracking number telling you where your parcel now lives (<code>Location</code> header), and a copy of the details (body) → <code>ResponseEntity</code>.</li>
+      <li>Pressing the lift button five times still calls the lift <em>once</em> → <strong>idempotent</strong>. Paying at the counter five times charges you five times → <strong>not idempotent</strong> (POST).</li>
+    </ul>
+  </div>
+
+  <!-- ============================================================ 3. CONCEPTS -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Where data can be in a request</h3>
+  <pre class="terminal"><code>PUT /api/products/3?notify=true HTTP/1.1          &lt;- path variable "3", query param "notify"
+Content-Type: application/json                     &lt;- headers
+X-Client-Id: mobile-app
+
+{"name":"Big Java Mug","category":"kitchen","price":349.00,"stock":80}   &lt;- body</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Location</th><th>Annotation</th><th>Typical use</th></tr>
+    <tr><td>Path <code>/products/<strong>3</strong></code></td><td><code>@PathVariable</code></td><td>Identify ONE resource</td></tr>
+    <tr><td>Query <code>?category=x&amp;sort=price</code></td><td><code>@RequestParam</code></td><td>Filter, search, sort, paginate — optional extras</td></tr>
+    <tr><td>Body (JSON)</td><td><code>@RequestBody</code></td><td>The data to create/update</td></tr>
+    <tr><td>Headers</td><td><code>@RequestHeader</code></td><td>Metadata: client id, language, auth token, request id</td></tr>
+  </table></div>
+
+  <h3>3.2 @PathVariable</h3>
+  <pre><code class="lang-java">@GetMapping("/{id}")
+public ResponseEntity&lt;Product&gt; getOne(@PathVariable Long id) { ... }
+
+// several variables, and a different Java name:
+@GetMapping("/categories/{categoryName}/products/{productId}")
+public Product get(@PathVariable("categoryName") String category,
+                   @PathVariable Long productId) { ... }</code></pre>
+  <ul>
+    <li>The name in <code>{...}</code> must match the parameter name, or be given explicitly: <code>@PathVariable("categoryName")</code>.</li>
+    <li>Spring converts the text <code>"3"</code> to <code>Long</code>. If it can't (<code>/products/abc</code>) → <strong>400 Bad Request</strong> automatically.</li>
+    <li>Path variables are <strong>required</strong> — without them the URL simply doesn't match.</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ Parameter names</strong> <code>@PathVariable Long id</code> works without <code>("id")</code> because the Spring Boot parent compiles with the <code>-parameters</code> flag,
+    which keeps parameter names in the bytecode. If you ever see "Name for argument of type [java.lang.Long] not specified", add the name explicitly.</div>
+
+  <h3>3.3 @RequestParam — required, defaultValue</h3>
+  <pre><code class="lang-java">@GetMapping
+public ResponseEntity&lt;List&lt;Product&gt;&gt; getAll(
+        @RequestParam(required = false) String category,               // may be missing -&gt; null
+        @RequestParam(required = false) BigDecimal maxPrice,           // "1000" -&gt; BigDecimal
+        @RequestParam(name = "sort", defaultValue = "id") String sortBy) { ... }</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Request</th><th><code>category</code></th><th><code>maxPrice</code></th><th><code>sortBy</code></th></tr>
+    <tr><td><code>/api/products</code></td><td>null</td><td>null</td><td>"id"</td></tr>
+    <tr><td><code>/api/products?category=electronics</code></td><td>"electronics"</td><td>null</td><td>"id"</td></tr>
+    <tr><td><code>/api/products?maxPrice=1000&amp;sort=price</code></td><td>null</td><td>1000</td><td>"price"</td></tr>
+    <tr><td><code>/api/products?maxPrice=cheap</code></td><td colspan="3">→ 400 Bad Request (can't convert "cheap")</td></tr>
+  </table></div>
+  <ul>
+    <li><strong>By default <code>@RequestParam</code> is required</strong>. Missing → 400 "Required parameter 'x' is not present".</li>
+    <li><code>defaultValue</code> automatically makes it optional.</li>
+    <li><code>Optional&lt;String&gt;</code> also works as an optional parameter type.</li>
+    <li>Lists: <code>?tag=a&amp;tag=b</code> or <code>?tag=a,b</code> → <code>@RequestParam List&lt;String&gt; tag</code>.</li>
+  </ul>
+
+  <h3>3.4 @RequestBody</h3>
+  <pre><code class="lang-java">@PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+public ResponseEntity&lt;Product&gt; create(@RequestBody ProductRequest request) { ... }</code></pre>
+  <p>Jackson reads the JSON body and builds a <code>ProductRequest</code>. Important details:</p>
+  <ul>
+    <li>Only <strong>one</strong> <code>@RequestBody</code> per method (there is only one body).</li>
+    <li>The client must send <code>Content-Type: application/json</code>, otherwise → <strong>415</strong>.</li>
+    <li>Broken JSON → <strong>400</strong>. Missing fields → <code>null</code> (or 0 for <code>int</code>). Unknown fields are ignored by default — we set
+      <code>spring.jackson.deserialization.fail-on-unknown-properties=true</code> so a typo like <code>"prise"</code> gives 400 instead of being silently lost.</li>
+    <li>Use a separate <strong>request class</strong> (<code>ProductRequest</code>) rather than the full <code>Product</code>, so clients can't set the id, timestamps or internal fields. (Topic 33 calls these DTOs.)</li>
+    <li>Validation (<code>@Valid</code>, <code>@NotBlank</code>…) comes in topic 34.</li>
+  </ul>
+
+  <h3>3.5 @RequestHeader</h3>
+  <pre><code class="lang-java">@RequestHeader(name = "X-Client-Id", required = false) String clientId          // optional custom header
+@RequestHeader(name = HttpHeaders.USER_AGENT, defaultValue = "unknown") String ua // standard header with default
+@RequestHeader HttpHeaders allHeaders                                             // all headers at once
+@RequestHeader Map&lt;String, String&gt; headerMap                                     // also possible</code></pre>
+  <p>Header names are case-insensitive (<code>x-client-id</code> = <code>X-Client-Id</code>). Like <code>@RequestParam</code>, they're required unless you say otherwise. Custom headers often start with <code>X-</code> by tradition.</p>
+
+  <h3>3.6 ResponseEntity — full control of the response</h3>
+  <p>Returning a plain object always gives 200 (or the code from <code>@ResponseStatus</code>). <strong><code>ResponseEntity&lt;T&gt;</code></strong> lets you choose the
+    <strong>status</strong>, <strong>headers</strong> and <strong>body</strong> per call:</p>
+  <div class="flow">
+    <span class="box">ResponseEntity&lt;Product&gt;</span><span class="arrow">=</span>
+    <span class="box alt">status<br><small>201</small></span><span class="arrow">+</span>
+    <span class="box alt">headers<br><small>Location: …/5</small></span><span class="arrow">+</span>
+    <span class="box info">body<br><small>{"id":5,…}</small></span>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th>Code</th><th>Result</th></tr>
+    <tr><td><code>ResponseEntity.ok(product)</code></td><td>200 + body</td></tr>
+    <tr><td><code>ResponseEntity.ok().header("X-Total-Count", "4").body(list)</code></td><td>200 + custom header + body</td></tr>
+    <tr><td><code>ResponseEntity.created(uri).body(product)</code></td><td>201 + <code>Location</code> header + body</td></tr>
+    <tr><td><code>ResponseEntity.noContent().build()</code></td><td>204, no body</td></tr>
+    <tr><td><code>ResponseEntity.notFound().build()</code></td><td>404, no body</td></tr>
+    <tr><td><code>ResponseEntity.badRequest().body(errors)</code></td><td>400 + body</td></tr>
+    <tr><td><code>ResponseEntity.status(HttpStatus.CONFLICT).body(msg)</code></td><td>Any status (409 here)</td></tr>
+    <tr><td><code>ResponseEntity.accepted().build()</code></td><td>202 — "accepted, will process later"</td></tr>
+  </table></div>
+  <p>A neat pattern with <code>Optional</code> (from topic 14):</p>
+  <pre><code class="lang-java">return productService.findById(id)
+        .map(ResponseEntity::ok)                       // found     -&gt; 200 + product
+        .orElse(ResponseEntity.notFound().build());    // not found -&gt; 404</code></pre>
+
+  <h3>3.7 201 Created and the Location header</h3>
+  <p>The HTTP standard says: after creating a resource, answer <strong>201 Created</strong> with a <strong><code>Location</code></strong> header containing the new resource's URL,
+    so the client can fetch it later. Building that URL by hand (<code>"http://localhost:8080/..."</code>) breaks behind proxies or with a different port. Use
+    <code>ServletUriComponentsBuilder</code>, which starts from the <em>current</em> request URL:</p>
+  <pre><code class="lang-java">URI location = ServletUriComponentsBuilder.fromCurrentRequest()   // http://localhost:8080/api/products
+        .path("/{id}")                                                // + /{id}
+        .buildAndExpand(created.getId())                             // {id} -&gt; 5
+        .toUri();                                                    // http://localhost:8080/api/products/5
+return ResponseEntity.created(location).body(created);</code></pre>
+  <pre class="terminal"><code>HTTP/1.1 201
+Location: http://localhost:8080/api/products/5</code></pre>
+
+  <h3>3.8 Full CRUD — the standard design</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Operation</th><th>Method + URL</th><th>Body in</th><th>Success</th><th>Failure</th></tr>
+    <tr><td>List (+filters)</td><td><code>GET /api/products</code></td><td>–</td><td>200 + array</td><td>–</td></tr>
+    <tr><td>Read one</td><td><code>GET /api/products/{id}</code></td><td>–</td><td>200 + object</td><td>404</td></tr>
+    <tr><td>Create</td><td><code>POST /api/products</code></td><td>full product (no id)</td><td>201 + Location + object</td><td>400</td></tr>
+    <tr><td>Replace</td><td><code>PUT /api/products/{id}</code></td><td>full product</td><td>200 + object</td><td>404 / 400</td></tr>
+    <tr><td>Partial update</td><td><code>PATCH /api/products/{id}</code></td><td>only changed fields</td><td>200 + object</td><td>404 / 400</td></tr>
+    <tr><td>Delete</td><td><code>DELETE /api/products/{id}</code></td><td>–</td><td>204</td><td>404</td></tr>
+  </table></div>
+  <p><strong>PUT vs PATCH in practice</strong> — existing product: <code>{"name":"Mug","category":"kitchen","price":299,"stock":100}</code></p>
+  <div class="table-wrap"><table>
+    <tr><th>Request</th><th>Result</th></tr>
+    <tr><td><code>PUT {"name":"Big Mug","category":"kitchen","price":349,"stock":80}</code></td><td>Everything replaced.</td></tr>
+    <tr><td><code>PUT {"price":349}</code></td><td>⚠️ name and category become <code>null</code>, stock 0 — PUT means "here is the whole new thing".</td></tr>
+    <tr><td><code>PATCH {"price":349}</code></td><td>Only the price changes. Everything else stays.</td></tr>
+  </table></div>
+  <p>For PATCH we use a request record whose fields are all <strong>wrapper types</strong> (<code>Integer</code>, not <code>int</code>), so "not sent" (<code>null</code>) is different from "set to 0".</p>
+
+  <h3>3.9 Idempotency</h3>
+  <p>An operation is <strong>idempotent</strong> if doing it once or ten times leaves the server in the same state.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Request sent 3 times</th><th>Result</th><th>Idempotent?</th></tr>
+    <tr><td><code>GET /api/products/1</code></td><td>Nothing changes</td><td>✅ (and safe)</td></tr>
+    <tr><td><code>PUT /api/products/1</code> with the same body</td><td>Product 1 has that data — same as after the first call</td><td>✅</td></tr>
+    <tr><td><code>DELETE /api/products/1</code></td><td>1st: 204, then 404 — but the <em>state</em> is the same: product 1 is gone</td><td>✅</td></tr>
+    <tr><td><code>POST /api/products</code></td><td>Three new products (ids 5, 6, 7)!</td><td>❌</td></tr>
+    <tr><td><code>PATCH {"price": 349}</code></td><td>Same result each time</td><td>✅ in this case</td></tr>
+    <tr><td><code>PATCH {"stockIncrease": 10}</code></td><td>Stock +30 instead of +10</td><td>❌ — PATCH is not guaranteed idempotent</td></tr>
+  </table></div>
+  <p><strong>Why it matters:</strong> networks fail. A mobile app sends a request, the connection drops, and it doesn't know if the server received it. Idempotent requests can be
+    <em>retried safely</em>. For POST (e.g. payments), APIs often accept an <code>Idempotency-Key</code> header so the server can detect and ignore duplicates (more in topic 44).</p>
+
+  <h3>3.10 Jackson annotations — shaping the JSON</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Annotation</th><th>Effect</th><th>Example</th></tr>
+    <tr><td><code>@JsonProperty("stock")</code></td><td>Different name in JSON than in Java</td><td>Java <code>quantityInStock</code> ↔ JSON <code>"stock"</code></td></tr>
+    <tr><td><code>@JsonIgnore</code></td><td>Never written to or read from JSON</td><td>internal <code>supplierCode</code>, password hashes</td></tr>
+    <tr><td><code>@JsonFormat(pattern = "dd-MM-yyyy HH:mm:ss")</code></td><td>Custom date/number format</td><td><code>"09-10-2026 14:30:00"</code></td></tr>
+    <tr><td><code>@JsonInclude(JsonInclude.Include.NON_NULL)</code></td><td>Skip null fields</td><td>no <code>"discount": null</code></td></tr>
+    <tr><td><code>@JsonPropertyOrder({"id","name"})</code></td><td>Field order in the output</td><td></td></tr>
+  </table></div>
+  <pre><code class="lang-java">public class Product {
+    @JsonProperty("stock")
+    private int quantityInStock;
+
+    @JsonIgnore
+    private String supplierCode;
+
+    @JsonFormat(pattern = "dd-MM-yyyy HH:mm:ss")
+    private LocalDateTime createdAt;
+    ...
+}</code></pre>
+  <p>Global alternatives in <code>application.properties</code>: <code>spring.jackson.property-naming-strategy=SNAKE_CASE</code> (all fields as <code>snake_case</code>),
+    <code>spring.jackson.default-property-inclusion=non_null</code>, <code>spring.jackson.serialization.indent-output=true</code>.</p>
+  <div class="callout info"><strong>ℹ️ Dates</strong> Without <code>@JsonFormat</code>, Spring Boot writes <code>LocalDateTime</code> as ISO-8601: <code>"2026-10-09T14:30:00"</code>. ISO is actually the best choice for
+    APIs (every language parses it). We use a custom pattern here only to show how it works.</div>
+
+  <h3>3.11 Content negotiation (brief)</h3>
+  <p>One resource can have several <em>representations</em> (JSON, XML, CSV). The client says what it wants in the <code>Accept</code> header; the server picks a matching
+    <code>HttpMessageConverter</code>. That's <strong>content negotiation</strong>.</p>
+  <ul>
+    <li><code>produces = MediaType.APPLICATION_JSON_VALUE</code> — "this endpoint only produces JSON". <code>Accept: application/xml</code> → <strong>406 Not Acceptable</strong>.</li>
+    <li><code>consumes = MediaType.APPLICATION_JSON_VALUE</code> — "this endpoint only accepts JSON bodies". Other <code>Content-Type</code> → <strong>415 Unsupported Media Type</strong>.</li>
+    <li>Add the dependency <code>jackson-dataformat-xml</code> (commented out in our <code>pom.xml</code>) and remove <code>produces</code> — the same endpoint then returns XML for <code>Accept: application/xml</code>. No code changes!</li>
+  </ul>
+
+  <h3>3.12 CORS basics</h3>
+  <p>Browsers follow the <strong>Same-Origin Policy</strong>: JavaScript from one <em>origin</em> (scheme + host + port) may not read responses from another origin unless that server
+    allows it. <code>http://localhost:5173</code> (React dev server) and <code>http://localhost:8080</code> (our API) are <strong>different origins</strong> (different ports).</p>
+  <div class="flow">
+    <span class="box">Browser JS at :5173</span><span class="arrow">→ OPTIONS (preflight) →</span>
+    <span class="box alt">API at :8080</span><span class="arrow">→ "Access-Control-Allow-Origin: http://localhost:5173" →</span>
+    <span class="box info">Browser sends the real request</span>
+  </div>
+  <p>For "non-simple" requests (e.g. POST with JSON, PUT, DELETE, custom headers) the browser first sends a <strong>preflight</strong> <code>OPTIONS</code> request asking permission.
+    If the server's answer doesn't allow the origin, the browser blocks the call and shows a red CORS error in the console.</p>
+  <p>Two ways to allow origins in Spring:</p>
+  <pre><code class="lang-java">// 1) Local: on a controller class or a single method
+@CrossOrigin(origins = "http://localhost:5173")
+@GetMapping("/headers-demo") ...
+
+// 2) Global: one place for all /api/** URLs (preferred)
+@Configuration
+public class CorsConfig implements WebMvcConfigurer {
+    @Override
+    public void addCorsMappings(CorsRegistry registry) {
+        registry.addMapping("/api/**")
+                .allowedOrigins("http://localhost:5173", "http://localhost:3000")
+                .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE")
+                .exposedHeaders("Location", "X-Total-Count");
+    }
+}</code></pre>
+  <div class="callout warn"><strong>⚠️ CORS is a browser rule, not security for your API</strong> curl, Postman and other servers ignore CORS completely. It protects <em>users' browsers</em>, not your data — you still need
+    authentication (topics 47–49). With Spring Security, CORS must also be enabled in the security config (topic 47).</div>
+
+  <!-- ============================================================ 4. CODE -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>Web starter (+ commented XML dependency for the content-negotiation experiment)</td></tr>
+    <tr><td><code>RequestHandlingApplication.java</code></td><td>Main class</td></tr>
+    <tr><td><code>Product.java</code></td><td>Resource class with <code>@JsonProperty</code>, <code>@JsonIgnore</code>, <code>@JsonFormat</code></td></tr>
+    <tr><td><code>ProductRequest.java</code></td><td>Record for POST/PUT bodies</td></tr>
+    <tr><td><code>ProductPatchRequest.java</code></td><td>Record for PATCH bodies (all optional)</td></tr>
+    <tr><td><code>ProductService.java</code></td><td>In-memory CRUD with filters/sorting</td></tr>
+    <tr><td><code>ProductController.java</code></td><td>Full CRUD with <code>ResponseEntity</code>, <code>Location</code>, <code>@RequestHeader</code>, <code>@CrossOrigin</code></td></tr>
+    <tr><td><code>CorsConfig.java</code></td><td>Global CORS</td></tr>
+    <tr><td><code>application.properties</code></td><td>Pretty JSON, fail on unknown properties</td></tr>
+    <tr><td><code>ProductControllerTest.java</code></td><td>7 MockMvc tests covering every operation</td></tr>
+    <tr><td><code>requests.http</code></td><td>12 ready-made requests</td></tr>
+  </table></div>
+
+  <h3>4.1 The request records</h3>
+  <pre><span class="file">ProductRequest.java and ProductPatchRequest.java</span><code class="lang-java">public record ProductRequest(
+        String name,
+        String category,
+        BigDecimal price,
+        @JsonProperty("stock") int quantityInStock) { }
+
+public record ProductPatchRequest(
+        String name,
+        String category,
+        BigDecimal price,
+        @JsonProperty("stock") Integer quantityInStock) { }   // Integer: null = "not sent"</code></pre>
+  <p><code>BigDecimal</code> for money: <code>double</code> can't store 0.1 exactly (<code>0.1 + 0.2 = 0.30000000000000004</code>), which is unacceptable for prices.</p>
+
+  <h3>4.2 ProductService — PUT vs PATCH logic</h3>
+  <pre><span class="file">src/main/java/com/course/requesthandling/ProductService.java (part)</span><code class="lang-java">public Optional&lt;Product&gt; replace(long id, ProductRequest request) {
+    Product existing = products.get(id);
+    if (existing == null) return Optional.empty();
+    existing.setName(request.name());                     // EVERY field overwritten
+    existing.setCategory(request.category());
+    existing.setPrice(request.price());
+    existing.setQuantityInStock(request.quantityInStock());
+    existing.setUpdatedAt(LocalDateTime.now());
+    return Optional.of(existing);
+}
+
+public Optional&lt;Product&gt; patch(long id, ProductPatchRequest patch) {
+    Product existing = products.get(id);
+    if (existing == null) return Optional.empty();
+    if (patch.name() != null) existing.setName(patch.name());           // ONLY sent fields
+    if (patch.category() != null) existing.setCategory(patch.category());
+    if (patch.price() != null) existing.setPrice(patch.price());
+    if (patch.quantityInStock() != null) existing.setQuantityInStock(patch.quantityInStock());
+    existing.setUpdatedAt(LocalDateTime.now());
+    return Optional.of(existing);
+}</code></pre>
+  <p>The service returns <code>Optional</code>/<code>boolean</code> and knows nothing about HTTP. The <em>controller</em> decides 200 vs 404. This separation pays off in topic 33.</p>
+
+  <h3>4.3 ProductController — the heart of the topic</h3>
+  <pre><span class="file">src/main/java/com/course/requesthandling/ProductController.java (key parts)</span><code class="lang-java">@RestController
+@RequestMapping(value = "/api/products", produces = MediaType.APPLICATION_JSON_VALUE)
+public class ProductController {
+
+    @GetMapping
+    public ResponseEntity&lt;List&lt;Product&gt;&gt; getAll(
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) BigDecimal maxPrice,
+            @RequestParam(name = "sort", defaultValue = "id") String sortBy) {
+        List&lt;Product&gt; result = productService.findAll(category, maxPrice, sortBy);
+        return ResponseEntity.ok()
+                .header("X-Total-Count", String.valueOf(result.size()))
+                .body(result);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity&lt;Product&gt; getOne(@PathVariable Long id) {
+        return productService.findById(id)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity&lt;Product&gt; create(
+            @RequestBody ProductRequest request,
+            @RequestHeader(name = "X-Client-Id", required = false) String clientId) {
+        Product created = productService.create(request);
+        URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(created.getId())
+                .toUri();
+        return ResponseEntity.created(location)
+                .header("X-Created-By", clientId == null ? "anonymous" : clientId)
+                .body(created);
+    }
+
+    @PutMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity&lt;Product&gt; replace(@PathVariable Long id, @RequestBody ProductRequest request) {
+        return productService.replace(id, request).map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PatchMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity&lt;Product&gt; patch(@PathVariable Long id, @RequestBody ProductPatchRequest patch) {
+        return productService.patch(id, patch).map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity&lt;Void&gt; delete(@PathVariable Long id) {
+        if (productService.delete(id)) {
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.notFound().build();
+    }
+
+    @CrossOrigin(origins = "*")
+    @GetMapping("/headers-demo")
+    public ResponseEntity&lt;Map&lt;String, Object&gt;&gt; headersDemo(
+            @RequestHeader(name = HttpHeaders.USER_AGENT, defaultValue = "unknown") String userAgent,
+            @RequestHeader(name = "Accept-Language", required = false) String language,
+            @RequestHeader HttpHeaders allHeaders) { ... }
+}</code></pre>
+  <p>Points to notice:</p>
+  <ul>
+    <li><code>ResponseEntity&lt;Void&gt;</code> for DELETE — there's never a body.</li>
+    <li><code>produces</code> on the class applies to every method; <code>consumes</code> only on methods that take a body.</li>
+    <li><code>X-Total-Count</code> is a common convention for "how many items match"; useful for paging UIs.</li>
+    <li>Why doesn't <code>/headers-demo</code> clash with <code>/{id}</code>? A literal segment is more specific than a variable, so Spring prefers it.</li>
+  </ul>
+
+  <h3>4.4 Product and CorsConfig</h3>
+  <p><code>Product</code> is a classic class with getters/setters (needed for PATCH) and the three Jackson annotations shown in 3.10. <code>CorsConfig</code> is the global configuration
+    from 3.12, allowing our two front-end dev servers to call <code>/api/**</code> and letting browser JavaScript <em>read</em> the <code>Location</code> and <code>X-Total-Count</code>
+    headers (<code>exposedHeaders</code> — without it, JS can't see custom headers).</p>
+
+  <h3>4.5 Tests</h3>
+  <pre><span class="file">src/test/java/com/course/requesthandling/ProductControllerTest.java (part)</span><code class="lang-java">@Test
+void postReturns201WithLocationHeader() throws Exception {
+    String json = """
+            {"name":"USB-C Cable","category":"electronics","price":199.00,"stock":300}
+            """;
+    mockMvc.perform(post("/api/products").contentType(MediaType.APPLICATION_JSON).content(json)
+                    .header("X-Client-Id", "mobile-app"))
+            .andExpect(status().isCreated())
+            .andExpect(header().string("Location", endsWith("/api/products/5")))
+            .andExpect(jsonPath("$.id").value(5));
+}
+
+@Test
+void jacksonAnnotationsShapeTheJson() throws Exception {
+    mockMvc.perform(get("/api/products/1"))
+            .andExpect(jsonPath("$.stock").value(50))                 // @JsonProperty
+            .andExpect(jsonPath("$.supplierCode").doesNotExist());    // @JsonIgnore
+}</code></pre>
+
+  <!-- ============================================================ 5. RUN -->
+  <h2 id="run">5. How to run</h2>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\32-Request-Handling-And-Responses"
+mvn spring-boot:run</code></pre>
+  <p>The easiest way: open <code>requests.http</code> in VS Code and click <strong>Send Request</strong> on each of the 12 requests. Same requests with curl (PowerShell: <code>curl.exe</code>; <code>-i</code> shows headers):</p>
+  <pre class="terminal"><code>curl.exe -i "http://localhost:8080/api/products?category=electronics&amp;sort=price"
+HTTP/1.1 200
+X-Total-Count: 2
+Content-Type: application/json
+[ {
+  "id" : 1,
+  "name" : "Wireless Mouse",
+  "category" : "electronics",
+  "price" : 799.00,
+  "createdAt" : "09-10-2026 10:09:30",
+  "updatedAt" : "09-10-2026 10:09:30",
+  "stock" : 50
+}, ... ]
+
+curl.exe -i -X POST http://localhost:8080/api/products -H "Content-Type: application/json" -H "X-Client-Id: mobile-app" -d "{\"name\":\"USB-C Cable\",\"category\":\"electronics\",\"price\":199.00,\"stock\":300}"
+HTTP/1.1 201
+Location: http://localhost:8080/api/products/5
+X-Created-By: mobile-app
+{ "id" : 5, "name" : "USB-C Cable", ... "stock" : 300 }
+
+curl.exe -X PUT http://localhost:8080/api/products/3 -H "Content-Type: application/json" -d "{\"name\":\"Big Java Mug\",\"category\":\"kitchen\",\"price\":349.00,\"stock\":80}"
+
+curl.exe -X PATCH http://localhost:8080/api/products/3 -H "Content-Type: application/json" -d "{\"price\":299.00}"
+{ "id" : 3, "name" : "Big Java Mug", "category" : "kitchen", "price" : 299.00, ... }
+
+curl.exe -i -X DELETE http://localhost:8080/api/products/4
+HTTP/1.1 204
+
+curl.exe -i http://localhost:8080/api/products/1 -H "Accept: application/xml"
+HTTP/1.1 406
+
+curl.exe -X POST http://localhost:8080/api/products -H "Content-Type: application/json" -d "{\"name\":\"Pen\",\"prise\":10}"
+{ "status" : 400, "error" : "Bad Request",
+  "message" : "JSON parse error: Unrecognized field \"prise\" ..." }
+
+curl.exe -i -X OPTIONS http://localhost:8080/api/products -H "Origin: http://localhost:5173" -H "Access-Control-Request-Method: POST"
+HTTP/1.1 200
+Access-Control-Allow-Origin: http://localhost:5173
+Access-Control-Allow-Methods: GET,POST,PUT,PATCH,DELETE
+Access-Control-Expose-Headers: Location, X-Total-Count
+Access-Control-Max-Age: 3600
+
+curl.exe -i -X OPTIONS http://localhost:8080/api/products -H "Origin: http://evil.example" -H "Access-Control-Request-Method: POST"
+HTTP/1.1 403                         &lt;- origin not allowed: "Invalid CORS request"</code></pre>
+  <pre class="terminal"><code>mvn test
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0</code></pre>
+
+  <!-- ============================================================ 6. MISTAKES -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: required @RequestParam missing → 400</strong>
+    <code>@RequestParam String category</code> is required by default. Calling <code>/api/products</code> fails.<br><strong>Fix:</strong> <code>required = false</code> or a <code>defaultValue</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: primitive optional parameter</strong>
+    <code>@RequestParam(required = false) int page</code> → error when missing, because <code>null</code> can't go into an <code>int</code>.<br><strong>Fix:</strong> <code>Integer page</code> or <code>defaultValue = "0"</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: path variable name mismatch</strong>
+    <code>@GetMapping("/{productId}")</code> with <code>@PathVariable Long id</code> → error "Missing URI template variable 'id'".<br><strong>Fix:</strong> same names, or <code>@PathVariable("productId") Long id</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: 200 with an empty body instead of 404</strong>
+    Returning <code>null</code> from a controller gives <code>200</code> with nothing. Clients think it worked.<br><strong>Fix:</strong> <code>ResponseEntity.notFound().build()</code> (or an exception, topic 35).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: POST returning 200 without Location</strong> Works, but breaks REST conventions. Use <code>ResponseEntity.created(uri)</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: hard-coding the Location URL</strong>
+    <code>URI.create("http://localhost:8080/api/products/" + id)</code> is wrong on any other host/port. Use <code>ServletUriComponentsBuilder.fromCurrentRequest()</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: using PUT for partial updates</strong> Clients send only <code>{"price":..}</code> and lose all other data. Use PATCH for partial changes.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>int</code> fields in a PATCH body</strong> You can't tell "not sent" from 0. Use wrapper types.</div>
+  <div class="callout danger"><strong>❌ Mistake: <code>@CrossOrigin(origins = "*")</code> everywhere</strong>
+    Any website can then call your API from its users' browsers. Never combine <code>*</code> with credentials (cookies). List real front-end origins instead, preferably in a global config driven by properties per profile.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "CORS error" while testing with Postman?</strong> Impossible — Postman ignores CORS. If only the browser fails, it's CORS; if Postman fails too, it's your endpoint.</div>
+
+  <!-- ============================================================ 7. BEST -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Path variables identify, query params filter.</strong> <code>/products/5</code> vs <code>/products?category=books</code>.</li>
+    <li><strong>Use <code>ResponseEntity</code></strong> when the status or headers vary; plain return types + <code>@ResponseStatus</code> when they don't.</li>
+    <li><strong>201 + Location</strong> for creation, <strong>204</strong> for delete, <strong>404</strong> for missing, <strong>400</strong> for bad input.</li>
+    <li><strong>Separate request types</strong> (records) from your internal model; never let clients set ids or internal fields.</li>
+    <li><strong>Prefer ISO-8601 dates</strong> in APIs; use <code>@JsonFormat</code> only when a client really needs a specific format.</li>
+    <li><strong>Hide internal fields</strong> with <code>@JsonIgnore</code> — or better, with separate response DTOs (topic 33).</li>
+    <li><strong>Use <code>BigDecimal</code> for money.</strong></li>
+    <li><strong>Configure CORS globally</strong>, list explicit origins, and make them configurable per profile.</li>
+    <li><strong>Design for retries:</strong> keep GET/PUT/DELETE idempotent; consider idempotency keys for important POSTs.</li>
+    <li><strong>Be strict with input</strong> (<code>fail-on-unknown-properties</code>) during development to catch client typos early; teams decide whether to keep it in production for backward compatibility.</li>
+  </ul>
+
+  <!-- ============================================================ 8. SUMMARY -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li><code>@PathVariable</code> = path segment, <code>@RequestParam</code> = query string (required by default; <code>required=false</code>/<code>defaultValue</code>), <code>@RequestBody</code> = JSON body, <code>@RequestHeader</code> = headers.</li>
+    <li><code>ResponseEntity</code> controls status + headers + body: <code>ok</code>, <code>created</code>, <code>noContent</code>, <code>notFound</code>, <code>status(...)</code>.</li>
+    <li>Create → 201 + <code>Location</code> built with <code>ServletUriComponentsBuilder.fromCurrentRequest()</code>.</li>
+    <li>CRUD: GET list/one, POST create, PUT replace, PATCH partial, DELETE remove.</li>
+    <li>GET/PUT/DELETE are idempotent; POST is not; PATCH isn't guaranteed.</li>
+    <li><code>@JsonProperty</code> renames, <code>@JsonIgnore</code> hides, <code>@JsonFormat</code> formats.</li>
+    <li><code>Accept</code>/<code>produces</code> and <code>Content-Type</code>/<code>consumes</code> drive content negotiation (406/415).</li>
+    <li>CORS is a browser rule; allow front-end origins with <code>@CrossOrigin</code> or a global <code>WebMvcConfigurer</code>.</li>
+  </ul></div>
+
+  <!-- ============================================================ 9. EXERCISES -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Name filter.</strong> Add an optional <code>name</code> query parameter to <code>GET /api/products</code> that keeps products whose name <em>contains</em> the text (case-insensitive).</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// controller
+@RequestParam(required = false) String name
+// service filter (add to the stream)
+.filter(p -&gt; name == null || p.getName().toLowerCase().contains(name.toLowerCase()))</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Hide nulls.</strong> Make the API leave out fields whose value is <code>null</code> — first with one annotation on <code>Product</code>, then globally with a property.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@JsonInclude(JsonInclude.Include.NON_NULL)
+public class Product { ... }</code></pre>
+    <pre><code class="lang-properties">spring.jackson.default-property-inclusion=non_null</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Restock endpoint.</strong> Add <code>POST /api/products/{id}/restock?amount=10</code> that increases stock. Return 200 with the product, 404 if missing, and 400 if <code>amount</code> ≤ 0. Is it idempotent?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@PostMapping("/{id}/restock")
+public ResponseEntity&lt;Product&gt; restock(@PathVariable Long id, @RequestParam int amount) {
+    if (amount &lt;= 0) {
+        return ResponseEntity.badRequest().build();
+    }
+    return productService.findById(id)
+            .map(p -&gt; {
+                p.setQuantityInStock(p.getQuantityInStock() + amount);
+                return ResponseEntity.ok(p);
+            })
+            .orElse(ResponseEntity.notFound().build());
+}
+// NOT idempotent: calling it twice adds 20. That's why it is a POST, not a PUT.</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Duplicate names → 409.</strong> Reject creating a product whose name already exists (ignore case) with <code>409 Conflict</code> and a JSON body <code>{"error":"Product name already exists"}</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// service
+public boolean nameExists(String name) {
+    return products.values().stream().anyMatch(p -&gt; p.getName().equalsIgnoreCase(name));
+}
+
+// controller - change return type to ResponseEntity&lt;?&gt;
+if (productService.nameExists(request.name())) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(Map.of("error", "Product name already exists"));
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Simple paging.</strong> Add <code>page</code> (default 0) and <code>size</code> (default 2, max 50) query params to the list endpoint. Return only that slice and set headers
+      <code>X-Total-Count</code> (all matches) and <code>X-Total-Pages</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@GetMapping
+public ResponseEntity&lt;List&lt;Product&gt;&gt; getAll(
+        @RequestParam(required = false) String category,
+        @RequestParam(required = false) BigDecimal maxPrice,
+        @RequestParam(name = "sort", defaultValue = "id") String sortBy,
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "2") int size) {
+    int safeSize = Math.min(Math.max(size, 1), 50);
+    List&lt;Product&gt; all = productService.findAll(category, maxPrice, sortBy);
+    List&lt;Product&gt; slice = all.stream().skip((long) page * safeSize).limit(safeSize).toList();
+    int totalPages = (int) Math.ceil(all.size() / (double) safeSize);
+    return ResponseEntity.ok()
+            .header("X-Total-Count", String.valueOf(all.size()))
+            .header("X-Total-Pages", String.valueOf(totalPages))
+            .body(slice);
+}
+// Topic 41 does this properly with Spring Data's Pageable.</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. XML too.</strong> Uncomment <code>jackson-dataformat-xml</code> in <code>pom.xml</code>, remove <code>produces = ...JSON</code> from the class, restart, and request
+      <code>GET /api/products/1</code> with <code>Accept: application/xml</code>. What do you get? What happens with no <code>Accept</code> header now — and in the browser?</p>
+    <details><summary>Hint / solution</summary><p>You get <code>&lt;Product&gt;&lt;id&gt;1&lt;/id&gt;&lt;name&gt;Wireless Mouse&lt;/name&gt;...&lt;stock&gt;50&lt;/stock&gt;&lt;/Product&gt;</code> — the Jackson annotations apply to XML too.
+      With no <code>Accept</code> header (curl) you still get JSON (first suitable converter). Browsers send <code>Accept: text/html,application/xhtml+xml,application/xml;...</code>, so the browser now shows <strong>XML</strong> —
+      a classic surprise! That's why many APIs keep <code>produces = JSON</code>. Put the <code>produces</code> back afterwards (the test <code>askingForXmlGives406</code> expects it).</p></details>
+  </div>
+
+  <!-- ============================================================ 10. INTERVIEW -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. Difference between @PathVariable and @RequestParam?</summary>
+    <p><code>@PathVariable</code> binds a URI template segment (<code>/products/{id}</code>) — used to identify a resource. <code>@RequestParam</code> binds query string (or form) parameters (<code>?category=x</code>) — used for filtering, sorting, paging. Both are required by default; <code>@RequestParam</code> supports <code>required=false</code> and <code>defaultValue</code>.</p></details>
+  <details><summary>Q2. What is ResponseEntity and when do you use it?</summary>
+    <p>A wrapper representing the whole HTTP response: status, headers and body. Use it when the status or headers depend on logic (201 with Location, 404 vs 200, 204, custom headers). For fixed statuses a plain return value with <code>@ResponseStatus</code> is fine.</p></details>
+  <details><summary>Q3. How do you return 201 Created with the URL of the new resource?</summary>
+    <p>Build the URI with <code>ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").buildAndExpand(id).toUri()</code> and return <code>ResponseEntity.created(uri).body(created)</code>, which sets the <code>Location</code> header.</p></details>
+  <details><summary>Q4. What does idempotent mean? Which HTTP methods are idempotent?</summary>
+    <p>Repeating the request has the same effect on server state as sending it once. GET, HEAD, OPTIONS, PUT and DELETE are idempotent; POST is not; PATCH is not guaranteed. It matters for safe retries after network failures.</p></details>
+  <details><summary>Q5. PUT vs PATCH — how would you implement PATCH?</summary>
+    <p>PUT replaces the full representation; PATCH applies partial changes. A simple implementation uses a request DTO with nullable wrapper fields and updates only non-null ones. Alternatives: JSON Merge Patch (RFC 7386) or JSON Patch (RFC 6902) documents.</p></details>
+  <details><summary>Q6. Explain @JsonIgnore, @JsonProperty and @JsonFormat.</summary>
+    <p><code>@JsonIgnore</code> excludes a property from (de)serialization; <code>@JsonProperty("name")</code> sets the JSON name (or marks a property for inclusion); <code>@JsonFormat</code> controls the shape/format, e.g. date patterns and time zones.</p></details>
+  <details><summary>Q7. What is content negotiation in Spring MVC?</summary>
+    <p>Choosing the response representation based on the request's <code>Accept</code> header (and the available <code>HttpMessageConverter</code>s and the <code>produces</code> condition). If nothing matches, 406 Not Acceptable. For request bodies, <code>Content-Type</code> and <code>consumes</code> are matched; mismatch → 415.</p></details>
+  <details><summary>Q8. What is CORS and how do you configure it in Spring Boot?</summary>
+    <p>Cross-Origin Resource Sharing: a browser mechanism allowing a page from one origin to call another origin if the server responds with <code>Access-Control-Allow-*</code> headers (with a preflight OPTIONS for non-simple requests). Configure with <code>@CrossOrigin</code> on controllers/methods or globally via <code>WebMvcConfigurer.addCorsMappings</code>; with Spring Security, also enable <code>http.cors()</code>.</p></details>
+  <details><summary>Q9. What happens if the client sends a JSON field that doesn't exist in your class?</summary>
+    <p>By default Spring Boot's ObjectMapper ignores unknown properties. With <code>spring.jackson.deserialization.fail-on-unknown-properties=true</code> (or <code>@JsonIgnoreProperties(ignoreUnknown=false)</code>) deserialization fails and Spring returns 400.</p></details>
+  <details><summary>Q10. How do you read all request headers in a controller?</summary>
+    <p>Declare a parameter <code>@RequestHeader HttpHeaders headers</code> or <code>@RequestHeader Map&lt;String, String&gt; headers</code> (or <code>MultiValueMap</code>); for a single one, <code>@RequestHeader("X-Client-Id") String id</code>.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../31-Spring-MVC-And-REST-Fundamentals/lesson.html"><small>← Previous</small>31. Spring MVC &amp; REST Fundamentals</a>
+    <a class="next" href="../33-Layered-Architecture-And-DTOs/lesson.html"><small>Next →</small>33. Layered Architecture &amp; DTOs</a>
+  </nav>
+</main>
+</body>
+</html>

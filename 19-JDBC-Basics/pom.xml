@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Topic 19 - JDBC Basics
+  A plain Java (no Spring) Maven project that talks to an H2 in-memory database using JDBC.
+
+  Run it with:   mvn -q compile exec:java
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- GAV coordinates: who made it, what it is, which version (Topic 20 explains this in detail) -->
+    <groupId>com.course</groupId>
+    <artifactId>jdbc-basics</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.release>17</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- H2: a small database written in Java. It can run IN MEMORY inside our program,
+             so you do not have to install any database server. It also contains the
+             JDBC DRIVER for H2 (the "translator" between JDBC and the database). -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <version>2.3.232</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- exec-maven-plugin lets us run a main class with: mvn compile exec:java -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <mainClass>com.course.jdbcbasics.JdbcDemoApp</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

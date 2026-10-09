@@ -1,0 +1,33 @@
+# ------------------------------------------------------------------
+# product-service configuration (Topic 60)
+# ------------------------------------------------------------------
+spring:
+  application:
+    # THIS NAME IS THE KEY. Eureka stores us as "PRODUCT-SERVICE"
+    # and other services call us with http://product-service/...
+    name: product-service
+
+server:
+  port: 8081            # override for a 2nd instance:  --server.port=8091
+
+eureka:
+  client:
+    # Where is the registry? (this is the default value, written here so you can see it)
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    # DEV ONLY: download the registry every 5 s (default 30 s)
+    registry-fetch-interval-seconds: 5
+  instance:
+    # Register as "localhost" so it works on any laptop (no VPN / Docker network surprises).
+    hostname: localhost
+    # A UNIQUE id per instance, so two copies on 8081 and 8091 are both listed.
+    instance-id: ${spring.application.name}:${server.port}
+    # DEV ONLY: heartbeat every 5 s; Eureka removes us 15 s after the last heartbeat.
+    lease-renewal-interval-in-seconds: 5
+    lease-expiration-duration-in-seconds: 15
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -1,0 +1,49 @@
+### Topic 57 - RabbitMQ sample requests (VS Code "REST Client" extension)
+### Start RabbitMQ first:  docker compose up -d
+### Then watch the app log - the listeners print what they receive.
+@base = http://localhost:8080
+
+### 1. Place an order -> 202 Accepted; NotificationListener + AnalyticsListener log it
+POST {{base}}/api/orders
+Content-Type: application/json
+
+{
+  "customerName": "Asha",
+  "customerEmail": "asha@example.com",
+  "product": "Laptop",
+  "quantity": 1,
+  "unitPrice": 899.99
+}
+
+### 2. An order whose email "fails" -> 3 attempts, then the message lands in the dead-letter queue
+POST {{base}}/api/orders
+Content-Type: application/json
+
+{
+  "customerName": "Ravi",
+  "customerEmail": "ravi@fail.test",
+  "product": "Phone",
+  "quantity": 2,
+  "unitPrice": 250.00
+}
+
+### 3. Invalid order -> 400 Bad Request (validation, nothing is sent to RabbitMQ)
+POST {{base}}/api/orders
+Content-Type: application/json
+
+{
+  "customerName": "",
+  "customerEmail": "not-an-email",
+  "product": "Laptop",
+  "quantity": 0,
+  "unitPrice": 10
+}
+
+### 4. Cancel an order -> only the analytics queue receives it ("order.#" binding)
+POST {{base}}/api/orders/abc-123/cancel?reason=found%20cheaper
+
+### 5. Broadcast an announcement through the fanout exchange
+POST {{base}}/api/announcements
+Content-Type: text/plain
+
+Big Diwali sale starts tomorrow!

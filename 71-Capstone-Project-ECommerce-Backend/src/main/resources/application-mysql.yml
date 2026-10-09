@@ -1,0 +1,21 @@
+# =====================================================================
+# Profile "mysql" - activated with  --spring.profiles.active=mysql
+# (or SPRING_PROFILES_ACTIVE=mysql, which docker-compose.yml sets).
+#
+# Only the values that DIFFER from application.yml go here.
+# Start the database first:  docker compose up -d mysql
+# =====================================================================
+spring:
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:shopeasy}?createDatabaseIfNotExist=true
+    username: ${DB_USERNAME:shopeasy}
+    password: ${DB_PASSWORD:shopeasy}
+    hikari:
+      maximum-pool-size: 10
+  h2:
+    console:
+      enabled: false
+
+logging:
+  level:
+    com.course.shopeasy: INFO

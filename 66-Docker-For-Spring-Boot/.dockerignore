@@ -1,0 +1,24 @@
+# .dockerignore - files NOT sent to Docker as "build context"
+# Smaller context = faster builds, and no secrets / junk end up in the image.
+
+# Build output (the multi-stage Dockerfile builds its own jar) ...
+target/*
+# ... but keep the finished jar so Dockerfile.simple can COPY it ("!" = do include)
+!target/docker-demo.jar
+
+# IDE and OS files
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Git, docs, local config
+.git/
+.gitignore
+*.md
+lesson.html
+requests.http
+logs/
+*.log
+.env

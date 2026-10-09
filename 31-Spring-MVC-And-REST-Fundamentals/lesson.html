@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>31 · Spring MVC &amp; REST Fundamentals</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 31</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>31. Spring MVC &amp; REST Fundamentals</h1>
+  <p class="subtitle">Understand how the web talks (HTTP), what REST means, how Spring MVC turns a request into a method call and a Java object into JSON — and build a working Book API.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="31-Spring-MVC-And-REST-Fundamentals"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>HTTP basics: client/server, request/response, methods, status codes, headers, JSON.</li>
+      <li>What REST is: resources, URIs, representations, statelessness.</li>
+      <li>Spring MVC architecture: <code>DispatcherServlet</code> → <code>HandlerMapping</code> → Controller → <code>HttpMessageConverter</code> (Jackson) → response.</li>
+      <li><code>@RestController</code> vs <code>@Controller</code>.</li>
+      <li><code>@RequestMapping</code>, <code>@GetMapping</code>, <code>@PostMapping</code>, <code>@PutMapping</code>, <code>@PatchMapping</code>, <code>@DeleteMapping</code>.</li>
+      <li>How returning a Java object becomes JSON automatically.</li>
+      <li>An in-memory Book API, tested with curl, the browser, the VS Code REST Client and Postman.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../28-Spring-Boot-Introduction/lesson.html">Topic 28 · Spring Boot Introduction</a>, records (<a href="../15-Modern-Java-Features/lesson.html">Topic 15</a>) and streams (<a href="../14-Streams-API-And-Optional/lesson.html">Topic 14</a>).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ 1. WHY -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Open any app on your phone — Swiggy, Amazon, your bank. The screen you see is just the "front". Every time you tap "Show orders" or "Pay", the app sends a message over
+    the internet to a <strong>back-end server</strong>, and the server answers with data. That conversation almost always uses <strong>HTTP</strong> and a <strong>REST API</strong> returning <strong>JSON</strong>.</p>
+  <p>Building those back-end APIs is the <strong>number-one job of a Spring Boot developer</strong>. Mobile apps, React/Angular websites, other microservices and partner companies all
+    talk to your code through REST endpoints. This topic gives you the foundation; topic 32 adds all the details; topics 33–46 make it professional.</p>
+
+  <!-- ============================================================ 2. ANALOGY -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🍽️ A restaurant</strong>
+    <ul>
+      <li><strong>You (the customer)</strong> = the <em>client</em> (browser, mobile app, curl).</li>
+      <li><strong>Your order slip</strong> = the HTTP <em>request</em>: what you want (<em>method</em>: "GET me a menu", "POST a new order"), which item (<em>URL</em>), notes like "no onions" (<em>headers</em>), and sometimes details (<em>body</em>).</li>
+      <li><strong>The head waiter at the door</strong> = <code>DispatcherServlet</code>: receives <em>every</em> order and decides which cook should handle it.</li>
+      <li><strong>The board saying "pizzas → Mario, curries → Priya"</strong> = <code>HandlerMapping</code>.</li>
+      <li><strong>The cook</strong> = your <em>controller</em> method.</li>
+      <li><strong>Plating the food nicely</strong> = Jackson converting your Java object to JSON.</li>
+      <li><strong>The plate served back + the bill saying "served" or "sorry, sold out"</strong> = the HTTP <em>response</em> with a <em>status code</em> (200 OK, 404 Not Found).</li>
+      <li>The waiter <strong>doesn't remember you</strong> between visits; you show your table number each time = REST is <em>stateless</em>.</li>
+    </ul>
+  </div>
+
+  <!-- ============================================================ 3. CONCEPTS -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Client and server, request and response</h3>
+  <div class="flow">
+    <span class="box">Client<br><small>browser / app / curl</small></span><span class="arrow">— HTTP request →</span>
+    <span class="box alt">Server<br><small>our Spring Boot app</small></span><span class="arrow">— HTTP response →</span>
+    <span class="box">Client</span>
+  </div>
+  <p>The client always starts the conversation. The server waits, answers, and forgets. One request → one response.</p>
+
+  <h3>3.2 What an HTTP request and response really look like</h3>
+  <p>HTTP is plain text. Here is a real request to create a book:</p>
+  <pre class="terminal"><code>POST /api/books HTTP/1.1                    &lt;- request line: METHOD  PATH  VERSION
+Host: localhost:8080                        &lt;- headers (key: value)
+Content-Type: application/json
+Accept: application/json
+                                            &lt;- empty line
+{"title":"Java Concurrency in Practice","author":"Brian Goetz","year":2006,"price":800}   &lt;- body</code></pre>
+  <p>And the server's response:</p>
+  <pre class="terminal"><code>HTTP/1.1 201 Created                        &lt;- status line: VERSION  STATUS-CODE  REASON
+Content-Type: application/json              &lt;- headers
+Date: Fri, 09 Oct 2026 04:39:38 GMT
+                                            &lt;- empty line
+{"id":5,"title":"Java Concurrency in Practice","author":"Brian Goetz","year":2006,"price":800.0}   &lt;- body</code></pre>
+  <p>Parts of a URL: <code>http://localhost:8080/api/books/search?author=bloch</code></p>
+  <div class="table-wrap"><table>
+    <tr><th>Part</th><th>Example</th><th>Meaning</th></tr>
+    <tr><td>Scheme</td><td><code>http</code></td><td>Protocol (<code>https</code> = encrypted)</td></tr>
+    <tr><td>Host</td><td><code>localhost</code></td><td>Which computer (localhost = this one)</td></tr>
+    <tr><td>Port</td><td><code>8080</code></td><td>Which program on that computer</td></tr>
+    <tr><td>Path</td><td><code>/api/books/search</code></td><td>Which resource</td></tr>
+    <tr><td>Query string</td><td><code>?author=bloch</code></td><td>Extra parameters (filters, search terms, paging)</td></tr>
+  </table></div>
+
+  <h3>3.3 HTTP methods — the verbs</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>Meaning</th><th>Has a body?</th><th>Safe?<br><small>(changes nothing)</small></th><th>Idempotent?<br><small>(repeat = same result)</small></th><th>Example</th></tr>
+    <tr><td><strong>GET</strong></td><td>Read</td><td>No</td><td>Yes</td><td>Yes</td><td><code>GET /api/books/2</code></td></tr>
+    <tr><td><strong>POST</strong></td><td>Create (or trigger an action)</td><td>Yes</td><td>No</td><td>No</td><td><code>POST /api/books</code></td></tr>
+    <tr><td><strong>PUT</strong></td><td>Replace completely</td><td>Yes</td><td>No</td><td>Yes</td><td><code>PUT /api/books/2</code></td></tr>
+    <tr><td><strong>PATCH</strong></td><td>Change some fields</td><td>Yes</td><td>No</td><td>Usually not guaranteed</td><td><code>PATCH /api/books/2</code></td></tr>
+    <tr><td><strong>DELETE</strong></td><td>Remove</td><td>Usually no</td><td>No</td><td>Yes</td><td><code>DELETE /api/books/2</code></td></tr>
+  </table></div>
+  <p>(There are also <code>HEAD</code> — like GET without body — and <code>OPTIONS</code> — "what can I do here?", used by browsers for CORS in topic 32.)
+    Idempotency gets a closer look in topic 32.</p>
+
+  <h3>3.4 Status codes — the server's answer in one number</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Range</th><th>Meaning</th><th>Common codes</th></tr>
+    <tr><td><strong>1xx</strong></td><td>Informational</td><td>Rare in APIs</td></tr>
+    <tr><td><strong>2xx</strong></td><td>✅ Success</td><td><code>200 OK</code>, <code>201 Created</code>, <code>204 No Content</code></td></tr>
+    <tr><td><strong>3xx</strong></td><td>↪ Redirect — look elsewhere</td><td><code>301 Moved Permanently</code>, <code>302 Found</code>, <code>304 Not Modified</code></td></tr>
+    <tr><td><strong>4xx</strong></td><td>❌ <em>Client</em> made a mistake</td><td><code>400 Bad Request</code>, <code>401 Unauthorized</code>, <code>403 Forbidden</code>, <code>404 Not Found</code>, <code>405 Method Not Allowed</code>, <code>409 Conflict</code>, <code>415 Unsupported Media Type</code></td></tr>
+    <tr><td><strong>5xx</strong></td><td>💥 <em>Server</em> made a mistake</td><td><code>500 Internal Server Error</code>, <code>502 Bad Gateway</code>, <code>503 Service Unavailable</code></td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Easy memory trick</strong> 2xx = "here you go", 3xx = "go away (over there)", 4xx = "you messed up", 5xx = "I messed up".</div>
+
+  <h3>3.5 Headers and JSON</h3>
+  <p><strong>Headers</strong> are key/value notes about the message. The two you will meet constantly:</p>
+  <ul>
+    <li><code>Content-Type: application/json</code> — "the body I'm <em>sending</em> is JSON".</li>
+    <li><code>Accept: application/json</code> — "I'd like to <em>receive</em> JSON".</li>
+  </ul>
+  <p>Others: <code>Authorization</code> (login tokens, topic 49), <code>Location</code> (where a new resource lives, topic 32), <code>Cache-Control</code>, <code>User-Agent</code>.</p>
+  <p><strong>JSON</strong> (JavaScript Object Notation) is the text format APIs use for data. It maps naturally to Java:</p>
+  <div class="table-wrap"><table>
+    <tr><th>JSON</th><th>Java</th></tr>
+    <tr><td><code>{ "title": "Clean Code", "year": 2008 }</code> (object)</td><td>an object/record with fields <code>title</code>, <code>year</code></td></tr>
+    <tr><td><code>[ {...}, {...} ]</code> (array)</td><td><code>List&lt;Book&gt;</code></td></tr>
+    <tr><td><code>"text"</code>, <code>42</code>, <code>4.5</code>, <code>true</code>, <code>null</code></td><td><code>String</code>, <code>int/long</code>, <code>double/BigDecimal</code>, <code>boolean</code>, <code>null</code></td></tr>
+  </table></div>
+
+  <h3>3.6 What is REST?</h3>
+  <p><strong>REST</strong> (REpresentational State Transfer) is a <em>style</em> for designing web APIs, described by Roy Fielding in 2000. It's not a library — it's a set of ideas:</p>
+  <ol>
+    <li><strong>Everything is a resource</strong> — a "thing" with an address: a book, an order, a customer.</li>
+    <li><strong>Each resource has a URI</strong> using <em>nouns</em>, usually plural: <code>/api/books</code> (the collection), <code>/api/books/2</code> (one item).</li>
+    <li><strong>HTTP methods are the verbs</strong>: <code>GET /api/books/2</code>, not <code>/api/getBook?id=2</code>.</li>
+    <li><strong>Representations</strong>: the client receives a <em>representation</em> of the resource (JSON, sometimes XML), not the object itself.</li>
+    <li><strong>Stateless</strong>: every request carries everything needed to understand it. The server keeps no "conversation memory" between requests. This makes scaling easy: any server copy can answer any request.</li>
+    <li><strong>Use status codes properly</strong> (201 for created, 404 for not found…).</li>
+  </ol>
+  <div class="table-wrap"><table>
+    <tr><th>❌ Not RESTful</th><th>✅ RESTful</th></tr>
+    <tr><td><code>GET /getAllBooks</code></td><td><code>GET /api/books</code></td></tr>
+    <tr><td><code>POST /createBook</code></td><td><code>POST /api/books</code></td></tr>
+    <tr><td><code>GET /deleteBook?id=3</code> (danger: a GET that changes data!)</td><td><code>DELETE /api/books/3</code></td></tr>
+    <tr><td>Always 200 with <code>{"error":"not found"}</code></td><td><code>404 Not Found</code></td></tr>
+  </table></div>
+
+  <h3>3.7 Spring MVC architecture — the journey of a request</h3>
+  <p><strong>Spring MVC</strong> is Spring's web framework (MVC = Model-View-Controller). <code>spring-boot-starter-web</code> brings it and auto-configures it. Here's what happens for
+    <code>GET /api/books/2</code>:</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 780 300" role="img" aria-label="Spring MVC request flow" font-family="sans-serif" font-size="13">
+      <g fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="10" y="120" width="110" height="56" rx="8"/>
+        <rect x="160" y="10" width="140" height="56" rx="8"/>
+        <rect x="160" y="120" width="160" height="56" rx="8" stroke-width="2.5"/>
+        <rect x="380" y="10" width="160" height="56" rx="8"/>
+        <rect x="380" y="120" width="170" height="56" rx="8"/>
+        <rect x="610" y="120" width="160" height="56" rx="8"/>
+        <rect x="380" y="230" width="190" height="56" rx="8"/>
+        <path d="M120 140 h40 M240 120 v-54 M320 140 h60 M550 140 h60 M690 176 v80 h-120 M380 258 h-140 v-82 M160 160 h-40"/>
+      </g>
+      <g fill="currentColor">
+        <text x="22" y="143">1. Client</text><text x="22" y="161" font-size="11">GET /api/books/2</text>
+        <text x="170" y="33">Tomcat</text><text x="170" y="51" font-size="11">receives raw HTTP</text>
+        <text x="170" y="143" font-weight="bold">2. DispatcherServlet</text><text x="170" y="161" font-size="11">front controller</text>
+        <text x="390" y="33">3. HandlerMapping</text><text x="390" y="51" font-size="11">"which method?"</text>
+        <text x="390" y="143">4. BookController</text><text x="390" y="161" font-size="11">getBook(2) → Book</text>
+        <text x="620" y="143">5. BookService</text><text x="620" y="161" font-size="11">finds the book</text>
+        <text x="390" y="253">6. HttpMessageConverter</text><text x="390" y="271" font-size="11">Jackson: Book → JSON</text>
+        <text x="12" y="210" font-size="11">7. 200 OK + JSON body</text>
+        <text x="320" y="95" font-size="11">2 asks 3, then calls 4</text>
+      </g>
+    </svg>
+    <figcaption>One request through Spring MVC</figcaption>
+  </figure>
+  <ol>
+    <li>The client sends <code>GET /api/books/2</code>; embedded Tomcat receives it and hands it to Spring's <strong><code>DispatcherServlet</code></strong>.</li>
+    <li>The <code>DispatcherServlet</code> is the <strong>front controller</strong>: <em>every</em> request goes through it first. (Spring Boot registered it for you — in the old days that was <code>web.xml</code>.)</li>
+    <li>It asks the <strong><code>HandlerMapping</code></strong>: "which controller method matches GET + <code>/api/books/2</code>?" At startup Spring read all your <code>@GetMapping</code>/<code>@PostMapping</code> annotations and built this table.</li>
+    <li>The matching method <code>BookController.getBook(2)</code> is called. Spring fills its parameters (<code>@PathVariable</code> → 2).</li>
+    <li>The controller calls the service, which returns a <code>Book</code> object.</li>
+    <li>Because it's a <code>@RestController</code>, the return value goes to an <strong><code>HttpMessageConverter</code></strong>. For JSON that is <code>MappingJackson2HttpMessageConverter</code>, which uses Jackson's <code>ObjectMapper</code>.</li>
+    <li>The JSON is written into the response body with status <code>200 OK</code> and <code>Content-Type: application/json</code>.</li>
+  </ol>
+  <p>The same converters work in reverse for <code>@RequestBody</code>: JSON in the request → Java object. You never call Jackson yourself.</p>
+  <div class="callout info"><strong>ℹ️ "MVC" — where is the View?</strong> In server-side web apps (topic 36), the controller returns a <em>view name</em> and a <em>model</em>, and a template engine renders HTML. In REST APIs there is no view: the "view" is the JSON produced by the message converter.</div>
+
+  <h3>3.8 @RestController vs @Controller</h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th><code>@Controller</code></th><th><code>@RestController</code></th></tr>
+    <tr><td>Meant for</td><td>HTML pages (Thymeleaf, topic 36)</td><td>REST APIs (JSON)</td></tr>
+    <tr><td>Method returns a String</td><td>Treated as a <strong>view name</strong> (template file)</td><td>Written as the <strong>response body</strong></td></tr>
+    <tr><td>Method returns an object</td><td>Needs <code>@ResponseBody</code> to become JSON</td><td>Becomes JSON automatically</td></tr>
+    <tr><td>Definition</td><td>a <code>@Component</code> stereotype</td><td><code>@Controller</code> + <code>@ResponseBody</code></td></tr>
+  </table></div>
+
+  <h3>3.9 Mapping annotations</h3>
+  <pre><code class="lang-java">@RestController
+@RequestMapping("/api/books")          // class level: common prefix for all methods
+public class BookController {
+
+    @GetMapping                        // GET    /api/books
+    @GetMapping("/{id}")               // GET    /api/books/2
+    @PostMapping                       // POST   /api/books
+    @PutMapping("/{id}")               // PUT    /api/books/2
+    @PatchMapping("/{id}")             // PATCH  /api/books/2
+    @DeleteMapping("/{id}")            // DELETE /api/books/2
+}</code></pre>
+  <p><code>@GetMapping("/x")</code> is a shortcut for <code>@RequestMapping(value = "/x", method = RequestMethod.GET)</code>. Use the shortcuts on methods; use
+    <code>@RequestMapping</code> on the class for the prefix. Quick preview of parameter annotations (topic 32 covers them fully):</p>
+  <div class="table-wrap"><table>
+    <tr><th>Annotation</th><th>Reads from</th><th>Example</th></tr>
+    <tr><td><code>@PathVariable</code></td><td>the path: <code>/api/books/<strong>2</strong></code></td><td><code>getBook(@PathVariable long id)</code></td></tr>
+    <tr><td><code>@RequestParam</code></td><td>the query string: <code>?author=<strong>bloch</strong></code></td><td><code>search(@RequestParam String author)</code></td></tr>
+    <tr><td><code>@RequestBody</code></td><td>the JSON body</td><td><code>addBook(@RequestBody Book book)</code></td></tr>
+  </table></div>
+
+  <h3>3.10 Returning objects → JSON automatically</h3>
+  <pre><code class="lang-java">public record Book(Long id, String title, String author, int year, double price) { }
+
+@GetMapping("/{id}")
+public Book getBook(@PathVariable long id) { ... }</code></pre>
+  <pre class="terminal"><code>{"id":2,"title":"Effective Java","author":"Joshua Bloch","year":2018,"price":650.0}</code></pre>
+  <p>Jackson rules in short: it uses getters (or record components) for field names; <code>List</code> → JSON array; <code>Map</code> → JSON object; <code>null</code> fields are included as
+    <code>null</code> by default; <code>LocalDate</code> → <code>"2026-10-09"</code>. Topic 32 shows how to customise names and formats with Jackson annotations.</p>
+
+  <h3>3.11 Tools to call an API</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Tool</th><th>Good for</th><th>Notes</th></tr>
+    <tr><td><strong>Browser</strong></td><td>Quick GET requests</td><td>Can only do GET from the address bar</td></tr>
+    <tr><td><strong>curl</strong></td><td>Any request from a terminal; scripts; docs</td><td>Built into Windows 10/11. In PowerShell type <code>curl.exe</code> (plain <code>curl</code> may be an alias for <code>Invoke-WebRequest</code> in Windows PowerShell 5.1)</td></tr>
+    <tr><td><strong>VS Code REST Client</strong></td><td>Saving requests in a <code>.http</code> file next to the code</td><td>Click "Send Request" above each request; this course uses it everywhere</td></tr>
+    <tr><td><strong>Postman</strong></td><td>A GUI, collections, sharing with a team, environments</td><td>Free desktop app from postman.com</td></tr>
+  </table></div>
+  <p>Useful curl flags: <code>-i</code> show response headers, <code>-X POST</code> choose the method, <code>-H "Header: value"</code> add a header, <code>-d '...'</code> send a body, <code>-v</code> show everything.</p>
+
+  <!-- ============================================================ 4. CODE -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>Just <code>spring-boot-starter-web</code> (+ test)</td></tr>
+    <tr><td><code>RestBasicsApplication.java</code></td><td>Main class</td></tr>
+    <tr><td><code>Book.java</code></td><td>The resource as a record</td></tr>
+    <tr><td><code>BookService.java</code></td><td>Thread-safe in-memory storage</td></tr>
+    <tr><td><code>BookController.java</code></td><td><code>@RestController</code>: GET all, GET one, search, POST, DELETE</td></tr>
+    <tr><td><code>HomeController.java</code></td><td><code>@Controller</code> + <code>@ResponseBody</code> returning HTML</td></tr>
+    <tr><td><code>application.properties</code></td><td>Pretty JSON, error messages included</td></tr>
+    <tr><td><code>BookControllerTest.java</code></td><td>First MockMvc tests</td></tr>
+    <tr><td><code>requests.http</code></td><td>All requests for the REST Client</td></tr>
+  </table></div>
+
+  <h3>4.1 Book — the resource</h3>
+  <pre><span class="file">src/main/java/com/course/restbasics/Book.java</span><code class="lang-java">public record Book(Long id, String title, String author, int year, double price) {
+
+    public Book withId(Long newId) {
+        return new Book(newId, title, author, year, price);
+    }
+}</code></pre>
+  <p><code>id</code> is <code>Long</code> (not <code>long</code>) so a new book sent by a client can have <em>no</em> id (<code>null</code>). <code>withId</code> makes a copy with the server-generated id, because records are immutable.</p>
+
+  <h3>4.2 BookService — in-memory storage</h3>
+  <pre><span class="file">src/main/java/com/course/restbasics/BookService.java (key parts)</span><code class="lang-java">@Service
+public class BookService {
+
+    private final List&lt;Book&gt; books = new CopyOnWriteArrayList&lt;&gt;();
+    private final AtomicLong nextId = new AtomicLong(1);
+
+    public BookService() {
+        add(new Book(null, "Clean Code", "Robert C. Martin", 2008, 499.0));
+        add(new Book(null, "Effective Java", "Joshua Bloch", 2018, 650.0));
+        ...
+    }
+
+    public List&lt;Book&gt; findAll() { return List.copyOf(books); }
+
+    public Optional&lt;Book&gt; findById(long id) {
+        return books.stream().filter(b -&gt; b.id() == id).findFirst();
+    }
+
+    public List&lt;Book&gt; findByAuthor(String author) {
+        return books.stream()
+                .filter(b -&gt; b.author().toLowerCase().contains(author.toLowerCase()))
+                .toList();
+    }
+
+    public Book add(Book book) {
+        Book saved = book.withId(nextId.getAndIncrement());
+        books.add(saved);
+        return saved;
+    }
+
+    public boolean deleteById(long id) { return books.removeIf(b -&gt; b.id() == id); }
+}</code></pre>
+  <div class="callout warn"><strong>⚠️ Why thread-safe collections?</strong> Tomcat handles requests on many threads at the same time (topic 17). Two POSTs at the same moment with a plain
+    <code>ArrayList</code> and <code>long</code> counter could lose a book or give two books the same id. <code>CopyOnWriteArrayList</code> and <code>AtomicLong</code> are safe. (A database solves this for us from topic 37 on.)</div>
+
+  <h3>4.3 BookController — the endpoints</h3>
+  <pre><span class="file">src/main/java/com/course/restbasics/BookController.java</span><code class="lang-java">@RestController
+@RequestMapping("/api/books")
+public class BookController {
+
+    private final BookService bookService;
+
+    public BookController(BookService bookService) {
+        this.bookService = bookService;
+    }
+
+    @GetMapping
+    public List&lt;Book&gt; getAllBooks() {
+        return bookService.findAll();
+    }
+
+    @GetMapping("/{id}")
+    public Book getBook(@PathVariable long id) {
+        return bookService.findById(id)
+                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND, "Book " + id + " not found"));
+    }
+
+    @GetMapping("/search")
+    public List&lt;Book&gt; searchByAuthor(@RequestParam String author) {
+        return bookService.findByAuthor(author);
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public Book addBook(@RequestBody Book book) {
+        return bookService.add(book);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteBook(@PathVariable long id) {
+        if (!bookService.deleteById(id)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Book " + id + " not found");
+        }
+    }
+}</code></pre>
+  <ul>
+    <li><strong>Controller is thin</strong>: it translates HTTP ↔ Java and delegates work to the service. Topic 33 makes this a rule.</li>
+    <li><code>ResponseStatusException</code> — the simplest way to answer with an error status. Spring Boot turns it into a JSON error body. (Topic 35 builds a proper global error handler.)</li>
+    <li><code>@ResponseStatus(HttpStatus.CREATED)</code> — success status for this method is 201 instead of the default 200.</li>
+    <li><code>void</code> + <code>204 No Content</code> — "done, nothing to send back".</li>
+    <li>Why is <code>/search</code> not confused with <code>/{id}</code>? Spring prefers the more <em>specific</em> pattern: a literal path segment beats a <code>{variable}</code>.</li>
+  </ul>
+
+  <h3>4.4 HomeController — @Controller for contrast</h3>
+  <pre><span class="file">src/main/java/com/course/restbasics/HomeController.java</span><code class="lang-java">@Controller
+public class HomeController {
+
+    @GetMapping(value = "/", produces = MediaType.TEXT_HTML_VALUE)
+    @ResponseBody                                     // without this, Spring looks for a template named "&lt;html&gt;..."!
+    public String home() {
+        return """
+                &lt;html&gt;
+                  &lt;body style="font-family: sans-serif"&gt;
+                    &lt;h1&gt;Book API is running&lt;/h1&gt;
+                    ...
+                &lt;/html&gt;
+                """;
+    }
+}</code></pre>
+
+  <h3>4.5 application.properties</h3>
+  <pre><span class="file">src/main/resources/application.properties</span><code class="lang-properties">spring.application.name=rest-basics
+server.port=8080
+spring.jackson.serialization.indent-output=true
+server.error.include-message=always
+#logging.level.org.springframework.web=DEBUG</code></pre>
+  <p>Turn on the last line to watch the DispatcherServlet at work: for each request you'll see <code>Mapped to com.course.restbasics.BookController#getBook(long)</code> and
+    <code>Writing [Book[id=2, ...]]</code> — the converter in action.</p>
+
+  <h3>4.6 BookControllerTest — a first look at MockMvc</h3>
+  <pre><span class="file">src/test/java/com/course/restbasics/BookControllerTest.java (part)</span><code class="lang-java">@WebMvcTest(BookController.class)
+@Import(BookService.class)
+class BookControllerTest {
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    void unknownBookGives404() throws Exception {
+        mockMvc.perform(get("/api/books/999"))
+               .andExpect(status().isNotFound());
+    }
+}</code></pre>
+  <p><code>MockMvc</code> sends fake requests through the real <code>DispatcherServlet</code> without opening a port. Topic 46 explains testing properly.</p>
+
+  <!-- ============================================================ 5. RUN -->
+  <h2 id="run">5. How to run</h2>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\31-Spring-MVC-And-REST-Fundamentals"
+mvn spring-boot:run</code></pre>
+  <h3>Browser</h3>
+  <p>Open <code>http://localhost:8080/</code> (HTML from <code>HomeController</code>), <code>http://localhost:8080/api/books</code> and <code>http://localhost:8080/api/books/2</code>.</p>
+  <h3>curl (PowerShell: use curl.exe)</h3>
+  <pre class="terminal"><code>curl.exe http://localhost:8080/api/books/2
+{
+  "id" : 2,
+  "title" : "Effective Java",
+  "author" : "Joshua Bloch",
+  "year" : 2018,
+  "price" : 650.0
+}
+
+curl.exe -i http://localhost:8080/api/books/999
+HTTP/1.1 404
+{
+  "timestamp" : "2026-10-09T04:39:37.495+00:00",
+  "status" : 404,
+  "error" : "Not Found",
+  "message" : "Book 999 not found",
+  "path" : "/api/books/999"
+}
+
+curl.exe "http://localhost:8080/api/books/search?author=bloch"
+
+curl.exe -i -X POST http://localhost:8080/api/books -H "Content-Type: application/json" -d "{\"title\":\"Java Concurrency in Practice\",\"author\":\"Brian Goetz\",\"year\":2006,\"price\":800}"
+HTTP/1.1 201
+Content-Type: application/json
+{
+  "id" : 5,
+  "title" : "Java Concurrency in Practice",
+  ...
+}
+
+curl.exe -i -X DELETE http://localhost:8080/api/books/3
+HTTP/1.1 204</code></pre>
+  <div class="callout tip"><strong>💡 JSON quotes on Windows</strong> In PowerShell/cmd, wrap the JSON in double quotes and escape inner quotes as <code>\"</code> (as above). In Git Bash you can use single quotes:
+    <code>-d '{"title":"..."}'</code>. Or avoid the pain completely with <code>requests.http</code>.</div>
+  <h3>VS Code REST Client</h3>
+  <p>Open <code>requests.http</code>, click <strong>Send Request</strong> above any request. The response (status, headers, body) opens on the right.</p>
+  <pre><span class="file">requests.http (part)</span><code>@baseUrl = http://localhost:8080/api/books
+
+### Add a new book
+POST {{baseUrl}}
+Content-Type: application/json
+
+{
+  "title": "Java Concurrency in Practice",
+  "author": "Brian Goetz",
+  "year": 2006,
+  "price": 800
+}</code></pre>
+  <h3>Postman</h3>
+  <ol>
+    <li>Click <strong>New → HTTP</strong>. Choose <code>POST</code> and enter <code>http://localhost:8080/api/books</code>.</li>
+    <li><strong>Body</strong> tab → <strong>raw</strong> → choose <strong>JSON</strong> in the dropdown (this sets <code>Content-Type</code>), paste the JSON.</li>
+    <li>Click <strong>Send</strong>. Check the status (201 Created) and body. Save requests in a <strong>Collection</strong> to reuse them.</li>
+  </ol>
+  <h3>Tests</h3>
+  <pre class="terminal"><code>mvn test
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0</code></pre>
+
+  <!-- ============================================================ 6. MISTAKES -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ 415 Unsupported Media Type on POST</strong>
+    You forgot the header <code>Content-Type: application/json</code>, so Spring doesn't know the body is JSON.<br><strong>Fix:</strong> add the header (in Postman: Body → raw → JSON).</div>
+  <div class="callout warn"><strong>⚠️ 400 Bad Request: "JSON parse error"</strong>
+    The JSON is broken — missing quote, trailing comma, single quotes, or Windows shell quoting ate your quotes.<br><strong>Fix:</strong> validate the JSON; use the REST Client to avoid shell quoting.</div>
+  <div class="callout warn"><strong>⚠️ 405 Method Not Allowed</strong>
+    The URL exists but not for that method, e.g. <code>PUT /api/books/2</code> when there is no <code>@PutMapping</code>, or opening a POST-only URL in the browser (browsers send GET).</div>
+  <div class="callout warn"><strong>⚠️ Using @Controller instead of @RestController</strong>
+    Your method returns <code>"Hello"</code> and you get an error like "Circular view path" or a 404/500 looking for a template named <code>Hello</code>.<br><strong>Fix:</strong> use <code>@RestController</code> (or add <code>@ResponseBody</code>).</div>
+  <div class="callout warn"><strong>⚠️ Empty JSON <code>{}</code> for your object</strong>
+    Jackson uses getters. A normal class with private fields and no getters produces <code>{}</code>.<br><strong>Fix:</strong> add getters, or use a record.</div>
+  <div class="callout warn"><strong>⚠️ Verbs in URLs and GET that changes data</strong>
+    <code>GET /api/deleteBook?id=3</code>: browsers, crawlers and caches may call GET freely — and delete your data.<br><strong>Fix:</strong> nouns in URLs, the method is the verb.</div>
+  <div class="callout warn"><strong>⚠️ Always returning 200</strong>
+    Returning 200 with <code>null</code> or an "error" text when something is missing confuses clients. Use 404/400 etc.</div>
+  <div class="callout warn"><strong>⚠️ Plain <code>curl</code> in Windows PowerShell 5.1 behaves strangely</strong>
+    It may be an alias for <code>Invoke-WebRequest</code> with different options. Type <code>curl.exe</code>.</div>
+
+  <!-- ============================================================ 7. BEST -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Plural nouns for collections</strong>: <code>/api/books</code>, <code>/api/books/{id}</code>. Lower-case, hyphens for multi-word: <code>/api/order-items</code>.</li>
+    <li><strong>Prefix APIs</strong> with <code>/api</code> (and later a version, <code>/api/v1</code> — topic 44).</li>
+    <li><strong>Use the right method and status code</strong>; GET must never change data.</li>
+    <li><strong>Keep controllers thin</strong>: HTTP in, call a service, HTTP out. No business rules in controllers.</li>
+    <li><strong>Let the server generate ids.</strong></li>
+    <li><strong>Return JSON objects or arrays consistently</strong>; don't mix plain text and JSON in one API.</li>
+    <li><strong>Keep a <code>.http</code> file or Postman collection</strong> in the repo so teammates can try the API instantly. Document it with OpenAPI (topic 44).</li>
+    <li><strong>Statelessness</strong>: don't store per-user conversation state in controller fields — controllers are singletons shared by all requests!</li>
+  </ul>
+
+  <!-- ============================================================ 8. SUMMARY -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>HTTP = request (method, URL, headers, body) → response (status code, headers, body).</li>
+    <li>GET reads, POST creates, PUT replaces, PATCH modifies, DELETE removes.</li>
+    <li>2xx success, 3xx redirect, 4xx client error, 5xx server error.</li>
+    <li>REST: resources with noun URIs, HTTP verbs, JSON representations, stateless.</li>
+    <li>Every request passes through the <code>DispatcherServlet</code>, which uses <code>HandlerMapping</code> to find your method and <code>HttpMessageConverter</code> (Jackson) to write JSON.</li>
+    <li><code>@RestController</code> = <code>@Controller</code> + <code>@ResponseBody</code>.</li>
+    <li><code>@RequestMapping</code> on the class + <code>@GetMapping</code>/<code>@PostMapping</code>/… on methods.</li>
+    <li>Test with the browser (GET), curl, the REST Client (<code>.http</code>) and Postman.</li>
+  </ul></div>
+
+  <!-- ============================================================ 9. EXERCISES -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Count endpoint.</strong> Add <code>GET /api/books/count</code> returning JSON <code>{"count": 4}</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@GetMapping("/count")
+public Map&lt;String, Integer&gt; count() {
+    return Map.of("count", bookService.findAll().size());
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Name that status.</strong> Which status code fits? (a) book created, (b) book deleted, (c) unknown book id, (d) JSON body is broken, (e) database is down, (f) user not logged in.</p>
+    <details><summary>Hint / solution</summary><p>(a) 201 Created (b) 204 No Content (c) 404 Not Found (d) 400 Bad Request (e) 500 Internal Server Error or 503 Service Unavailable (f) 401 Unauthorized.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Books by year range.</strong> Add <code>GET /api/books/published?from=2010&amp;to=2020</code> returning books whose year is in the range.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// BookService
+public List&lt;Book&gt; findByYearRange(int from, int to) {
+    return books.stream().filter(b -&gt; b.year() &gt;= from &amp;&amp; b.year() &lt;= to).toList();
+}
+
+// BookController
+@GetMapping("/published")
+public List&lt;Book&gt; published(@RequestParam int from, @RequestParam int to) {
+    return bookService.findByYearRange(from, to);
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Replace a book with PUT.</strong> Add <code>PUT /api/books/{id}</code> that replaces a book (keep the id from the URL). Return 200 with the updated book or 404.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// BookService
+public Optional&lt;Book&gt; replace(long id, Book newData) {
+    for (int i = 0; i &lt; books.size(); i++) {
+        if (books.get(i).id() == id) {
+            Book updated = newData.withId(id);
+            books.set(i, updated);
+            return Optional.of(updated);
+        }
+    }
+    return Optional.empty();
+}
+
+// BookController
+@PutMapping("/{id}")
+public Book replace(@PathVariable long id, @RequestBody Book book) {
+    return bookService.replace(id, book)
+            .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND, "Book " + id + " not found"));
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. A second resource.</strong> Build an in-memory <code>Author</code> API at <code>/api/authors</code> (id, name, country) with GET all, GET one, POST. Then add
+      <code>GET /api/authors/{id}/books</code> returning that author's books (match by name).</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public record Author(Long id, String name, String country) { }
+
+@RestController
+@RequestMapping("/api/authors")
+public class AuthorController {
+    private final AuthorService authorService;
+    private final BookService bookService;
+    // constructor ...
+
+    @GetMapping("/{id}/books")
+    public List&lt;Book&gt; booksOf(@PathVariable long id) {
+        Author author = authorService.findById(id)
+                .orElseThrow(() -&gt; new ResponseStatusException(HttpStatus.NOT_FOUND));
+        return bookService.findByAuthor(author.name());
+    }
+}
+// Nested URLs like /authors/{id}/books express relationships between resources.</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Watch the DispatcherServlet.</strong> Enable <code>logging.level.org.springframework.web=DEBUG</code>, send a GET, a POST with broken JSON and a request to a URL that doesn't exist. Write down what Spring logs for each.</p>
+    <details><summary>Hint / solution</summary><p>GET: <code>Mapped to ...BookController#getBook(long)</code>, <code>Using 'application/json'</code>, <code>Writing [Book[...]]</code>, <code>Completed 200 OK</code>.
+      Broken JSON: <code>Resolved [HttpMessageNotReadableException: JSON parse error ...]</code>, <code>Completed 400 BAD_REQUEST</code>.
+      Unknown URL: <code>No mapping for GET /api/bookz</code> / <code>NoResourceFoundException</code>, <code>Completed 404 NOT_FOUND</code>, followed by a forward to <code>/error</code>.</p></details>
+  </div>
+
+  <!-- ============================================================ 10. INTERVIEW -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is REST? What are its main constraints?</summary>
+    <p>An architectural style for networked applications: client–server, stateless, cacheable, uniform interface (resources identified by URIs, manipulated through representations, self-descriptive messages, HATEOAS), layered system, and optional code-on-demand. In practice: resource URIs, HTTP methods, status codes, JSON.</p></details>
+  <details><summary>Q2. Explain the role of DispatcherServlet.</summary>
+    <p>It is Spring MVC's front controller. It receives every HTTP request, uses <code>HandlerMapping</code> to find the handler method, invokes it via a <code>HandlerAdapter</code> (resolving arguments), and processes the return value — writing it with an <code>HttpMessageConverter</code> for REST or resolving a view for MVC — plus exception resolution.</p></details>
+  <details><summary>Q3. Difference between @Controller and @RestController?</summary>
+    <p><code>@RestController</code> is <code>@Controller</code> + <code>@ResponseBody</code>; return values are serialised into the response body. With <code>@Controller</code>, return values are view names unless the method has <code>@ResponseBody</code>.</p></details>
+  <details><summary>Q4. How does Spring convert a Java object to JSON?</summary>
+    <p>Through <code>HttpMessageConverter</code>s. With Jackson on the classpath (from <code>spring-boot-starter-web</code>), Boot auto-configures <code>MappingJackson2HttpMessageConverter</code> with an <code>ObjectMapper</code>. It's chosen based on the return type and the <code>Accept</code> header.</p></details>
+  <details><summary>Q5. Difference between PUT and PATCH? POST and PUT?</summary>
+    <p>PUT replaces the whole resource and is idempotent; PATCH applies a partial update. POST creates a subordinate resource (server chooses the id) and is not idempotent; PUT targets a known URI.</p></details>
+  <details><summary>Q6. What do safe and idempotent mean?</summary>
+    <p>Safe: doesn't change server state (GET, HEAD, OPTIONS). Idempotent: making the same request many times has the same effect as once (GET, PUT, DELETE, HEAD, OPTIONS). POST is neither.</p></details>
+  <details><summary>Q7. 401 vs 403? 400 vs 422? 500 vs 503?</summary>
+    <p>401: not authenticated; 403: authenticated but not allowed. 400: malformed request; 422: well-formed but semantically invalid (some APIs use 400 for both). 500: unexpected server error; 503: server temporarily unavailable (overload/maintenance).</p></details>
+  <details><summary>Q8. What does "stateless" mean in REST and why is it useful?</summary>
+    <p>The server doesn't keep client session state between requests; each request contains everything needed (e.g., a token). Any instance can serve any request, which simplifies horizontal scaling and load balancing.</p></details>
+  <details><summary>Q9. Is a Spring controller thread-safe?</summary>
+    <p>Controllers are singletons used by many request threads concurrently. They are safe as long as they hold no mutable per-request state in fields; use local variables and thread-safe collaborators.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../30-Logging-In-Spring-Boot/lesson.html"><small>← Previous</small>30. Logging in Spring Boot</a>
+    <a class="next" href="../32-Request-Handling-And-Responses/lesson.html"><small>Next →</small>32. Request Handling &amp; Responses</a>
+  </nav>
+</main>
+</body>
+</html>

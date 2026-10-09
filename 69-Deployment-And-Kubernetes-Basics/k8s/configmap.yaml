@@ -1,0 +1,21 @@
+# =====================================================================
+# k8s/configmap.yaml - NON-secret configuration for menu-service.
+# Every key becomes an environment variable in the container
+# (because deployment.yaml uses "envFrom: configMapRef").
+# Spring Boot relaxed binding: APP_RESTAURANT_NAME -> app.restaurant-name
+#
+# Change a value, run "kubectl apply -f k8s/configmap.yaml", then
+# "kubectl rollout restart deployment/menu-service" so pods read the new values.
+# =====================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: menu-service-config
+  labels:
+    app: menu-service
+data:
+  SPRING_PROFILES_ACTIVE: "prod"
+  APP_RESTAURANT_NAME: "Spice Garden - Kubernetes Edition"
+  APP_WELCOME_MESSAGE: "Hello from a Kubernetes pod!"
+  # JVM flags: use 75% of the container's memory limit for the heap
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"

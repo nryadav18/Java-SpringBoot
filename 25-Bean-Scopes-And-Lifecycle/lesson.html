@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>25 · Bean Scopes &amp; Lifecycle</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part B · Spring Framework Core › Topic 25</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part B · Spring Framework Core</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>25. Bean Scopes &amp; Lifecycle</h1>
+  <p class="subtitle">Control how many objects Spring creates for a bean, and run your own code at exactly the right moment of a bean's life — from birth to shutdown.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="25-Bean-Scopes-And-Lifecycle"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What a bean <strong>scope</strong> is: <code>singleton</code> vs <code>prototype</code> (proved with hash codes), plus <code>request</code> and <code>session</code> for web apps.</li>
+      <li>Why singleton beans must be <strong>stateless</strong> (thread safety).</li>
+      <li>The full <strong>bean lifecycle</strong>, step by step, with a diagram and live output.</li>
+      <li><code>@PostConstruct</code> / <code>@PreDestroy</code>, <code>InitializingBean</code> / <code>DisposableBean</code>, and <code>@Bean(initMethod, destroyMethod)</code>.</li>
+      <li>What a <code>BeanPostProcessor</code> is — the secret hook behind many Spring features.</li>
+      <li><code>@Lazy</code> beans.</li>
+      <li>The classic bug "prototype injected into a singleton" and how <code>ObjectProvider</code> fixes it.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../24-Dependency-Injection-Deep-Dive/lesson.html">Topic 24 · Dependency Injection</a> and the basics of threads from <a href="../17-Multithreading-And-Concurrency/lesson.html">Topic 17</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1. WHY ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>So far every bean was created <strong>once</strong> and shared. That's perfect for a <code>ProductCatalog</code> — but what about a <code>ShoppingCart</code>? If Spring shares one cart between all customers, Alice suddenly finds Bob's monitor in her cart. This exact kind of bug happens in real projects, and it can leak one customer's data to another.</p>
+  <p>You also often need to <strong>run code at a specific moment</strong>:</p>
+  <ul>
+    <li>After a connection pool is configured → <em>open</em> the connections.</li>
+    <li>After a cache bean is created → <em>pre-load</em> popular products.</li>
+    <li>When the app shuts down → <em>close</em> connections, flush files, stop background threads.</li>
+  </ul>
+  <p>Spring gives you clean "hooks" for all of these. And the <code>BeanPostProcessor</code> you'll meet today is how Spring itself implements <code>@Transactional</code>, <code>@Async</code>, <code>@Cacheable</code> and AOP — so understanding it explains a lot of Spring "magic".</p>
+
+  <!-- ===================================================== 2. ANALOGY ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏨 A hotel</strong>
+    <ul>
+      <li>The hotel has <strong>one reception desk</strong>, shared by every guest. That's a <strong>singleton</strong>. Because everyone uses it, the receptionist must not scribble one guest's private notes on the shared counter (keep singletons <em>stateless</em>).</li>
+      <li>Every guest gets <strong>their own fresh towel</strong>. That's a <strong>prototype</strong>: a new object every time someone asks. The hotel hands it over and doesn't track it afterwards — the guest is responsible for it (Spring doesn't destroy prototypes).</li>
+      <li>A <strong>room-service tray</strong> exists for one order only → <strong>request scope</strong>. Your <strong>room key card</strong> is valid for your whole stay → <strong>session scope</strong>.</li>
+    </ul>
+    <p>And a room has a <strong>lifecycle</strong>: built (constructor) → furnished (dependencies injected) → inspected and cleaned (<code>@PostConstruct</code>) → open for guests (ready) → closed for renovation: guests moved out, power off (<code>@PreDestroy</code>).</p>
+  </div>
+
+  <!-- ===================================================== 3. CONCEPTS ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 What is a scope?</h3>
+  <p>A bean's <strong>scope</strong> answers one question: <em>"When someone asks for this bean, does Spring give the same object, or a new one?"</em> — and for how long that object lives.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Scope</th><th>How many objects</th><th>Lives until</th><th>Typical use</th><th>Available in</th></tr>
+    <tr><td><strong><code>singleton</code></strong> (default)</td><td>One per container</td><td>Container closes</td><td>Services, repositories, controllers — 95% of beans</td><td>All apps</td></tr>
+    <tr><td><strong><code>prototype</code></strong></td><td>A new one on every request for the bean</td><td>You drop it (garbage collector)</td><td>Stateful helpers: carts, builders, per-task objects</td><td>All apps</td></tr>
+    <tr><td><code>request</code></td><td>One per HTTP request</td><td>The request ends</td><td>Request-specific data (request id, current user info)</td><td>Web apps</td></tr>
+    <tr><td><code>session</code></td><td>One per HTTP session (one user's visit)</td><td>The session expires / logout</td><td>Shopping cart, user preferences in server-side web apps</td><td>Web apps</td></tr>
+    <tr><td><code>application</code></td><td>One per web application (ServletContext)</td><td>App stops</td><td>Rare — similar to singleton</td><td>Web apps</td></tr>
+    <tr><td><code>websocket</code></td><td>One per WebSocket session</td><td>Socket closes</td><td>Chat-style apps</td><td>Web apps</td></tr>
+  </table></div>
+  <p>You set the scope with <code>@Scope</code> on the class (or on a <code>@Bean</code> method):</p>
+  <pre><code class="lang-java">@Component
+@Scope("prototype")                                     // or ConfigurableBeanFactory.SCOPE_PROTOTYPE
+public class ShoppingCart { ... }
+
+@Bean
+@Scope("prototype")
+public ReportBuilder reportBuilder() { return new ReportBuilder(); }</code></pre>
+
+  <h3>3.2 Singleton — one shared object</h3>
+  <p>Without <code>@Scope</code>, a bean is a singleton. Every <code>getBean</code> and every injection gives the <strong>same object</strong>. Our demo proves it with <code>System.identityHashCode</code> — a number based on the object's identity (two different objects almost always print different numbers):</p>
+  <pre class="terminal"><code>ProductCatalog (singleton) hash codes: 1989680860 / 1989680860 -&gt; same object? true
+ShoppingCart (prototype) hash codes:   1369901573 / 1471324717 -&gt; same object? false</code></pre>
+  <div class="callout info"><strong>ℹ️ Spring singleton ≠ the "Singleton pattern"</strong>
+    The classic Singleton design pattern (Topic 9) means "one instance per JVM", enforced with a private constructor and a static <code>getInstance()</code>. A Spring singleton means "one instance <strong>per container</strong>". The class itself is normal — you could still call <code>new ProductCatalog()</code> yourself, and two separate containers would each have their own.</div>
+  <div class="callout warn"><strong>⚠️ Singletons are shared by all threads</strong>
+    In a web app, 100 users are served by 100 threads at the same time (Topic 17) — all calling the <em>same</em> singleton <code>OrderService</code>. If that service stores <code>private String currentCustomer;</code> in a field, users overwrite each other's data: a race condition. <strong>Rule: singleton beans must be stateless</strong> — keep only dependencies (other beans) and constants in fields. Per-user data goes in method parameters, local variables, or a properly scoped bean.</div>
+
+  <h3>3.3 Prototype — a fresh object each time</h3>
+  <pre><span class="file">cart/ShoppingCart.java</span><code class="lang-java">@Component
+@Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
+public class ShoppingCart {
+    private final List&lt;String&gt; items = new ArrayList&lt;&gt;();   // state! one cart per customer
+    ...
+}</code></pre>
+  <p>Important facts about prototypes:</p>
+  <ul>
+    <li>Spring creates a new one for <strong>every</strong> <code>getBean</code> call and <strong>every</strong> injection point.</li>
+    <li>Prototypes are created <strong>on demand</strong>, not at startup (no point creating one that nobody asked for).</li>
+    <li>Spring runs initialisation callbacks (<code>@PostConstruct</code>) for them, but then <strong>forgets them</strong>. <code>@PreDestroy</code> is <strong>never</strong> called for a prototype — if it holds resources, you must clean up yourself.</li>
+  </ul>
+
+  <h3>3.4 Request and session scopes (web apps)</h3>
+  <p>These only exist in a <strong>web</strong> application (Spring MVC, from Topic 31). They're explained here so you know the full picture; our console demo can't use them.</p>
+  <ul>
+    <li><strong>Request scope</strong> — one bean per HTTP request. When a browser calls <code>GET /orders</code>, Spring creates the bean for that request; when the response is sent, it's thrown away. Example: a <code>RequestContext</code> holding a request id for logging.</li>
+    <li><strong>Session scope</strong> — one bean per user session. A session starts when a user first visits and lasts (usually ~30 minutes of inactivity) until timeout or logout. Example: a cart in a classic server-rendered shop (Topic 36).</li>
+  </ul>
+  <pre><code class="lang-java">@Component
+@RequestScope          // shortcut for @Scope(value = "request", proxyMode = ScopedProxyMode.TARGET_CLASS)
+public class RequestContext {
+    private final String requestId = UUID.randomUUID().toString();
+    public String requestId() { return requestId; }
+}
+
+@Component
+@SessionScope          // one per logged-in user session
+public class UserPreferences {
+    private String language = "en";
+    ...
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ How can a singleton controller use a request-scoped bean?</strong>
+    The controller is created once at startup — when there is no request yet! So Spring injects a <strong>scoped proxy</strong>: a stand-in object. Each time you call a method on it, the proxy finds the <em>real</em> bean for the <em>current</em> request/session and forwards the call. <code>@RequestScope</code> and <code>@SessionScope</code> set this up automatically (<code>proxyMode = TARGET_CLASS</code>).</div>
+  <div class="callout tip"><strong>💡 Modern REST APIs</strong>
+    REST APIs (Topics 31+) are usually <strong>stateless</strong>: no server-side session; the client sends a token with every request (Topic 49). So <code>session</code> scope is common in server-rendered apps but rare in REST APIs.</div>
+
+  <h3>3.5 The bean lifecycle</h3>
+  <p>Every singleton bean goes through the same stages. Here is the complete order, exactly as our <code>DatabaseConnectionPool</code> prints it:</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 760 330" width="760" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, sans-serif" font-size="13">
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="10" y="20" width="170" height="44" rx="8"/>
+        <rect x="200" y="20" width="170" height="44" rx="8"/>
+        <rect x="390" y="20" width="170" height="44" rx="8"/>
+        <rect x="580" y="20" width="170" height="44" rx="8"/>
+        <rect x="580" y="110" width="170" height="44" rx="8"/>
+        <rect x="390" y="110" width="170" height="44" rx="8"/>
+        <rect x="200" y="110" width="170" height="44" rx="8"/>
+        <rect x="10" y="110" width="170" height="44" rx="8" stroke-width="3"/>
+        <rect x="10" y="210" width="170" height="44" rx="8"/>
+        <rect x="200" y="210" width="170" height="44" rx="8"/>
+        <rect x="390" y="210" width="170" height="44" rx="8"/>
+        <path d="M180 42 H200 M370 42 H390 M560 42 H580 M665 64 V110 M580 132 H560 M390 132 H370 M200 132 H180 M95 154 V210 M180 232 H200 M370 232 H390"/>
+      </g>
+      <g fill="currentColor" text-anchor="middle">
+        <text x="95" y="40">1. Instantiate</text><text x="95" y="56" font-size="11">constructor</text>
+        <text x="285" y="40">2. Populate</text><text x="285" y="56" font-size="11">setter / field injection</text>
+        <text x="475" y="40">3. Aware callbacks</text><text x="475" y="56" font-size="11">setBeanName ...</text>
+        <text x="665" y="40">4. BPP before init</text><text x="665" y="56" font-size="11">postProcessBefore...</text>
+        <text x="665" y="130">5. @PostConstruct</text>
+        <text x="475" y="130">6. afterPropertiesSet()</text><text x="475" y="146" font-size="11">InitializingBean</text>
+        <text x="285" y="130">7. custom initMethod</text><text x="285" y="146" font-size="11">@Bean(initMethod)</text>
+        <text x="95" y="130" font-weight="bold">8. BPP after init</text><text x="95" y="146" font-size="11">→ READY (maybe a proxy)</text>
+        <text x="95" y="230">9. @PreDestroy</text><text x="95" y="246" font-size="11">on close()</text>
+        <text x="285" y="230">10. destroy()</text><text x="285" y="246" font-size="11">DisposableBean</text>
+        <text x="475" y="230">11. destroyMethod</text><text x="475" y="246" font-size="11">@Bean(destroyMethod)</text>
+        <text x="380" y="300" font-size="12">Steps 1–8 at startup (singletons) · steps 9–11 when the container closes · prototypes stop after step 8</text>
+      </g>
+    </svg>
+    <figcaption>The bean lifecycle. "BPP" = BeanPostProcessor.</figcaption>
+  </figure>
+  <p>In words:</p>
+  <ol>
+    <li><strong>Instantiate</strong> — Spring calls the constructor (constructor injection happens here).</li>
+    <li><strong>Populate properties</strong> — setter and field injection.</li>
+    <li><strong>Aware callbacks</strong> — if the bean implements <code>BeanNameAware</code>, <code>ApplicationContextAware</code>, etc., Spring tells it its name / the context. (Rarely needed.)</li>
+    <li><strong>BeanPostProcessor "before"</strong> — every BPP sees the bean.</li>
+    <li><strong><code>@PostConstruct</code></strong> method runs.</li>
+    <li><strong><code>afterPropertiesSet()</code></strong> runs (if the bean implements <code>InitializingBean</code>).</li>
+    <li><strong>Custom init method</strong> runs (if declared with <code>@Bean(initMethod = "...")</code>).</li>
+    <li><strong>BeanPostProcessor "after"</strong> — may wrap the bean in a proxy. The bean is now <strong>ready</strong>.</li>
+    <li>On shutdown: <strong><code>@PreDestroy</code></strong>,</li>
+    <li><strong><code>destroy()</code></strong> (<code>DisposableBean</code>),</li>
+    <li><strong>custom destroy method</strong>.</li>
+  </ol>
+  <div class="callout tip"><strong>💡 Memory trick</strong>
+    "<strong>Annotation → Interface → Custom</strong>", both for init (5→6→7) and destroy (9→10→11).</div>
+
+  <h3>3.6 Why not just use the constructor for setup?</h3>
+  <p>Look at line 1 of our output: <code>constructor -&gt; url=jdbc:h2:mem:shop, poolSize=0 (not set yet!)</code>. Inside the constructor, setter/field-injected values are <strong>not there yet</strong>. <code>@PostConstruct</code> runs after <em>all</em> injection is finished — the safe place for setup that needs dependencies. It's also the right place for work that might fail (opening connections, loading files), because Spring reports such failures clearly as "init method failed".</p>
+  <p>(With pure constructor injection, all dependencies <em>are</em> available in the constructor — but <code>@PostConstruct</code> is still commonly used for "start-up work" so constructors stay simple.)</p>
+
+  <h3>3.7 The three ways to hook into init and destroy</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Way</th><th>Init</th><th>Destroy</th><th>Pros / cons</th></tr>
+    <tr><td><strong>Annotations</strong> (recommended)</td><td><code>@PostConstruct</code></td><td><code>@PreDestroy</code></td><td>✅ Simple, standard Jakarta annotations, no Spring imports. Needs <code>jakarta.annotation-api</code> in plain Spring (Spring Boot includes it).</td></tr>
+    <tr><td><strong>Interfaces</strong></td><td><code>InitializingBean.afterPropertiesSet()</code></td><td><code>DisposableBean.destroy()</code></td><td>🟡 Ties your class to Spring interfaces. Seen inside Spring and older code.</td></tr>
+    <tr><td><strong><code>@Bean</code> attributes</strong></td><td><code>@Bean(initMethod = "open")</code></td><td><code>@Bean(destroyMethod = "close")</code></td><td>✅ Perfect for <strong>library classes you can't annotate</strong>. Bonus: <code>@Bean</code> automatically calls a public <code>close()</code> or <code>shutdown()</code> method on destroy.</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Where do <code>@PostConstruct</code>/<code>@PreDestroy</code> come from?</strong>
+    From the package <code>jakarta.annotation</code> (formerly <code>javax.annotation</code> — old tutorials use the <code>javax</code> name, which does <em>not</em> work with Spring 6). They were removed from the JDK in Java 11, so plain Spring projects add:
+    <pre><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;jakarta.annotation&lt;/groupId&gt;
+    &lt;artifactId&gt;jakarta.annotation-api&lt;/artifactId&gt;
+    &lt;version&gt;2.1.1&lt;/version&gt;
+&lt;/dependency&gt;</code></pre></div>
+
+  <h3>3.8 Closing the container — when destroy callbacks run</h3>
+  <p>Destroy callbacks run only when the container is <strong>closed</strong>:</p>
+  <ul>
+    <li><code>context.close()</code> — explicitly (our demo), or via try-with-resources.</li>
+    <li><code>context.registerShutdownHook()</code> — asks the JVM to close the context automatically when the program exits (even on Ctrl+C).</li>
+    <li><strong>Spring Boot</strong> registers that shutdown hook for you.</li>
+  </ul>
+  <p>Singletons are destroyed in <strong>reverse order of creation</strong>: a bean is destroyed <em>before</em> the beans it depends on, so it can still use them during cleanup.</p>
+
+  <h3>3.9 <code>BeanPostProcessor</code> — a hook for <em>every</em> bean</h3>
+  <p>A <code>BeanPostProcessor</code> (BPP) is a special bean that Spring calls for <strong>every other bean</strong> it creates — once before initialisation and once after:</p>
+  <pre><span class="file">lifecycle/LoggingBeanPostProcessor.java</span><code class="lang-java">@Component
+public class LoggingBeanPostProcessor implements BeanPostProcessor {
+
+    @Override
+    public Object postProcessBeforeInitialization(Object bean, String beanName) {
+        if (bean instanceof DatabaseConnectionPool) {
+            System.out.println("4. BeanPostProcessor -&gt; BEFORE init of '" + beanName + "'");
+        }
+        return bean;          // return the bean (unchanged)
+    }
+
+    @Override
+    public Object postProcessAfterInitialization(Object bean, String beanName) {
+        if (bean instanceof DatabaseConnectionPool) {
+            System.out.println("8. BeanPostProcessor -&gt; AFTER init of '" + beanName + "'");
+        }
+        return bean;          // could return a WRAPPER (proxy) instead!
+    }
+}</code></pre>
+  <p>The key detail: <strong>whatever you return goes into the container</strong>. A BPP can return a <em>different object</em> — usually a <strong>proxy</strong> that wraps the original bean and adds behaviour before/after each method call. That's exactly how Spring implements:</p>
+  <ul>
+    <li><code>@Transactional</code> (start/commit a database transaction around a method) — Topic 42</li>
+    <li><code>@Async</code> (run a method in another thread) — Topic 52</li>
+    <li><code>@Cacheable</code> (return a cached result) — Topic 51</li>
+    <li>AOP aspects (logging, timing) — <a href="../27-Spring-AOP/lesson.html">Topic 27</a></li>
+  </ul>
+  <p>Even <code>@PostConstruct</code> itself is handled by a built-in BPP (<code>CommonAnnotationBeanPostProcessor</code>), and <code>@Autowired</code> by <code>AutowiredAnnotationBeanPostProcessor</code> — some of the internal beans you saw in Topic 23's bean list.</p>
+  <div class="callout warn"><strong>⚠️ BPPs are special</strong>
+    Spring creates BPPs <em>before</em> all normal beans. Keep them simple and avoid injecting normal beans into them (those beans would be created too early and miss post-processing). When you define one with <code>@Bean</code>, make the method <code>static</code>. You will rarely write your own BPP — but knowing they exist explains a lot.</div>
+
+  <h3>3.10 <code>@Lazy</code> — create on first use</h3>
+  <p>By default the <code>ApplicationContext</code> creates all singletons at startup (eager — Topic 23). <code>@Lazy</code> delays one bean until it's first requested:</p>
+  <pre><span class="file">report/SalesReportService.java</span><code class="lang-java">@Service
+@Lazy
+public class SalesReportService {
+    public SalesReportService() {
+        System.out.println("[lazy] SalesReportService constructor runs NOW (first use)");
+    }
+}</code></pre>
+  <p>In the output its constructor line appears in demo 4, long after "container READY". Good for heavy, rarely used beans — but errors in it are discovered late. Note: if an <em>eager</em> bean injects a <code>@Lazy</code> bean normally, the lazy bean gets created anyway (the eager one needs it!) unless the injection point is also <code>@Lazy</code>.</p>
+  <p>Spring Boot can make <em>all</em> beans lazy with <code>spring.main.lazy-initialization=true</code> (faster startup in development, but use with care).</p>
+
+  <h3>3.11 The trap: prototype inside a singleton</h3>
+  <p>Here's a bug many developers make once:</p>
+  <pre><span class="file">cart/BrokenCheckoutService.java</span><code class="lang-java">@Service                                   // singleton - created ONCE
+public class BrokenCheckoutService {
+    private final ShoppingCart cart;       // prototype - but injected only ONCE
+
+    public BrokenCheckoutService(ShoppingCart cart) {
+        this.cart = cart;
+    }
+
+    public ShoppingCart cartFor(String customer) {
+        return cart;                       // everybody gets the same cart!
+    }
+}</code></pre>
+  <p>The singleton's constructor runs once, so it receives <strong>one</strong> cart — forever. The prototype scope only means "new object <em>each time the container is asked</em>", and the container is asked only once here. Output:</p>
+  <pre class="terminal"><code>BROKEN: alice's cart #1 = [Keyboard, Monitor]   &lt;- bob's Monitor is in alice's cart!</code></pre>
+  <p><strong>The fix:</strong> don't inject a cart — inject something that can <em>ask the container again</em>: an <code>ObjectProvider</code>.</p>
+  <pre><span class="file">cart/CheckoutService.java</span><code class="lang-java">@Service
+public class CheckoutService {
+    private final ObjectProvider&lt;ShoppingCart&gt; cartProvider;
+    private final Map&lt;String, ShoppingCart&gt; cartsByCustomer = new HashMap&lt;&gt;();
+
+    public CheckoutService(ObjectProvider&lt;ShoppingCart&gt; cartProvider) {
+        this.cartProvider = cartProvider;
+    }
+
+    public ShoppingCart cartFor(String customer) {
+        return cartsByCustomer.computeIfAbsent(customer, c -&gt; cartProvider.getObject());   // NEW cart
+    }
+}</code></pre>
+  <pre class="terminal"><code>FIXED:  alice's cart #4 = [Keyboard, Mouse]
+FIXED:  bob's cart #5   = [Monitor]</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Fix</th><th>How</th><th>Comment</th></tr>
+    <tr><td><code>ObjectProvider&lt;T&gt;</code></td><td>Inject the provider, call <code>getObject()</code> when you need a fresh bean</td><td>✅ Recommended — simple and explicit</td></tr>
+    <tr><td><code>@Lookup</code> method</td><td>An (abstract) method annotated <code>@Lookup</code>; Spring overrides it to return a new bean</td><td>🟡 Works, a bit "magic"</td></tr>
+    <tr><td>Scoped proxy</td><td><code>@Scope(value = "prototype", proxyMode = ScopedProxyMode.TARGET_CLASS)</code></td><td>🟡 Every <em>method call</em> hits a new object — usually surprising for prototypes; this is the normal tool for request/session scope</td></tr>
+    <tr><td><code>jakarta.inject.Provider&lt;T&gt;</code></td><td>Same idea as ObjectProvider, standard Jakarta API</td><td>Needs the <code>jakarta.inject</code> jar</td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Our demo keeps carts in a <code>HashMap</code> inside a singleton</strong>
+    That's fine for a single-threaded console demo. In a real multi-user app you would use session scope or store carts in a database/Redis — a plain <code>HashMap</code> in a singleton is shared state and not thread-safe (use <code>ConcurrentHashMap</code> at the very least — Topic 17).</div>
+
+  <!-- ===================================================== 4. CODE ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Base package: <code>com.course.scopes</code> — a small online shop.</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>App.java</code></td><td>Runs demos 1–5; closes the context explicitly at the end.</td></tr>
+    <tr><td><code>config/AppConfig.java</code></td><td>Component scan + <code>@Bean(initMethod = "openConnections", destroyMethod = "closeConnections")</code>.</td></tr>
+    <tr><td><code>catalog/ProductCatalog.java</code></td><td>Default singleton; read-only data, safe to share.</td></tr>
+    <tr><td><code>cart/ShoppingCart.java</code></td><td>Prototype; <code>@PostConstruct</code> prints, <code>@PreDestroy</code> never does.</td></tr>
+    <tr><td><code>cart/BrokenCheckoutService.java</code></td><td>The prototype-in-singleton trap.</td></tr>
+    <tr><td><code>cart/CheckoutService.java</code></td><td>The <code>ObjectProvider</code> fix.</td></tr>
+    <tr><td><code>lifecycle/DatabaseConnectionPool.java</code></td><td>Implements <code>BeanNameAware</code>, <code>InitializingBean</code>, <code>DisposableBean</code>; has <code>@PostConstruct</code>, <code>@PreDestroy</code>, and custom init/destroy methods — prints steps 1–11.</td></tr>
+    <tr><td><code>lifecycle/PoolSettings.java</code></td><td>A record bean injected with a setter (step 2).</td></tr>
+    <tr><td><code>lifecycle/LoggingBeanPostProcessor.java</code></td><td>Prints steps 4 and 8.</td></tr>
+    <tr><td><code>report/SalesReportService.java</code></td><td><code>@Lazy</code> singleton.</td></tr>
+  </table></div>
+
+  <h3>4.1 <code>DatabaseConnectionPool</code> and its <code>@Bean</code> registration</h3>
+  <pre><span class="file">config/AppConfig.java</span><code class="lang-java">@Bean
+public PoolSettings poolSettings() {
+    return new PoolSettings(5);
+}
+
+@Bean(initMethod = "openConnections", destroyMethod = "closeConnections")
+public DatabaseConnectionPool databaseConnectionPool() {
+    return new DatabaseConnectionPool("jdbc:h2:mem:shop");
+}</code></pre>
+  <pre><span class="file">lifecycle/DatabaseConnectionPool.java (shortened)</span><code class="lang-java">public class DatabaseConnectionPool implements BeanNameAware, InitializingBean, DisposableBean {
+
+    public DatabaseConnectionPool(String url) { ... }                    // 1
+
+    @Autowired
+    public void setPoolSize(PoolSettings settings) { ... }               // 2
+
+    @Override public void setBeanName(String name) { ... }               // 3
+
+    @PostConstruct public void postConstruct() { ... }                   // 5
+    @Override public void afterPropertiesSet() { ... }                   // 6
+    public void openConnections() { ... }                                // 7 (initMethod)
+
+    @PreDestroy public void preDestroy() { ... }                         // 9
+    @Override public void destroy() { ... }                              // 10
+    public void closeConnections() { ... }                               // 11 (destroyMethod)
+}</code></pre>
+  <p>Even though the object is created by our own <code>new</code> inside a <code>@Bean</code> method, it's still a Spring bean — so Spring runs setter injection (<code>@Autowired</code> setter), the Aware callback, BPPs and all the init/destroy hooks on it.</p>
+
+  <h3>4.2 Why is "ShoppingCart #1" created at startup?</h3>
+  <p>The very first line of the output is <code>[cart] new ShoppingCart #1 created</code> — before the pool! That's because the singleton <code>BrokenCheckoutService</code> is created at startup and its constructor needs a <code>ShoppingCart</code>. So the prototype is created at that moment — once. Cart #1 is the cart that Alice and Bob will wrongly share in demo 3.</p>
+
+  <!-- ===================================================== 5. RUN ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\25-Bean-Scopes-And-Lifecycle"
+mvn -q compile exec:java</code></pre>
+  <p>In VS Code: open the folder <code>25-Bean-Scopes-And-Lifecycle</code>, open <code>App.java</code> and click <strong>Run</strong>.</p>
+  <p>Expected output (your hash code numbers will be different):</p>
+  <pre class="terminal"><code>=== DEMO 1: Starting the container - lifecycle of DatabaseConnectionPool ===
+   [cart] new ShoppingCart #1 created (@PostConstruct runs for prototypes too)
+   1. constructor            -&gt; url=jdbc:h2:mem:shop, poolSize=0 (not set yet!)
+   2. setter injection       -&gt; poolSize=5
+   3. BeanNameAware          -&gt; my bean name is 'databaseConnectionPool'
+   4. BeanPostProcessor      -&gt; BEFORE init of 'databaseConnectionPool'
+   5. @PostConstruct         -&gt; all dependencies are ready, validate config
+   6. afterPropertiesSet()   -&gt; (InitializingBean interface)
+   7. initMethod             -&gt; opened 5 connections to jdbc:h2:mem:shop
+   8. BeanPostProcessor      -&gt; AFTER init of 'databaseConnectionPool' (a proxy could be returned here)
+   --- container READY ---
+   using the bean: result of [SELECT * FROM products] using 1 of 5 connections
+
+=== DEMO 2: Singleton vs prototype ===
+   ProductCatalog (singleton) hash codes: 1989680860 / 1989680860 -&gt; same object? true
+   [cart] new ShoppingCart #2 created (@PostConstruct runs for prototypes too)
+   [cart] new ShoppingCart #3 created (@PostConstruct runs for prototypes too)
+   ShoppingCart (prototype) hash codes:   1369901573 / 1471324717 -&gt; same object? false
+   (hash code numbers differ on every run - compare them, don't memorise them)
+
+=== DEMO 3: Prototype inside a singleton ===
+   BROKEN: alice's cart #1 = [Keyboard, Monitor]   &lt;- bob's Monitor is in alice's cart!
+   [cart] new ShoppingCart #4 created (@PostConstruct runs for prototypes too)
+   [cart] new ShoppingCart #5 created (@PostConstruct runs for prototypes too)
+   FIXED:  alice's cart #4 = [Keyboard, Mouse]
+   FIXED:  bob's cart #5   = [Monitor]
+   alice pays 2098.0
+
+=== DEMO 4: @Lazy ===
+   Is SalesReportService created yet? It printed nothing at startup...
+   [lazy] SalesReportService constructor runs NOW (first use)
+   [lazy] SalesReportService loaded its (pretend) heavy report templates
+   Daily sales report: 42 orders
+
+=== DEMO 5: Closing the container ===
+   9. @PreDestroy            -&gt; stop accepting new queries
+  10. destroy()              -&gt; (DisposableBean interface)
+  11. destroyMethod          -&gt; closed 5 connections
+   (no 'ShoppingCart destroyed' lines: Spring does not manage prototype destruction)
+=== Done ===</code></pre>
+
+  <!-- ===================================================== 6. MISTAKES ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>🛑 Mistake: storing per-user data in a singleton's fields</strong>
+    <code>private Customer currentCustomer;</code> in an <code>@Service</code>. Under load, users see each other's data.<br>
+    <strong>Fix:</strong> keep singletons stateless — pass data as method parameters; use request/session scope or a database for per-user state.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: injecting a prototype directly into a singleton and expecting fresh objects</strong>
+    You get one instance forever (our <code>BrokenCheckoutService</code>).<br>
+    <strong>Fix:</strong> inject <code>ObjectProvider&lt;T&gt;</code> and call <code>getObject()</code> each time.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>@PostConstruct</code> is silently ignored</strong>
+    In plain Spring without <code>jakarta.annotation-api</code> on the classpath, the annotation can't even be imported. With the old <code>javax.annotation.PostConstruct</code> import, Spring 6 ignores it.<br>
+    <strong>Fix:</strong> use <code>jakarta.annotation.PostConstruct</code> and add the dependency (Spring Boot has it).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: expecting <code>@PreDestroy</code> on a prototype</strong>
+    It's never called — Spring doesn't track prototypes after handing them out.<br>
+    <strong>Fix:</strong> clean up prototypes yourself (e.g. make them <code>AutoCloseable</code> and use try-with-resources).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: destroy callbacks never run</strong>
+    The program ends without closing the context, so <code>@PreDestroy</code> never fires and connections aren't closed.<br>
+    <strong>Fix:</strong> <code>context.close()</code>, try-with-resources, or <code>context.registerShutdownHook()</code>. (Spring Boot does this for you.)</div>
+  <div class="callout warn"><strong>⚠️ Mistake: using injected setter values inside the constructor</strong>
+    They aren't set yet (see <code>poolSize=0</code> in step 1).<br>
+    <strong>Fix:</strong> use constructor injection, or do the work in <code>@PostConstruct</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: a <code>@PostConstruct</code> method with parameters or that is <code>static</code></strong>
+    It must be a non-static method with <strong>no parameters</strong> (any visibility, usually <code>void</code>).</div>
+
+  <!-- ===================================================== 7. BEST ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Default to singleton</strong> and design beans to be <strong>stateless and thread-safe</strong>.</li>
+    <li>Use <strong>prototype</strong> only for genuinely stateful, short-lived helpers — and get them via <code>ObjectProvider</code> when the consumer is a singleton.</li>
+    <li>Use <strong><code>@PostConstruct</code>/<code>@PreDestroy</code></strong> for your own classes; <strong><code>@Bean(initMethod, destroyMethod)</code></strong> for library classes. Avoid the Spring interfaces in new code.</li>
+    <li>Keep init methods <strong>fast</strong>; slow start-up work (warming a big cache) can slow every deployment — consider doing it asynchronously or on first use.</li>
+    <li><strong>Always release resources</strong> in destroy callbacks: connections, thread pools, file handles.</li>
+    <li>Use <strong><code>@Lazy</code> sparingly</strong>; eager creation catches configuration errors at startup.</li>
+    <li>Write a custom <code>BeanPostProcessor</code> only when you are building framework-like features; prefer AOP (Topic 27) for cross-cutting behaviour.</li>
+  </ul>
+
+  <!-- ===================================================== 8. SUMMARY ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Scope = how many instances and how long they live. Default is <strong>singleton</strong> (one per container).</li>
+    <li><strong>Prototype</strong> = a new instance every time the container is asked; Spring doesn't destroy it.</li>
+    <li><strong>Request</strong>/<strong>session</strong> scopes exist in web apps and are injected via scoped proxies.</li>
+    <li>Singletons are shared across threads → keep them stateless.</li>
+    <li>Lifecycle: constructor → injection → Aware → BPP before → <code>@PostConstruct</code> → <code>afterPropertiesSet</code> → initMethod → BPP after → ready → <code>@PreDestroy</code> → <code>destroy</code> → destroyMethod.</li>
+    <li>A <code>BeanPostProcessor</code> sees every bean and can replace it with a proxy — the basis of AOP, <code>@Transactional</code>, <code>@Async</code>.</li>
+    <li><code>@Lazy</code> delays creation until first use.</li>
+    <li>Prototype injected into a singleton is created only once — use <code>ObjectProvider</code>.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9. EXERCISES ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Make the catalog a prototype.</strong> Add <code>@Scope("prototype")</code> to <code>ProductCatalog</code>. Run demo 2 again. What changes? Would that be a good idea in a real shop?</p>
+    <details><summary>Hint / solution</summary>
+      <p>The two hash codes now differ and "same object?" prints <code>false</code>. It still works, but it wastes memory and time: the catalog holds the same read-only data for everyone, so one shared instance is the right choice. Remove the annotation afterwards.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Add a cache warm-up.</strong> Give <code>ProductCatalog</code> a <code>@PostConstruct</code> method that prints <code>"Catalog warmed up with N products"</code> and a <code>@PreDestroy</code> method that prints <code>"Catalog shutting down"</code>. When does each line appear?</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">@PostConstruct
+void warmUp() {
+    System.out.println("   Catalog warmed up with " + prices.size() + " products");
+}
+
+@PreDestroy
+void shutdown() {
+    System.out.println("   Catalog shutting down");
+}</code></pre>
+      <p>The first line appears during startup (before "container READY"); the second during <code>context.close()</code> in demo 5. Imports: <code>jakarta.annotation.PostConstruct</code> and <code>jakarta.annotation.PreDestroy</code>.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>A timing BeanPostProcessor.</strong> Change <code>LoggingBeanPostProcessor</code> to print the names of <em>all</em> beans from our package (<code>bean.getClass().getPackageName().startsWith("com.course.scopes")</code>) in <code>postProcessAfterInitialization</code>. Which beans are listed? Is <code>SalesReportService</code> in the list at startup? Are the carts?</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">@Override
+public Object postProcessAfterInitialization(Object bean, String beanName) {
+    if (bean.getClass().getPackageName().startsWith("com.course.scopes")) {
+        System.out.println("   [BPP] ready: " + beanName);
+    }
+    return bean;
+}</code></pre>
+      <p>At startup you'll see the config, catalog, broken/normal checkout services, the pool, etc. <code>SalesReportService</code> appears only in demo 4 (it's lazy). Each <code>ShoppingCart</code> appears every time one is created — BPPs run for prototypes too. Note: <code>appConfig</code> is a CGLIB subclass, but its package is still <code>com.course.scopes.config</code>.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Shutdown hook.</strong> In <code>App</code>, replace <code>context.close()</code> with <code>context.registerShutdownHook()</code> right after creating the context. Do the destroy lines (9–11) still appear? When?</p>
+    <details><summary>Hint / solution</summary>
+      <p>Yes — they appear after "=== Done ===", when the JVM is exiting, because the hook closes the context then. (With <code>exec:java</code> the program runs inside Maven's JVM; the hook still runs when that JVM exits.) This is what Spring Boot does for you, so Ctrl+C on a Boot app still runs <code>@PreDestroy</code>.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Fix with <code>@Lookup</code>.</strong> Write <code>LookupCheckoutService</code> as an <strong>abstract</strong> <code>@Service</code> class with an abstract method <code>@Lookup protected abstract ShoppingCart newCart();</code> and use it instead of <code>ObjectProvider</code>. Print the class name of the bean Spring gives you. What do you notice?</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">@Service
+public abstract class LookupCheckoutService {
+    private final Map&lt;String, ShoppingCart&gt; carts = new HashMap&lt;&gt;();
+
+    @Lookup
+    protected abstract ShoppingCart newCart();   // Spring implements this method for us
+
+    public ShoppingCart cartFor(String customer) {
+        return carts.computeIfAbsent(customer, c -&gt; newCart());
+    }
+}
+
+// App
+LookupCheckoutService s = context.getBean(LookupCheckoutService.class);
+System.out.println(s.getClass().getName());   // ...LookupCheckoutService$$SpringCGLIB$$0</code></pre>
+      <p>Spring generated a <strong>subclass</strong> at runtime (CGLIB) that implements <code>newCart()</code> as "ask the container for a <code>ShoppingCart</code>". That's how an abstract class can be a bean. <code>ObjectProvider</code> does the same thing more explicitly, which is why it's usually preferred.</p>
+    </details>
+  </div>
+
+  <!-- ===================================================== 10. INTERVIEW ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What bean scopes does Spring support?</summary>
+    <p><code>singleton</code> (default, one per container) and <code>prototype</code> (new instance per request to the container) in any application; <code>request</code>, <code>session</code>, <code>application</code> and <code>websocket</code> in web-aware contexts. Custom scopes can also be registered.</p></details>
+  <details><summary>Q2. Is a Spring singleton bean thread-safe?</summary>
+    <p>No — Spring does nothing to make it thread-safe. One instance is shared by all threads, so it's thread-safe only if it's stateless or its shared state is immutable/properly synchronised. Best practice: keep singletons stateless.</p></details>
+  <details><summary>Q3. How is a Spring singleton different from the GoF Singleton pattern?</summary>
+    <p>GoF Singleton guarantees one instance per class loader/JVM via a private constructor and static accessor. A Spring singleton is one instance per container per bean definition; the class is ordinary and can have several bean definitions or be instantiated manually.</p></details>
+  <details><summary>Q4. Describe the Spring bean lifecycle.</summary>
+    <p>Instantiation → property population (DI) → Aware callbacks (<code>BeanNameAware</code>, <code>ApplicationContextAware</code>…) → <code>BeanPostProcessor.postProcessBeforeInitialization</code> → <code>@PostConstruct</code> → <code>InitializingBean.afterPropertiesSet()</code> → custom init method → <code>postProcessAfterInitialization</code> (may return a proxy) → bean in use → on close: <code>@PreDestroy</code> → <code>DisposableBean.destroy()</code> → custom destroy method.</p></details>
+  <details><summary>Q5. Does Spring call destroy methods on prototype beans?</summary>
+    <p>No. Spring creates, configures and initialises a prototype, then hands it over and no longer manages it. The client is responsible for cleanup.</p></details>
+  <details><summary>Q6. What is a BeanPostProcessor? Give real examples.</summary>
+    <p>An extension point called for every bean before and after initialisation; it can modify the bean or return a wrapper. Spring uses BPPs to process <code>@Autowired</code> (<code>AutowiredAnnotationBeanPostProcessor</code>), <code>@PostConstruct</code>/<code>@PreDestroy</code> (<code>CommonAnnotationBeanPostProcessor</code>), and to create AOP proxies for <code>@Transactional</code>, <code>@Async</code>, <code>@Cacheable</code> and aspects.</p></details>
+  <details><summary>Q7. What's the difference between BeanPostProcessor and BeanFactoryPostProcessor?</summary>
+    <p>A <code>BeanFactoryPostProcessor</code> runs earlier and works on bean <em>definitions</em> (recipes) before any bean is created — e.g. <code>PropertySourcesPlaceholderConfigurer</code> resolving <code>${...}</code>. A <code>BeanPostProcessor</code> works on bean <em>instances</em> after they're created.</p></details>
+  <details><summary>Q8. How do you inject a prototype bean into a singleton so you get a new instance each time?</summary>
+    <p>Inject <code>ObjectProvider&lt;T&gt;</code> (or <code>jakarta.inject.Provider&lt;T&gt;</code>) and call <code>getObject()</code> each time; or use a <code>@Lookup</code> method; or use a scoped proxy (<code>proxyMode = ScopedProxyMode.TARGET_CLASS</code>). Direct injection gives only one instance, because injection happens once.</p></details>
+  <details><summary>Q9. What does @Lazy do?</summary>
+    <p>On a bean: create it on first request instead of at startup. On an injection point: inject a lazy-resolution proxy so the target is created on first method call (also used to break circular dependencies). Trade-off: faster startup vs. later discovery of errors.</p></details>
+  <details><summary>Q10. @PostConstruct vs constructor — where should initialisation logic go?</summary>
+    <p>The constructor should only assign dependencies. <code>@PostConstruct</code> runs after all injection (including setter/field injection) is complete, so it's the safe place for initialisation that needs dependencies or may fail (opening resources, validating configuration, warming caches).</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../24-Dependency-Injection-Deep-Dive/lesson.html"><small>← Previous</small>24. Dependency Injection Deep Dive</a>
+    <a class="next" href="../26-Spring-Configuration-Profiles-And-Environment/lesson.html"><small>Next →</small>26. Configuration, Profiles &amp; Environment</a>
+  </nav>
+</main>
+</body>
+</html>

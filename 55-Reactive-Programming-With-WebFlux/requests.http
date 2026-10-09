@@ -1,0 +1,43 @@
+### Topic 55 - WebFlux sample requests (VS Code "REST Client" extension)
+@base = http://localhost:8080
+
+### 1. All products (Flux<Product> -> JSON array)
+GET {{base}}/api/products
+
+### 2. One product (Mono<Product>)
+GET {{base}}/api/products/1
+
+### 3. Missing product -> 404
+GET {{base}}/api/products/999
+
+### 4. Products by category
+GET {{base}}/api/products/category/electronics
+
+### 5. Create a product
+POST {{base}}/api/products
+Content-Type: application/json
+
+{
+  "name": "Keyboard",
+  "category": "electronics",
+  "price": 25.00
+}
+
+### 6. Delete a product
+DELETE {{base}}/api/products/2
+
+### 7. Server-Sent Events: live price ticker (one event per second, 10 events)
+GET {{base}}/api/stream/prices
+Accept: text/event-stream
+
+### 8. Functional route
+GET {{base}}/fn/hello?name=Asha
+
+### 9. Functional route returning products
+GET {{base}}/fn/products
+
+### 10. WebClient demo: this endpoint calls /api/products using WebClient
+GET {{base}}/api/client/summary
+
+### 11. zip demo: product + stock "in parallel"
+GET {{base}}/api/products/1/details

@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>16 · File I/O &amp; Date-Time</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 16</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>16. File I/O &amp; Date-Time</h1>
+  <p class="subtitle">Read and write files safely, import CSV data, understand serialization (and why JSON won), and handle dates, times, time zones and durations correctly with java.time.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="16-File-IO-And-Date-Time"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>The difference between the old <code>java.io</code> and the modern <code>java.nio.file</code> APIs.</li>
+      <li><code>Path</code> and <code>Files</code>: <code>readAllLines</code>, <code>readString</code>, <code>writeString</code>, <code>lines</code>, copy, move, delete, list.</li>
+      <li><code>BufferedReader</code>/<code>BufferedWriter</code> and why try-with-resources is a must.</li>
+      <li>Reading a CSV file into objects, including handling bad rows.</li>
+      <li>Serialization basics — and why real systems use JSON instead.</li>
+      <li><code>java.time</code>: <code>LocalDate</code>, <code>LocalTime</code>, <code>LocalDateTime</code>, <code>ZonedDateTime</code>, <code>Instant</code>, <code>Duration</code>, <code>Period</code>, <code>DateTimeFormatter</code>.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../10-Exception-Handling/lesson.html">Topic 10 · Exceptions</a> (checked exceptions, try-with-resources), <a href="../14-Streams-API-And-Optional/lesson.html">Topic 14 · Streams</a> and <a href="../15-Modern-Java-Features/lesson.html">Topic 15 · Records</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- =========================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Variables live in memory and vanish when the program stops. <strong>Files</strong> survive. In real projects you will constantly:</p>
+  <ul>
+    <li><strong>Import data</strong> — a bank uploads a CSV of transactions, HR uploads an Excel/CSV of new employees.</li>
+    <li><strong>Export reports</strong> — monthly sales CSV, invoices, logs.</li>
+    <li><strong>Read configuration</strong> — Spring Boot reads <code>application.properties</code> from a file at startup (topic 29).</li>
+    <li><strong>Handle uploads and downloads</strong> — profile pictures, PDFs (topic 54).</li>
+  </ul>
+  <p>And almost every business record has a <strong>date or time</strong>: when an order was placed, when a loan is due, when a user registered, when a token expires. Getting dates wrong causes real bugs: wrong interest, deliveries shown on the wrong day, tokens that expire in the wrong time zone. In Spring Data JPA (topic 38) your entities will have fields like:</p>
+  <pre><code class="lang-java">private LocalDate dateOfBirth;
+@CreationTimestamp
+private LocalDateTime createdAt;
+private Instant lastLoginAt;</code></pre>
+  <p>This lesson gives you the solid foundation for both.</p>
+
+  <!-- =========================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>📮 Path = address, Files = the postman</strong>
+    A <strong>Path</strong> is like an address written on an envelope: <em>"output/notes.txt"</em>. Writing an address doesn't build a house — the file may or may not exist. <strong>Files</strong> is the postman who actually goes there and <em>does</em> things: delivers (write), picks up (read), checks if anyone lives there (exists), moves people (move), or demolishes (delete).
+  </div>
+  <div class="callout analogy"><strong>🪣 Buffered = carrying water in a bucket, not a spoon</strong>
+    Reading a file one character at a time is like moving water with a spoon — every trip to the disk is slow. A <strong>buffer</strong> is a bucket: fetch a big chunk at once, then hand out characters from memory. That's what <code>BufferedReader</code>/<code>BufferedWriter</code> do.
+  </div>
+  <div class="callout analogy"><strong>🕰️ Wall clock vs world clock</strong>
+    <code>LocalDateTime</code> is the time on your <em>wall clock</em>: "15 March, 10:00". Meaningless to someone in New York unless you say <em>where</em> it is. <code>ZonedDateTime</code> is the wall clock <em>plus</em> the city ("10:00 in Kolkata"). <code>Instant</code> is the single global timeline every clock agrees on — like a satellite's timestamp in UTC.
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 java.io vs java.nio.file</h3>
+  <p>Java has two file APIs. You'll see both in real code:</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th><code>java.io</code> (Java 1.0, "classic")</th><th><code>java.nio.file</code> (Java 7+, "NIO.2", modern)</th></tr>
+    <tr><td>File/folder address</td><td><code>java.io.File</code></td><td><code>java.nio.file.Path</code></td></tr>
+    <tr><td>Operations</td><td>Methods on <code>File</code> + stream classes</td><td>Static helpers in <code>Files</code></td></tr>
+    <tr><td>Errors</td><td>Many methods return <code>false</code> silently (e.g. <code>delete()</code>)</td><td>Clear exceptions (<code>NoSuchFileException</code>…)</td></tr>
+    <tr><td>One-liners</td><td>No — you build reader chains</td><td><code>Files.readString</code>, <code>Files.writeString</code>, <code>Files.lines</code></td></tr>
+    <tr><td>Use today?</td><td>When an old API requires it</td><td><strong>Yes — prefer this</strong></td></tr>
+  </table></div>
+  <p>Inside <code>java.io</code> there are two families:</p>
+  <ul>
+    <li><strong>Byte streams</strong> — <code>InputStream</code>/<code>OutputStream</code> (and <code>FileInputStream</code>…): raw bytes, for images, PDFs, any binary data.</li>
+    <li><strong>Character streams</strong> — <code>Reader</code>/<code>Writer</code> (and <code>FileReader</code>, <code>BufferedReader</code>…): text, with a character encoding such as UTF-8.</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ What is a character encoding?</strong>
+    Files store bytes; text is characters. An <strong>encoding</strong> is the rulebook that maps characters to bytes. <strong>UTF-8</strong> is the worldwide standard and handles every language (₹, é, தமிழ், 中文). Always state it explicitly (<code>StandardCharsets.UTF_8</code>) so your program behaves the same on Windows, Linux and Mac.
+  </div>
+
+  <h3>3.2 Path — the address</h3>
+  <pre><code class="lang-java">Path outputDir = Path.of("output");                  // relative: from the current folder
+Path notes     = outputDir.resolve("notes.txt");     // output/notes.txt  (join paths safely)
+Path absolute  = Path.of("D:", "Java-SpringBoot");   // D:\Java-SpringBoot on Windows
+notes.getFileName();    // notes.txt
+notes.getParent();      // output
+notes.toAbsolutePath(); // D:\Java-SpringBoot\16-File-IO-And-Date-Time\output\notes.txt</code></pre>
+  <p>A <strong>relative</strong> path is resolved from the <strong>current working directory</strong> — the folder your terminal is in when you type <code>java ...</code>. This is the #1 source of "file not found" confusion for beginners (see Mistakes).</p>
+  <div class="callout tip"><strong>💡 Separators</strong>
+    Windows uses <code>\</code>, Linux/Mac use <code>/</code>. <code>Path.of("output", "archive", "2026")</code> and <code>resolve(...)</code> pick the right one for you. In Java strings, a single backslash must be written <code>"\\"</code> — another reason to let <code>Path</code> do the work.
+  </div>
+
+  <h3>3.3 Files — the toolbox</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Task</th><th>Method</th><th>Notes</th></tr>
+    <tr><td>Create folders</td><td><code>Files.createDirectories(path)</code></td><td>Creates parents too; no error if it exists</td></tr>
+    <tr><td>Write text (replace)</td><td><code>Files.writeString(path, text, UTF_8)</code></td><td>Creates the file if missing (Java 11+)</td></tr>
+    <tr><td>Append text</td><td><code>Files.writeString(path, text, UTF_8, StandardOpenOption.APPEND)</code></td><td>File must exist (add <code>CREATE</code> to create it)</td></tr>
+    <tr><td>Write lines</td><td><code>Files.write(path, listOfLines, UTF_8)</code></td><td>Adds line separators for you</td></tr>
+    <tr><td>Read all as String</td><td><code>Files.readString(path, UTF_8)</code></td><td>Small files only</td></tr>
+    <tr><td>Read all lines</td><td><code>Files.readAllLines(path, UTF_8)</code></td><td>Returns <code>List&lt;String&gt;</code>; small/medium files</td></tr>
+    <tr><td>Read lazily</td><td><code>Files.lines(path, UTF_8)</code></td><td>Returns a <code>Stream&lt;String&gt;</code>; great for huge files; <strong>must be closed</strong></td></tr>
+    <tr><td>Check</td><td><code>exists</code>, <code>notExists</code>, <code>isDirectory</code>, <code>isRegularFile</code>, <code>size</code></td><td></td></tr>
+    <tr><td>Copy / move</td><td><code>Files.copy(a, b, REPLACE_EXISTING)</code>, <code>Files.move(a, b, ...)</code></td><td>Move is also "rename"</td></tr>
+    <tr><td>Delete</td><td><code>Files.delete(p)</code> / <code>Files.deleteIfExists(p)</code></td><td><code>delete</code> throws if missing</td></tr>
+    <tr><td>List a folder</td><td><code>Files.list(dir)</code> / <code>Files.walk(dir)</code></td><td>Streams — close them</td></tr>
+  </table></div>
+  <p>Almost all of these throw <code>IOException</code> — a <strong>checked</strong> exception (topic 10), because the outside world can fail at any time: disk full, file locked by Excel, no permission, USB drive removed. You must either catch it or declare <code>throws IOException</code>.</p>
+
+  <h3>3.4 try-with-resources — never leak a file handle</h3>
+  <p>When a program opens a file, the operating system gives it a <strong>file handle</strong>. Handles are limited; and on Windows an open file can't be deleted or moved by others. So every opened file must be <strong>closed</strong> — even if an exception happens halfway.</p>
+  <pre><code class="lang-java">try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+    String line;
+    while ((line = reader.readLine()) != null) {   // null = end of file
+        System.out.println(line);
+    }
+}   // reader.close() is called HERE automatically - success or exception</code></pre>
+  <p>Any object implementing <code>AutoCloseable</code> can go in the <code>try ( ... )</code> brackets. You can declare several, separated by <code>;</code> — they're closed in <strong>reverse</strong> order. The <code>Stream</code> returned by <code>Files.lines</code> and <code>Files.list</code> is also <code>AutoCloseable</code>, so put it in try-with-resources too.</p>
+
+  <h3>3.5 BufferedReader and BufferedWriter</h3>
+  <div class="flow">
+    <span class="box">File on disk</span><span class="arrow">→</span>
+    <span class="box alt">FileReader (chars)</span><span class="arrow">→</span>
+    <span class="box info">BufferedReader (bucket + readLine)</span><span class="arrow">→</span>
+    <span class="box">your code</span>
+  </div>
+  <p>The classic way wraps one class in another ("decorator" pattern): <code>new BufferedReader(new FileReader(file, UTF_8))</code>. The NIO shortcut gives the same thing in one call: <code>Files.newBufferedReader(path, UTF_8)</code>.</p>
+  <ul>
+    <li><code>reader.readLine()</code> — next line without the newline, or <code>null</code> at the end.</li>
+    <li><code>reader.lines()</code> — the rest of the file as a <code>Stream&lt;String&gt;</code>.</li>
+    <li><code>writer.write(text)</code> + <code>writer.newLine()</code> — writes a platform-correct line break.</li>
+  </ul>
+  <p><strong>When to use which?</strong> For small files, <code>Files.readAllLines</code>/<code>writeString</code> are simplest. For large files or line-by-line processing, use <code>Files.lines</code> or a <code>BufferedReader</code>, which keep only a little in memory.</p>
+
+  <h3>3.6 Reading CSV files</h3>
+  <p><strong>CSV</strong> (Comma-Separated Values) is a plain-text table: the first line is usually a header, each next line is a row, and values are separated by commas. Excel can open and save it.</p>
+  <pre><code>id,name,department,marks,joinedOn
+1,Asha,CSE,92,2024-07-15
+2,Ravi,ECE,67,2024-07-20</code></pre>
+  <p>The recipe:</p>
+  <ol>
+    <li>Read lines (<code>readAllLines</code> or <code>Files.lines</code>).</li>
+    <li>Skip the header (<code>i = 1</code> or <code>.skip(1)</code>) and blank lines.</li>
+    <li><code>split(",")</code> each line into columns; check the column count.</li>
+    <li>Convert text to types: <code>Integer.parseInt</code>, <code>Double.parseDouble</code>, <code>LocalDate.parse</code>.</li>
+    <li>Catch <code>NumberFormatException</code>/<code>DateTimeParseException</code> per row, record the error with the line number, and continue — one bad row shouldn't stop an import of 10,000 rows.</li>
+    <li>Build objects (records) and process them (streams).</li>
+  </ol>
+  <div class="callout warn"><strong>⚠️ Simple split has limits</strong>
+    Real CSV can contain commas inside quotes (<code>"Chennai, TN"</code>) or line breaks inside a value. <code>split(",")</code> can't handle those. In production use a library such as <strong>Apache Commons CSV</strong> or <strong>OpenCSV</strong>. Also note: <code>"a,b,".split(",")</code> drops the empty last value — use <code>split(",", -1)</code> to keep it (see Example07).
+  </div>
+
+  <h3>3.7 Serialization — and why JSON is used instead</h3>
+  <p><strong>Serialization</strong> = converting an object into a sequence of bytes, so it can be saved to a file or sent over a network. <strong>Deserialization</strong> = rebuilding the object from those bytes.</p>
+  <div class="flow">
+    <span class="box">Java object</span><span class="arrow">→ serialize →</span><span class="box alt">bytes (file / network)</span><span class="arrow">→ deserialize →</span><span class="box">Java object (new copy)</span>
+  </div>
+  <p>Java's built-in way:</p>
+  <pre><code class="lang-java">class UserAccount implements Serializable {        // marker interface, no methods
+    private static final long serialVersionUID = 1L;
+    private String username;
+    private transient String password;              // transient = NOT saved
+}
+
+try (ObjectOutputStream out = new ObjectOutputStream(Files.newOutputStream(file))) {
+    out.writeObject(user);
+}
+try (ObjectInputStream in = new ObjectInputStream(Files.newInputStream(file))) {
+    UserAccount loaded = (UserAccount) in.readObject();
+}</code></pre>
+  <ul>
+    <li><code>Serializable</code> is a <strong>marker interface</strong> — no methods; it just gives permission.</li>
+    <li><code>serialVersionUID</code> is a version number. If the class changes and the numbers don't match, reading old data fails with <code>InvalidClassException</code>.</li>
+    <li><code>transient</code> fields are skipped (they come back as <code>null</code>/<code>0</code>) — good for passwords or values you can recalculate.</li>
+  </ul>
+  <div class="table-wrap"><table>
+    <tr><th>Java serialization</th><th>JSON</th></tr>
+    <tr><td>Binary, not human-readable</td><td>Text — you can read and edit it</td></tr>
+    <tr><td>Only Java can read it</td><td>Every language: JavaScript, Python, Kotlin, Swift…</td></tr>
+    <tr><td>Breaks easily when classes change</td><td>Tolerant: extra/missing fields can be ignored</td></tr>
+    <tr><td>Known <strong>security risk</strong>: deserializing untrusted bytes can run malicious code</td><td>Just data — much safer to parse</td></tr>
+    <tr><td>Used by: old RMI, some caches/sessions</td><td>Used by: REST APIs, config, messaging (Kafka, RabbitMQ), NoSQL</td></tr>
+  </table></div>
+  <p>That's why Spring Boot REST APIs send and receive <strong>JSON</strong>. The <strong>Jackson</strong> library (included with <code>spring-boot-starter-web</code>) converts your objects/records to JSON and back automatically — you'll see it in topic 31. Learn what serialization is (interviews love it), but don't use Java serialization in new code.</p>
+
+  <h3>3.8 Why java.time? (The old Date/Calendar problem)</h3>
+  <p>Before Java 8, Java had <code>java.util.Date</code> and <code>Calendar</code>. They were famously bad: <strong>mutable</strong> (anyone could change your date), months counted from <strong>0</strong> (January = 0!), confusing time-zone handling, and not thread-safe formatters. In Java 8, <code>java.time</code> fixed all of this. Rule: <strong>always use <code>java.time</code></strong>; only convert to <code>Date</code> when an old library forces you to.</p>
+  <p>All <code>java.time</code> classes are <strong>immutable</strong> and <strong>thread-safe</strong>: methods like <code>plusDays</code> return a <em>new</em> object.</p>
+  <pre><code class="lang-java">LocalDate d = LocalDate.of(2026, 3, 15);
+d.plusDays(14);              // ❌ result thrown away - d is still 15 March!
+d = d.plusDays(14);          // ✅ keep the new object</code></pre>
+
+  <h3>3.9 The java.time classes — which one when?</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Class</th><th>Holds</th><th>Example value</th><th>Use for</th></tr>
+    <tr><td><code>LocalDate</code></td><td>date only</td><td><code>2026-03-15</code></td><td>Birthdays, due dates, holidays</td></tr>
+    <tr><td><code>LocalTime</code></td><td>time only</td><td><code>09:30</code></td><td>Opening hours, alarm times</td></tr>
+    <tr><td><code>LocalDateTime</code></td><td>date + time, no zone</td><td><code>2026-03-15T18:45</code></td><td>"Wall clock" event times in a single-zone app; JPA <code>createdAt</code></td></tr>
+    <tr><td><code>ZonedDateTime</code></td><td>date + time + zone</td><td><code>2026-01-15T10:00+05:30[Asia/Kolkata]</code></td><td>Meetings across countries, flight times</td></tr>
+    <tr><td><code>Instant</code></td><td>a moment on the UTC timeline</td><td><code>2026-01-15T04:30:00Z</code></td><td>Timestamps for machines: logs, audit, tokens, DB</td></tr>
+    <tr><td><code>Period</code></td><td>years/months/days amount</td><td><code>P27Y6M23D</code></td><td>Age, subscription length</td></tr>
+    <tr><td><code>Duration</code></td><td>hours/minutes/seconds amount</td><td><code>PT9H25M</code></td><td>Work hours, timeouts, token expiry</td></tr>
+  </table></div>
+  <figure class="diagram">
+    <svg viewBox="0 0 640 150" width="640" role="img" aria-label="How the java.time classes combine">
+      <g font-family="Segoe UI, sans-serif" font-size="14" fill="currentColor">
+        <rect x="10" y="20" width="130" height="40" rx="8" fill="none" stroke="currentColor"/>
+        <text x="75" y="45" text-anchor="middle">LocalDate</text>
+        <text x="157" y="45" text-anchor="middle" font-size="20">+</text>
+        <rect x="175" y="20" width="130" height="40" rx="8" fill="none" stroke="currentColor"/>
+        <text x="240" y="45" text-anchor="middle">LocalTime</text>
+        <text x="322" y="45" text-anchor="middle" font-size="20">=</text>
+        <rect x="340" y="20" width="150" height="40" rx="8" fill="none" stroke="currentColor" stroke-width="2"/>
+        <text x="415" y="45" text-anchor="middle">LocalDateTime</text>
+        <text x="415" y="85" text-anchor="middle" font-size="20">+ ZoneId</text>
+        <rect x="340" y="100" width="150" height="40" rx="8" fill="none" stroke="currentColor" stroke-width="2"/>
+        <text x="415" y="125" text-anchor="middle">ZonedDateTime</text>
+        <text x="510" y="125" text-anchor="middle" font-size="20">⇄</text>
+        <rect x="530" y="100" width="100" height="40" rx="8" fill="none" stroke="currentColor"/>
+        <text x="580" y="125" text-anchor="middle">Instant</text>
+      </g>
+    </svg>
+    <figcaption>Date + time make a LocalDateTime; add a zone to pin it to a real moment, which converts to/from an Instant.</figcaption>
+  </figure>
+  <pre><code class="lang-java">LocalDate release = LocalDate.of(2026, Month.MARCH, 15);
+LocalDate parsed  = LocalDate.parse("2026-12-25");     // ISO yyyy-MM-dd
+release.getDayOfWeek();      // SUNDAY
+release.plusMonths(1);       // 2026-04-15
+release.isBefore(parsed);    // true
+LocalDate.of(2026, 1, 31).plusMonths(1);   // 2026-02-28 - clamped, no crash
+
+LocalDateTime placedAt = LocalDateTime.of(2026, 3, 15, 18, 45);
+placedAt.plusHours(30);      // 2026-03-17T00:45
+
+ZonedDateTime india = ZonedDateTime.of(2026, 1, 15, 10, 0, 0, 0, ZoneId.of("Asia/Kolkata"));
+india.withZoneSameInstant(ZoneId.of("America/New_York"));   // 2026-01-14T23:30-05:00
+india.toInstant();           // 2026-01-15T04:30:00Z  (Z = UTC)</code></pre>
+  <div class="callout tip"><strong>💡 Time zone IDs</strong>
+    Use region IDs like <code>Asia/Kolkata</code>, <code>Europe/London</code>, <code>America/New_York</code> — not fixed offsets like <code>+05:30</code>. Regions know about daylight-saving time changes; fixed offsets don't.
+  </div>
+
+  <h3>3.10 Period, Duration and ChronoUnit</h3>
+  <pre><code class="lang-java">Period age = Period.between(LocalDate.of(1998, 8, 20), LocalDate.of(2026, 3, 15));
+age.getYears();   // 27   (age.toString() = "P27Y6M23D")
+
+Duration worked = Duration.between(LocalTime.of(9, 15), LocalTime.of(18, 40));
+worked.toHours();        // 9
+worked.toMinutesPart();  // 25   (worked.toString() = "PT9H25M")
+
+ChronoUnit.DAYS.between(LocalDate.of(2026, 3, 15), LocalDate.of(2026, 5, 4));   // 50</code></pre>
+  <ul>
+    <li><strong>Period</strong> = calendar amounts ("2 months"). A month isn't a fixed number of days, so Period is about dates.</li>
+    <li><strong>Duration</strong> = exact time amounts ("90 minutes"). Used for timeouts, e.g. Spring's <code>spring.mvc.async.request-timeout=30s</code> or JWT expiry in topic 49.</li>
+    <li><strong>ChronoUnit.X.between(a, b)</strong> = total count of one unit (total days, total hours).</li>
+    <li>The strings like <code>P27Y6M23D</code> and <code>PT9H25M</code> are the <strong>ISO-8601</strong> format: P = period, T = time part.</li>
+  </ul>
+
+  <h3>3.11 DateTimeFormatter — dates ↔ text</h3>
+  <p>By default, <code>toString()</code> and <code>parse()</code> use the international ISO format (<code>2026-03-15</code>, <code>2026-03-15T16:05</code>) — and that's what JSON APIs should use. For screens, reports and user input you choose a pattern:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Letter</th><th>Meaning</th><th>Example</th></tr>
+    <tr><td><code>yyyy</code> (or <code>uuuu</code>)</td><td>year</td><td>2026</td></tr>
+    <tr><td><code>MM</code> / <code>MMM</code> / <code>MMMM</code></td><td>month number / short name / full name</td><td>03 / Mar / March</td></tr>
+    <tr><td><code>dd</code> / <code>d</code></td><td>day of month (2 digits / no padding)</td><td>05 / 5</td></tr>
+    <tr><td><code>EEE</code> / <code>EEEE</code></td><td>day of week short / full</td><td>Sun / Sunday</td></tr>
+    <tr><td><code>HH</code></td><td>hour 0–23</td><td>16</td></tr>
+    <tr><td><code>hh</code> + <code>a</code></td><td>hour 1–12 + AM/PM</td><td>04 PM</td></tr>
+    <tr><td><code>mm</code></td><td>minutes</td><td>05</td></tr>
+    <tr><td><code>ss</code></td><td>seconds</td><td>09</td></tr>
+  </table></div>
+  <pre><code class="lang-java">DateTimeFormatter indian = DateTimeFormatter.ofPattern("dd-MM-yyyy");
+meeting.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"));   // 15/03/2026 16:05
+LocalDate d = LocalDate.parse("05-09-2026", indian);               // 2026-09-05
+LocalDate.parse("2026/01/10", indian);                             // DateTimeParseException</code></pre>
+  <div class="callout danger"><strong>🚫 <code>MM</code> vs <code>mm</code></strong>
+    <code>MM</code> = month, <code>mm</code> = minutes. <code>"dd-mm-yyyy"</code> is a classic bug that prints minutes where the month should be. Similarly <code>HH</code> (24h) vs <code>hh</code> (12h).
+  </div>
+  <div class="callout info"><strong>ℹ️ "31-04-2026" was accepted?</strong>
+    By default, parsing is <em>smart</em>: an impossible day like 31 April is adjusted to 30 April (Example06 shows this). To reject it, use strict parsing: <code>DateTimeFormatter.ofPattern("dd-MM-uuuu").withResolverStyle(ResolverStyle.STRICT)</code> (note <code>uuuu</code> instead of <code>yyyy</code> in strict mode).
+  </div>
+  <p>Day/month names depend on the language, so pass a <code>Locale</code> (<code>Locale.ENGLISH</code>) when you use <code>MMM</code>/<code>EEE</code>, otherwise output changes with the computer's language settings.</p>
+
+  <h3>3.12 java.time in Spring (preview)</h3>
+  <ul>
+    <li><strong>JPA entities</strong> map <code>LocalDate</code> → SQL <code>DATE</code>, <code>LocalDateTime</code> → <code>TIMESTAMP</code>, <code>Instant</code> → <code>TIMESTAMP (WITH TIME ZONE)</code> automatically (topic 38).</li>
+    <li><strong>Jackson</strong> writes them to JSON as ISO strings: <code>"createdAt": "2026-03-15T18:45:00"</code>; customise with <code>@JsonFormat(pattern = "dd-MM-yyyy")</code> (topic 32).</li>
+    <li><strong>Validation</strong>: <code>@Past LocalDate dateOfBirth</code>, <code>@Future LocalDate deliveryDate</code> (topic 34).</li>
+    <li><strong>Testing</strong>: inject a <code>Clock</code> and use <code>LocalDate.now(clock)</code> so tests can fix "today" — the same idea as the fixed report date in Example07.</li>
+  </ul>
+
+  <!-- =========================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>Example01_NioFilesBasics.java</code></td><td><code>Path</code> methods; <code>Files</code> create/write/append/read/lines/size/copy/move/delete/list; missing-file exception.</td></tr>
+    <tr><td><code>Example02_BufferedReaderWriter.java</code></td><td>A bank transaction log written with <code>BufferedWriter</code> and read with <code>BufferedReader</code>; two resources in one try; old <code>java.io.File</code>.</td></tr>
+    <tr><td><code>Example03_ReadingCsv.java</code></td><td>Imports <code>students.csv</code> into records, reports bad rows with line numbers, computes averages with streams, writes <code>output/results.csv</code>.</td></tr>
+    <tr><td><code>Example04_SerializationIntro.java</code></td><td>Serialize/deserialize a <code>UserAccount</code> with a <code>transient</code> password, then the JSON alternative.</td></tr>
+    <tr><td><code>Example05_DateTimeBasics.java</code></td><td><code>LocalDate</code>, <code>LocalTime</code>, <code>LocalDateTime</code>, <code>ZonedDateTime</code> conversion India → New York, <code>Instant</code>.</td></tr>
+    <tr><td><code>Example06_DurationPeriodFormatting.java</code></td><td>Age with <code>Period</code>, shift length with <code>Duration</code>, <code>ChronoUnit</code> counts, many format patterns, parsing user input safely, a late-fee calculation.</td></tr>
+    <tr><td><code>Example07_LibraryLoanTracker.java</code></td><td>Mini program combining everything: reads <code>loans.csv</code>, calculates due dates and fines, prints a table and writes an overdue report.</td></tr>
+    <tr><td><code>students.csv</code>, <code>loans.csv</code></td><td>Input files. <code>students.csv</code> deliberately contains a blank line and two broken rows.</td></tr>
+  </table></div>
+
+  <h3>Example01 — Path and Files</h3>
+  <pre><span class="file">Example01_NioFilesBasics.java</span><code class="lang-java">Files.createDirectories(nested);
+Files.writeString(notes, "Buy milk\nCall the bank\n", StandardCharsets.UTF_8);
+Files.writeString(notes, "Finish Java topic 16\n", StandardCharsets.UTF_8, StandardOpenOption.APPEND);
+
+try (Stream&lt;String&gt; stream = Files.lines(shopping, StandardCharsets.UTF_8)) {
+    String withE = stream.filter(l -&gt; l.contains("e"))
+            .map(String::toUpperCase)
+            .collect(Collectors.joining(", "));     // RICE, BREAD
+}</code></pre>
+  <p><code>main</code> is declared <code>throws IOException</code> to keep the demo short. Note how <code>Files.lines</code> combines file reading with the streams you learned in topic 14. Section 8 reads a missing file and catches <code>NoSuchFileException</code> (a subclass of <code>IOException</code>).</p>
+
+  <h3>Example02 — classic readers and writers</h3>
+  <pre><span class="file">Example02_BufferedReaderWriter.java</span><code class="lang-java">try (BufferedReader reader = new BufferedReader(
+        new FileReader(logFile.toFile(), StandardCharsets.UTF_8))) {
+    String line;
+    while ((line = reader.readLine()) != null) {
+        String[] parts = line.split(",");
+        ...
+    }
+} catch (IOException e) {
+    System.out.println("Read failed: " + e.getMessage());
+}</code></pre>
+  <p>The odd-looking <code>while ((line = reader.readLine()) != null)</code> does two things: reads a line into <code>line</code>, then checks it isn't <code>null</code> (end of file). It's the standard idiom — you'll see it everywhere. This file catches exceptions instead of declaring <code>throws</code>, the style you'd use in real code.</p>
+
+  <h3>Example03 — CSV import</h3>
+  <pre><span class="file">Example03_ReadingCsv.java</span><code class="lang-java">for (int i = 1; i &lt; lines.size(); i++) {          // i = 1 skips the header
+    String line = lines.get(i);
+    if (line.isBlank()) continue;
+    String[] cols = line.split(",");
+    if (cols.length != 5) { errors.add(...); continue; }
+    try {
+        students.add(new Student(Integer.parseInt(cols[0].strip()), ...,
+                                 LocalDate.parse(cols[4].strip())));
+    } catch (NumberFormatException | DateTimeParseException e) {
+        errors.add("line " + lineNumber + ": " + e.getMessage());
+    }
+}</code></pre>
+  <p>Row 4 has marks <code>abc</code> and row 7 is missing a column — both are reported, the rest are imported. The helper <code>findInputFile</code> looks for <code>students.csv</code> in the current folder and, if not found, in <code>16-File-IO-And-Date-Time/</code>, so it works whether you run from the topic folder or the course root.</p>
+
+  <h3>Example04 — serialization</h3>
+  <p>The <code>UserAccount</code> is written with <code>ObjectOutputStream</code> and read back with <code>ObjectInputStream</code>. The loaded copy is a <em>new</em> object (<code>original == loaded</code> is false) and its <code>transient</code> password is <code>null</code>. Open <code>output/user.ser</code> in VS Code — unreadable binary. Then open <code>output/user.json</code> — clean text. That comparison is the whole argument for JSON.</p>
+
+  <h3>Example05 &amp; 06 — java.time</h3>
+  <p>All examples use fixed dates (except the first "now" line) so your output matches the comments. Look at the time-zone section: 10:00 in Kolkata (UTC+5:30) is 04:30 UTC and 23:30 the <em>previous day</em> in New York (UTC−5 in January). <code>isEqual</code> confirms they're the same instant.</p>
+
+  <h3>Example07 — mini program: library loan tracker</h3>
+  <pre><span class="file">Example07_LibraryLoanTracker.java</span><code class="lang-java">record Loan(String member, String book, LocalDate borrowedOn, LocalDate returnedOn) {
+    LocalDate dueDate() { return borrowedOn.plusDays(LOAN_DAYS); }
+    long lateDays(LocalDate today) {
+        LocalDate end = isReturned() ? returnedOn : today;
+        return Math.max(0, ChronoUnit.DAYS.between(dueDate(), end));
+    }
+}</code></pre>
+  <p>Business logic lives inside the record as small, well-named methods. Parsing uses <code>split(",", -1)</code> so a missing "returnedOn" becomes an empty string (not a missing column). The report date is a fixed parameter — a habit that makes code easy to test.</p>
+
+  <!-- =========================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <p><strong>In VS Code:</strong> open the folder <code>D:\Java-SpringBoot\16-File-IO-And-Date-Time</code> (File → Open Folder) so the program's working directory is this folder, open a file and click <strong>Run</strong>. After running examples 01–04 and 07, an <code>output</code> folder appears in the Explorer — open the files to see what was written.</p>
+  <p><strong>From the terminal:</strong></p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\16-File-IO-And-Date-Time"
+java Example01_NioFilesBasics.java
+java Example02_BufferedReaderWriter.java
+java Example03_ReadingCsv.java
+java Example04_SerializationIntro.java
+java Example05_DateTimeBasics.java
+java Example06_DurationPeriodFormatting.java
+java Example07_LibraryLoanTracker.java</code></pre>
+  <p>Expected output of <code>Example03_ReadingCsv.java</code>:</p>
+  <pre class="terminal"><code>Read 9 lines from students.csv
+Valid students: 5
+Errors:
+  line 5: For input string: "abc"
+  line 9: expected 5 columns but found 4
+Average marks per department: {CSE=75.0, ECE=76.0}
+Topper: Asha (92)
+Joined in 2024: 3
+Wrote 5 rows to output/results.csv</code></pre>
+  <p>Expected output of <code>Example06_DurationPeriodFormatting.java</code>:</p>
+  <pre class="terminal"><code>Period   : age = 27 years, 6 months, 23 days  (P27Y6M23D)
+           subscription ends 2026-09-15 (P6M)
+ChronoUnit: days until exam = 50
+            weeks until exam = 7
+            total months alive = 330
+Duration : worked 9h 25m (PT9H25M)
+           movie 148 min = 2h 28m
+           delivery took 17 hours 30 minutes, within 24h? true
+Format   : ISO default         = 2026-03-15T16:05
+           dd-MM-yyyy           = 15-03-2026
+           dd/MM/yyyy HH:mm     = 15/03/2026 16:05
+           EEE, d MMM yyyy      = Sun, 15 Mar 2026
+           EEEE dd MMMM, hh:mm a = Sunday 15 March, 04:05 PM
+           ISO_LOCAL_DATE       = 2026-03-15
+Parse    : '05-09-2026' -&gt; 2026-09-05 (SEPTEMBER)
+           '31-04-2026' OK -&gt; 2026-04-30
+           '2026/01/10' INVALID -&gt; Text '2026/01/10' could not be parsed at index 2
+           '10-01-2026' OK -&gt; 2026-01-10
+Library  : borrowed 20-02-2026, due 06-03-2026, returned 15-03-2026 -&gt; 9 days late, fine Rs.45</code></pre>
+  <p>Expected output of <code>Example07_LibraryLoanTracker.java</code>:</p>
+  <pre class="terminal"><code>Library report as of 15-03-2026
+------------------------------------------------------------------------------
+Member  Book                           Borrowed    Due         Status    Fine
+Asha    Clean Code                     01-03-2026  15-03-2026  RETURNED  Rs.0
+Ravi    Effective Java                 20-02-2026  06-03-2026  OVERDUE   Rs.45
+Meena   Head First Java                25-02-2026  11-03-2026  RETURNED  Rs.25
+John    Spring in Action               10-03-2026  24-03-2026  ON LOAN   Rs.0
+Bala    Java Concurrency in Practice   15-02-2026  01-03-2026  RETURNED  Rs.0
+------------------------------------------------------------------------------
+Total fines: Rs.70
+Overdue report written to output/overdue-report.txt:
+  Overdue report generated 15-03-2026 09:00
+  Ravi must return 'Effective Java' - 9 days late</code></pre>
+  <p>In <code>Example05_DateTimeBasics.java</code> the first line shows <em>your</em> current date and time, so it will differ from the comment; every other line should match.</p>
+  <div class="callout tip"><strong>💡 Clean up</strong>
+    The <code>output</code> folder is just demo output. Delete it whenever you like: <code>Remove-Item -Recurse -Force output</code> (PowerShell) — the examples recreate it.
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: "NoSuchFileException: students.csv" although the file is there</strong>
+    Relative paths are resolved from the <em>current working directory</em>, not from where the <code>.java</code> file is. If your terminal is in <code>D:\Java-SpringBoot</code>, Java looks for <code>D:\Java-SpringBoot\students.csv</code>.<br>
+    <strong>Fix:</strong> <code>cd</code> into the topic folder first, print <code>Path.of("").toAbsolutePath()</code> to see where Java is looking, or use a fallback like <code>findInputFile</code> in Example03.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: not closing files / streams</strong>
+    <pre><code class="lang-java">Stream&lt;String&gt; lines = Files.lines(path);   // file stays open!
+long n = lines.count();</code></pre>
+    <strong>Fix:</strong> always <code>try (Stream&lt;String&gt; lines = Files.lines(path)) { ... }</code>. Same for readers, writers, input/output streams.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting the encoding</strong>
+    Old constructors like <code>new FileReader("a.txt")</code> (without charset) use the computer's default encoding, so "₹" or "é" can turn into garbage on another machine. <strong>Fix:</strong> pass <code>StandardCharsets.UTF_8</code> everywhere.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: overwriting when you meant to append</strong>
+    <code>Files.writeString(log, line)</code> replaces the file each time. <strong>Fix:</strong> add <code>StandardOpenOption.CREATE, StandardOpenOption.APPEND</code>.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>readAllLines</code> on a 5 GB file</strong>
+    Loads everything into memory → <code>OutOfMemoryError</code>. <strong>Fix:</strong> process line by line with <code>Files.lines</code> or <code>BufferedReader</code>.
+  </div>
+  <div class="callout danger"><strong>🚫 Mistake: swallowing IOException</strong>
+    <code>catch (IOException e) { }</code> hides real problems (disk full, no permission). <strong>Fix:</strong> log it with a helpful message, or rethrow as an unchecked exception (<code>throw new UncheckedIOException(e)</code>).
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: ignoring the result of a date method</strong>
+    <code>date.plusDays(1);</code> does nothing to <code>date</code> — java.time objects are immutable. <strong>Fix:</strong> <code>date = date.plusDays(1);</code>
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: wrong pattern letters</strong>
+    <code>"dd-mm-yyyy"</code> (minutes!), <code>"YYYY"</code> (week-based year — wrong around New Year), <code>"hh"</code> without <code>a</code>. <strong>Fix:</strong> <code>"dd-MM-yyyy"</code>, <code>"HH:mm"</code>, and test with dates near 31 December.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: using LocalDateTime for global events</strong>
+    "Sale ends at 2026-03-15T23:59" — in which country? <strong>Fix:</strong> store moments as <code>Instant</code> (or <code>ZonedDateTime</code>/<code>OffsetDateTime</code>) and convert to the user's zone only for display.
+  </div>
+  <div class="callout warn"><strong>⚠️ Mistake: using <code>new Date()</code>, <code>Calendar</code> or <code>SimpleDateFormat</code> in new code</strong>
+    Mutable, confusing (January = 0) and <code>SimpleDateFormat</code> isn't thread-safe — a real problem in multi-threaded web servers. <strong>Fix:</strong> java.time + <code>DateTimeFormatter</code> (immutable and thread-safe — keep one as a <code>static final</code> constant).
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Prefer <code>Path</code> + <code>Files</code></strong> over <code>java.io.File</code> in new code.</li>
+    <li><strong>Always use try-with-resources</strong> for anything you open, including <code>Files.lines</code>/<code>Files.list</code> streams.</li>
+    <li><strong>Always specify UTF-8</strong> explicitly.</li>
+    <li><strong>Stream big files</strong> line by line; use <code>readAllLines</code>/<code>readString</code> only for small ones.</li>
+    <li><strong>Validate input files</strong> row by row, collect errors with line numbers, and report them — don't stop at the first bad row (unless the business requires all-or-nothing).</li>
+    <li><strong>Use a CSV library</strong> (Apache Commons CSV, OpenCSV) for real-world CSV with quotes and commas.</li>
+    <li><strong>Never deserialize untrusted data</strong> with <code>ObjectInputStream</code>. Use JSON for data exchange.</li>
+    <li><strong>Never trust user-supplied file names</strong> — <code>../../windows/system32</code> is a "path traversal" attack (topic 54 shows how to sanitize).</li>
+    <li><strong>Store timestamps as <code>Instant</code>/UTC</strong>, convert to local zones only for display. Use <code>LocalDate</code> for pure dates (birthdays).</li>
+    <li><strong>Use ISO-8601</strong> (<code>2026-03-15T16:05:00Z</code>) in APIs, logs and files; custom patterns only for humans.</li>
+    <li><strong>Make "now" injectable</strong> (a <code>Clock</code> or a parameter) so code that depends on today's date can be tested.</li>
+    <li><strong>Keep formatters as constants</strong>: <code>static final DateTimeFormatter DATE_FORMAT = ...</code>.</li>
+  </ul>
+
+  <!-- =========================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li><code>Path</code> is an address; <code>Files</code> does the work (<code>readAllLines</code>, <code>readString</code>, <code>writeString</code>, <code>lines</code>, <code>copy</code>, <code>move</code>, <code>delete</code>).</li>
+    <li>File operations throw the checked <code>IOException</code>; handle it properly.</li>
+    <li>try-with-resources guarantees files are closed — always use it.</li>
+    <li><code>BufferedReader.readLine()</code> returns <code>null</code> at end of file; buffering makes I/O fast.</li>
+    <li>CSV import = read lines → skip header → split → convert → collect errors → build objects.</li>
+    <li>Serialization turns objects into bytes (<code>Serializable</code>, <code>transient</code>, <code>serialVersionUID</code>), but JSON is the modern, safe, cross-language choice.</li>
+    <li>Use <code>java.time</code>: <code>LocalDate</code>/<code>LocalTime</code>/<code>LocalDateTime</code> for wall-clock values, <code>ZonedDateTime</code> for zones, <code>Instant</code> for machine timestamps.</li>
+    <li><code>Period</code> = years/months/days, <code>Duration</code> = hours/minutes/seconds, <code>ChronoUnit.DAYS.between</code> = total count.</li>
+    <li>java.time objects are immutable — keep the returned value.</li>
+    <li><code>DateTimeFormatter.ofPattern("dd-MM-yyyy")</code> formats and parses; <code>MM</code> = month, <code>mm</code> = minutes.</li>
+  </ul></div>
+
+  <!-- =========================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <p>Create <code>Practice16.java</code> in this folder and run it from here.</p>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Diary.</strong> Write three lines to <code>output/diary.txt</code>, then append a fourth line, then read the file back and print each line with its line number.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">Path diary = Path.of("output", "diary.txt");
+Files.createDirectories(diary.getParent());
+Files.write(diary, List.of("Woke up early", "Studied streams", "Went for a walk"), StandardCharsets.UTF_8);
+Files.writeString(diary, "Learned java.time" + System.lineSeparator(),
+        StandardCharsets.UTF_8, StandardOpenOption.APPEND);
+
+List&lt;String&gt; lines = Files.readAllLines(diary, StandardCharsets.UTF_8);
+for (int i = 0; i &lt; lines.size(); i++) {
+    System.out.println((i + 1) + ": " + lines.get(i));
+}
+// 1: Woke up early
+// 2: Studied streams
+// 3: Went for a walk
+// 4: Learned java.time</code></pre>
+    <p><code>main</code> needs <code>throws IOException</code>. <code>System.lineSeparator()</code> gives <code>\r\n</code> on Windows and <code>\n</code> elsewhere.</p>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Days to go.</strong> Given <code>LocalDate today = LocalDate.of(2026, 3, 15)</code>, print: the date 100 days later, the day of the week of your next birthday (pick any date), and how many days until 31 December 2026.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">LocalDate today = LocalDate.of(2026, 3, 15);
+System.out.println(today.plusDays(100));                                      // 2026-06-23
+LocalDate birthday = LocalDate.of(2026, 8, 20);
+System.out.println(birthday.getDayOfWeek());                                  // THURSDAY
+System.out.println(ChronoUnit.DAYS.between(today, LocalDate.of(2026, 12, 31))); // 291</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Department counter.</strong> Using <code>Files.lines</code> on <code>students.csv</code> (skip the header and blank lines), count how many students are in each department and print the result as a sorted map. Ignore broken rows by only counting lines with exactly 5 columns.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">Map&lt;String, Long&gt; perDept;
+try (Stream&lt;String&gt; lines = Files.lines(Path.of("students.csv"), StandardCharsets.UTF_8)) {
+    perDept = lines.skip(1)
+            .filter(l -&gt; !l.isBlank())
+            .map(l -&gt; l.split(","))
+            .filter(cols -&gt; cols.length == 5)
+            .collect(Collectors.groupingBy(cols -&gt; cols[2], TreeMap::new, Collectors.counting()));
+}
+System.out.println(perDept);   // {CSE=3, ECE=2, MECH=1}</code></pre>
+    <p>John's row (marks "abc") still has 5 columns, so MECH counts 1 here — we only check structure, not values.</p>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Date converter.</strong> Write <code>static String toIndianFormat(String isoDate)</code> that converts "2026-03-15" to "15/03/2026" and returns "Invalid date" for bad input like "2026-13-01" or "hello".</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">static final DateTimeFormatter OUT = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+
+static String toIndianFormat(String isoDate) {
+    try {
+        return LocalDate.parse(isoDate).format(OUT);
+    } catch (DateTimeParseException e) {
+        return "Invalid date";
+    }
+}
+
+System.out.println(toIndianFormat("2026-03-15"));   // 15/03/2026
+System.out.println(toIndianFormat("2026-13-01"));   // Invalid date
+System.out.println(toIndianFormat("hello"));        // Invalid date</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Meeting planner.</strong> A meeting is at 2026-06-10 18:30 in <code>Europe/London</code>. Print the meeting time in Kolkata, New York and Tokyo using the format <code>EEE dd MMM HH:mm</code> (English), and the meeting's <code>Instant</code>.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">DateTimeFormatter f = DateTimeFormatter.ofPattern("EEE dd MMM HH:mm", Locale.ENGLISH);
+ZonedDateTime london = ZonedDateTime.of(2026, 6, 10, 18, 30, 0, 0, ZoneId.of("Europe/London"));
+for (String zone : List.of("Asia/Kolkata", "America/New_York", "Asia/Tokyo")) {
+    System.out.println(zone + " -&gt; " + london.withZoneSameInstant(ZoneId.of(zone)).format(f));
+}
+System.out.println("Instant: " + london.toInstant());
+// Asia/Kolkata -&gt; Wed 10 Jun 23:00
+// America/New_York -&gt; Wed 10 Jun 13:30
+// Asia/Tokyo -&gt; Thu 11 Jun 02:30
+// Instant: 2026-06-10T17:30:00Z      (London is on summer time, UTC+1, in June)</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Attendance report.</strong> Create <code>output/attendance.csv</code> containing <code>name,in,out</code> rows such as <code>Asha,09:05,17:45</code>, <code>Ravi,10:20,18:00</code>, <code>Meena,08:55,16:10</code>. Read it back, compute each person's worked <code>Duration</code>, mark "LATE" if they came after 09:30, and write <code>output/attendance-report.txt</code>. Print the report.</p>
+    <details><summary>Hint / solution</summary>
+    <pre><code class="lang-java">Path in = Path.of("output", "attendance.csv");
+Files.createDirectories(in.getParent());
+Files.write(in, List.of("name,in,out", "Asha,09:05,17:45", "Ravi,10:20,18:00", "Meena,08:55,16:10"),
+        StandardCharsets.UTF_8);
+
+LocalTime lateAfter = LocalTime.of(9, 30);
+List&lt;String&gt; report = new ArrayList&lt;&gt;();
+try (Stream&lt;String&gt; lines = Files.lines(in, StandardCharsets.UTF_8)) {
+    lines.skip(1).forEach(line -&gt; {
+        String[] c = line.split(",");
+        LocalTime start = LocalTime.parse(c[1]);
+        LocalTime end = LocalTime.parse(c[2]);
+        Duration worked = Duration.between(start, end);
+        String flag = start.isAfter(lateAfter) ? " LATE" : "";
+        report.add(String.format("%-6s %dh %02dm%s", c[0], worked.toHours(), worked.toMinutesPart(), flag));
+    });
+}
+Path out = Path.of("output", "attendance-report.txt");
+Files.write(out, report, StandardCharsets.UTF_8);
+Files.readAllLines(out).forEach(System.out::println);
+// Asha   8h 40m
+// Ravi   7h 40m LATE
+// Meena  7h 15m</code></pre>
+    </details>
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between java.io and java.nio.file?</summary>
+    <p><code>java.io</code> is the original stream-based API (<code>File</code>, <code>FileInputStream</code>, <code>BufferedReader</code>…); many <code>File</code> methods report failure by returning <code>false</code>. <code>java.nio.file</code> (Java 7, "NIO.2") introduced <code>Path</code> and the <code>Files</code> utility class with clearer exceptions, symbolic-link and attribute support, directory walking, and convenient one-liners (<code>readAllLines</code>, <code>readString</code>, <code>lines</code>). New code should prefer NIO.2; the two interoperate via <code>file.toPath()</code> and <code>path.toFile()</code>.</p></details>
+  <details><summary>Q2. Byte streams vs character streams?</summary>
+    <p>Byte streams (<code>InputStream</code>/<code>OutputStream</code>) handle raw 8-bit bytes — for binary data like images or PDFs. Character streams (<code>Reader</code>/<code>Writer</code>) handle text and apply a character encoding (e.g. UTF-8). <code>InputStreamReader</code> bridges bytes to characters.</p></details>
+  <details><summary>Q3. Why use BufferedReader/BufferedWriter?</summary>
+    <p>They keep an in-memory buffer, so the program reads/writes large chunks instead of hitting the disk for every character — dramatically fewer system calls and better performance. <code>BufferedReader</code> also adds <code>readLine()</code> and <code>lines()</code>; <code>BufferedWriter</code> adds <code>newLine()</code>.</p></details>
+  <details><summary>Q4. What is try-with-resources and why is it important for I/O?</summary>
+    <p>A <code>try (Resource r = ...) { }</code> statement (Java 7) that automatically calls <code>close()</code> on every declared <code>AutoCloseable</code> resource when the block exits, normally or via exception, in reverse order of declaration. Exceptions thrown by <code>close()</code> are attached as "suppressed" exceptions. It prevents file-handle leaks and locked files.</p></details>
+  <details><summary>Q5. Files.readAllLines vs Files.lines?</summary>
+    <p><code>readAllLines</code> eagerly loads the whole file into a <code>List&lt;String&gt;</code> — simple, but memory-heavy for big files. <code>lines</code> returns a lazily populated <code>Stream&lt;String&gt;</code> that reads as you consume it, suitable for large files; it holds an open file handle and must be closed (try-with-resources).</p></details>
+  <details><summary>Q6. What is serialization? What are transient and serialVersionUID?</summary>
+    <p>Serialization converts an object graph into a byte stream (<code>ObjectOutputStream.writeObject</code>) and deserialization reconstructs it (<code>ObjectInputStream.readObject</code>); the class must implement the marker interface <code>Serializable</code>. <code>transient</code> fields are excluded and come back with default values. <code>serialVersionUID</code> is a version identifier checked on deserialization; a mismatch throws <code>InvalidClassException</code>. Declare it explicitly to control compatibility.</p></details>
+  <details><summary>Q7. Why do modern systems prefer JSON over Java serialization?</summary>
+    <p>JSON is human-readable, language-independent, tolerant of schema changes, and safe to parse. Java native serialization is Java-only, brittle across class changes, and deserializing untrusted data is a well-known remote-code-execution risk. Spring Boot uses Jackson to map objects to JSON for REST APIs and messaging.</p></details>
+  <details><summary>Q8. LocalDateTime vs ZonedDateTime vs Instant — when to use each?</summary>
+    <p><code>LocalDateTime</code>: a date-time with no zone — a "wall clock" value, fine when everything happens in one known zone or for user-entered values. <code>ZonedDateTime</code>: date-time plus a region zone — correct for scheduling across zones and handling daylight-saving rules. <code>Instant</code>: an exact point on the UTC timeline — best for machine timestamps (logs, audit columns, token expiry). A common practice: store <code>Instant</code>/UTC, display in the user's zone.</p></details>
+  <details><summary>Q9. Period vs Duration?</summary>
+    <p><code>Period</code> is a date-based amount in years, months and days (e.g. age, "add 1 month" respecting month lengths). <code>Duration</code> is a time-based amount in seconds and nanoseconds (shown as hours/minutes), e.g. timeouts, elapsed time. Use <code>ChronoUnit.X.between</code> for a total count of a single unit.</p></details>
+  <details><summary>Q10. Why was java.time introduced? What was wrong with Date and Calendar?</summary>
+    <p><code>Date</code>/<code>Calendar</code> are mutable (not thread-safe, easy to corrupt), have confusing APIs (0-based months, <code>Date</code> years offset from 1900), mix date and time concepts, and <code>SimpleDateFormat</code> isn't thread-safe. <code>java.time</code> (JSR-310, Java 8) provides immutable, thread-safe, clearly separated types (<code>LocalDate</code>, <code>Instant</code>, <code>ZonedDateTime</code>…), fluent arithmetic, proper time-zone support and the thread-safe <code>DateTimeFormatter</code>.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../15-Modern-Java-Features/lesson.html"><small>← Previous</small>15. Modern Java Features</a>
+    <a class="next" href="../17-Multithreading-And-Concurrency/lesson.html"><small>Next →</small>17. Multithreading &amp; Concurrency</a>
+  </nav>
+</main>
+</body>
+</html>

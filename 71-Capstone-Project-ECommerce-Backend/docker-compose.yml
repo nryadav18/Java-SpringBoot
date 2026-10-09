@@ -1,0 +1,49 @@
+# =====================================================================
+# ShopEasy - app + MySQL with Docker Compose (topics 43 and 67)
+#
+#   docker compose up -d mysql      # only the database (then run the app from VS Code with profile "mysql")
+#   docker compose up --build       # database + app container
+#   docker compose down             # stop        (add -v to also delete the database volume)
+#
+# Inside the compose network, containers reach each other by SERVICE NAME: the app connects to "mysql:3306".
+# =====================================================================
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: shopeasy-mysql
+    environment:
+      MYSQL_DATABASE: shopeasy
+      MYSQL_USER: shopeasy
+      MYSQL_PASSWORD: shopeasy           # demo only - use secrets / an .env file for real deployments
+      MYSQL_ROOT_PASSWORD: rootpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - shopeasy-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpass"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    image: shopeasy:1.0.0
+    container_name: shopeasy-app
+    depends_on:
+      mysql:
+        condition: service_healthy       # wait until MySQL really accepts connections
+    environment:
+      SPRING_PROFILES_ACTIVE: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: shopeasy
+      DB_USERNAME: shopeasy
+      DB_PASSWORD: shopeasy
+      # Generate your own:  openssl rand -base64 32
+      JWT_SECRET: ${JWT_SECRET:-c2hvcGVhc3ktZG9ja2VyLWRlbW8tc2VjcmV0LWtleS1jaGFuZ2UtbWUh}
+    ports:
+      - "8080:8080"
+
+volumes:
+  shopeasy-mysql-data:

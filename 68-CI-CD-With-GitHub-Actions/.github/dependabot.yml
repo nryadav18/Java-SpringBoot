@@ -1,0 +1,22 @@
+# =====================================================================
+# .github/dependabot.yml - Dependabot opens pull requests automatically
+# when a newer version of a dependency is available.
+# Each PR is then checked by the CI workflow, so you can merge with confidence.
+# =====================================================================
+version: 2
+updates:
+  - package-ecosystem: "maven"            # pom.xml dependencies and plugins
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "github-actions"   # actions/checkout@v4 etc. in workflows
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "docker"           # FROM eclipse-temurin:17-jre in the Dockerfile
+    directory: "/"
+    schedule:
+      interval: "weekly"

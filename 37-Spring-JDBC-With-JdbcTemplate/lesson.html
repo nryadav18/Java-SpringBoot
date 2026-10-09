@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>37 · Spring JDBC with JdbcTemplate</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 37</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>37. Spring JDBC with JdbcTemplate</h1>
+  <p class="subtitle">Talk to a real SQL database from Spring Boot with a fraction of the code raw JDBC needs — using JdbcTemplate, NamedParameterJdbcTemplate and the modern JdbcClient.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="37-Spring-JDBC-With-JdbcTemplate"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Why raw JDBC (topic 19) is painful, and what Spring JDBC takes off your hands.</li>
+      <li>How Spring Boot auto-configures a <b>DataSource</b> with the <b>HikariCP</b> connection pool.</li>
+      <li>Creating tables and sample data with <b>schema.sql</b> / <b>data.sql</b>.</li>
+      <li>Looking inside the database with the <b>H2 console</b>.</li>
+      <li><code>JdbcTemplate</code>: <code>query</code>, <code>queryForObject</code>, <code>update</code>, and <b>RowMapper</b>.</li>
+      <li><code>NamedParameterJdbcTemplate</code>: readable <code>:name</code> parameters.</li>
+      <li>Getting database-generated ids with <b>KeyHolder</b>.</li>
+      <li><b>JdbcClient</b> — the fluent API introduced in Spring 6.1.</li>
+      <li>When to use JDBC and when to use JPA (next topic).</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../19-JDBC-Basics/lesson.html">Topic 19 · JDBC Basics</a> (SQL, PreparedStatement, ResultSet) and <a href="../33-Layered-Architecture-And-DTOs/lesson.html">Topic 33 · Layers</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Until now our Spring Boot apps kept data in a <code>Map</code> — it vanished on every restart. Real applications store data in a <b>database</b>. In topic 19 you did this with plain JDBC and saw how much code one simple query needs.</p>
+  <p>Spring JDBC is the lightest way to use SQL from Spring: <b>you still write the SQL</b>, but Spring does all the plumbing. It is used a lot at work:</p>
+  <ul>
+    <li><b>Reports and dashboards</b> with complex SQL (joins, GROUP BY, window functions).</li>
+    <li><b>Batch jobs</b> that insert or update thousands of rows fast.</li>
+    <li>Teams that prefer to <b>control every SQL statement</b> for performance.</li>
+    <li>Next to JPA in the same project: JPA for normal CRUD, JdbcTemplate for the tricky queries.</li>
+  </ul>
+  <p>It also teaches you what really happens underneath JPA (topic 38) — and interviewers often ask "JdbcTemplate vs JPA?".</p>
+
+  <!-- ============================================================ -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🚕 Driving yourself vs taking a taxi</strong>
+    <ul>
+      <li><b>Raw JDBC</b> = driving your own old car: you unlock it, start the engine, drive, find parking, lock it, and if anything breaks on the way <i>you</i> deal with it — every single trip (open connection, prepare statement, loop the result set, close everything, handle <code>SQLException</code>).</li>
+      <li><b>JdbcTemplate</b> = a taxi: you only say <b>where</b> to go (your SQL) and <b>what to do on arrival</b> (your RowMapper). The driver handles the car, the route and the parking (connections, statements, closing, errors).</li>
+      <li><b>The connection pool (HikariCP)</b> = the taxi stand: a few cars are always waiting, so you don't have to buy a new car for every trip.</li>
+      <li><b>JPA</b> (next topic) = a full travel agency: you say "I want to be in Goa" and they plan everything — convenient, but you see less of what happens.</li>
+    </ul>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Recap: the pain of raw JDBC</h3>
+  <p>Finding one student by id with plain JDBC (topic 19):</p>
+  <pre><span class="file">❌ Raw JDBC</span><code class="lang-java">public Optional&lt;Student&gt; findById(long id) {
+    String sql = "SELECT id, name, email, course, marks, enrolled_on FROM student WHERE id = ?";
+    try (Connection con = DriverManager.getConnection(URL, USER, PASSWORD);   // 1. connect
+         PreparedStatement ps = con.prepareStatement(sql)) {                  // 2. prepare
+        ps.setLong(1, id);                                                    // 3. parameters
+        try (ResultSet rs = ps.executeQuery()) {                              // 4. execute
+            if (rs.next()) {                                                  // 5. loop / read
+                return Optional.of(new Student(rs.getLong("id"), rs.getString("name"), ...));
+            }
+            return Optional.empty();
+        }
+    } catch (SQLException e) {                                                // 6. checked exception
+        throw new RuntimeException(e);                                        //    vendor-specific codes
+    }                                                                         // 7. closing (try-with-resources)
+}</code></pre>
+  <p>And the same with <code>JdbcClient</code>:</p>
+  <pre><span class="file">✅ Spring JDBC</span><code class="lang-java">public Optional&lt;Student&gt; findById(long id) {
+    return jdbcClient.sql("SELECT id, name, email, course, marks, enrolled_on FROM student WHERE id = :id")
+            .param("id", id)
+            .query(Student.class)
+            .optional();
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Job</th><th>Raw JDBC</th><th>Spring JDBC</th></tr>
+    <tr><td>Open / close connection</td><td>You</td><td>Spring (from the pool)</td></tr>
+    <tr><td>Create PreparedStatement, set parameters</td><td>You</td><td>Spring (you pass values)</td></tr>
+    <tr><td>Loop over ResultSet</td><td>You</td><td>Spring (you map ONE row)</td></tr>
+    <tr><td>Close ResultSet/Statement, even on error</td><td>You</td><td>Spring</td></tr>
+    <tr><td>Checked <code>SQLException</code> with vendor codes</td><td>You</td><td>Translated to unchecked <code>DataAccessException</code></td></tr>
+    <tr><td>Join Spring transactions (<code>@Transactional</code>)</td><td>Hard</td><td>Automatic</td></tr>
+    <tr><td>Write the SQL</td><td>You</td><td><b>Still you</b> ✅ (full control)</td></tr>
+  </table></div>
+
+  <h3>3.2 The DataSource and HikariCP — auto-configured</h3>
+  <p>A <b>DataSource</b> is a Java interface (<code>javax.sql.DataSource</code>) that hands out database connections. Opening a real connection is slow (network, login, …), so production apps use a <b>connection pool</b>: a set of already-open connections that are borrowed and returned.</p>
+  <div class="flow">
+    <span class="box">JdbcTemplate</span><span class="arrow">→ borrow →</span>
+    <span class="box alt">HikariCP pool<br><small>10 open connections</small></span><span class="arrow">→</span>
+    <span class="box info">H2 / MySQL / PostgreSQL</span><span class="arrow">… then</span>
+    <span class="box">connection returned to the pool</span>
+  </div>
+  <p>Add <code>spring-boot-starter-jdbc</code> + a database driver, and Spring Boot creates everything automatically:</p>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-jdbc&lt;/artifactId&gt;   &lt;!-- spring-jdbc + HikariCP --&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;com.h2database&lt;/groupId&gt;
+    &lt;artifactId&gt;h2&lt;/artifactId&gt;                          &lt;!-- the database (driver + engine) --&gt;
+    &lt;scope&gt;runtime&lt;/scope&gt;
+&lt;/dependency&gt;</code></pre>
+  <pre><span class="file">application.properties</span><code class="lang-properties">spring.datasource.url=jdbc:h2:mem:studentdb;DB_CLOSE_DELAY=-1
+spring.datasource.username=sa
+spring.datasource.password=
+spring.datasource.hikari.maximum-pool-size=10
+spring.datasource.hikari.pool-name=StudentPool</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Bean Spring Boot creates</th><th>Type</th></tr>
+    <tr><td><code>dataSource</code></td><td><code>HikariDataSource</code> (the pool)</td></tr>
+    <tr><td><code>jdbcTemplate</code></td><td><code>JdbcTemplate</code></td></tr>
+    <tr><td><code>namedParameterJdbcTemplate</code></td><td><code>NamedParameterJdbcTemplate</code></td></tr>
+    <tr><td><code>jdbcClient</code></td><td><code>JdbcClient</code> (Boot 3.2+)</td></tr>
+    <tr><td><code>transactionManager</code></td><td><code>DataSourceTransactionManager</code> (for <code>@Transactional</code>, topic 42)</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ No URL at all?</strong> If H2 is on the classpath and you set no <code>spring.datasource.url</code>, Boot creates an embedded in-memory database with a random name. We set the URL so the H2 console can find it by name. For MySQL (topic 43) you'd just change the URL, username, password and driver dependency — the Java code stays the same.</div>
+  <p>Useful Hikari settings: <code>maximum-pool-size</code> (default 10), <code>minimum-idle</code>, <code>connection-timeout</code> (how long to wait for a free connection, default 30 s), <code>idle-timeout</code>, <code>max-lifetime</code>. The defaults are good for most apps.</p>
+
+  <h3>3.3 schema.sql and data.sql</h3>
+  <p>At startup Spring Boot looks for two files in <code>src/main/resources</code>:</p>
+  <ul>
+    <li><code>schema.sql</code> — DDL: <code>CREATE TABLE</code>… (runs first)</li>
+    <li><code>data.sql</code> — DML: <code>INSERT</code> sample rows (runs second)</li>
+  </ul>
+  <pre><span class="file">schema.sql</span><code class="lang-sql">DROP TABLE IF EXISTS student;
+
+CREATE TABLE student (
+    id          BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,   -- DB generates ids
+    name        VARCHAR(100) NOT NULL,
+    email       VARCHAR(150) NOT NULL UNIQUE,
+    course      VARCHAR(50)  NOT NULL,
+    marks       INT          NOT NULL CHECK (marks BETWEEN 0 AND 100),
+    enrolled_on DATE         NOT NULL
+);</code></pre>
+  <pre><span class="file">data.sql</span><code class="lang-sql">INSERT INTO student (name, email, course, marks, enrolled_on)
+VALUES ('Asha Rao', 'asha@college.edu', 'Java', 92, DATE '2026-06-01');
+-- ... 4 more rows</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th><code>spring.sql.init.mode</code></th><th>Meaning</th></tr>
+    <tr><td><code>embedded</code> (default)</td><td>Run the scripts only for embedded databases (H2, HSQL, Derby)</td></tr>
+    <tr><td><code>always</code></td><td>Run them for every database (MySQL too) — fine for demos</td></tr>
+    <tr><td><code>never</code></td><td>Never run them</td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Not for production schema changes</strong> These scripts run on <i>every</i> start. Real projects manage schema changes with a migration tool like <b>Flyway</b> (topic 43), which runs each change exactly once and keeps a history. Also: when you use JPA (topic 38) with <code>ddl-auto</code>, set <code>spring.jpa.defer-datasource-initialization=true</code> if you want <code>data.sql</code> to run after Hibernate creates the tables.</div>
+
+  <h3>3.4 The H2 console</h3>
+  <p>H2 includes a small web UI to look at tables and run SQL. Enable it:</p>
+  <pre><code class="lang-properties">spring.h2.console.enabled=true
+spring.h2.console.path=/h2-console</code></pre>
+  <p>Open <b>http://localhost:8080/h2-console</b>, set <b>JDBC URL</b> to <code>jdbc:h2:mem:studentdb</code>, user <code>sa</code>, empty password, click <b>Connect</b>, then run <code>SELECT * FROM student;</code>. Changes you make through the API appear here immediately.</p>
+  <div class="callout danger"><strong>🛑 Development only</strong> Never enable the H2 console in production — it gives full database access through the browser.</div>
+
+  <h3>3.5 JdbcTemplate — the core methods</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>Use for</th><th>Returns</th></tr>
+    <tr><td><code>query(sql, rowMapper, args...)</code></td><td>SELECT many rows</td><td><code>List&lt;T&gt;</code> (empty list if none)</td></tr>
+    <tr><td><code>queryForObject(sql, rowMapper, args...)</code></td><td>SELECT exactly one row</td><td><code>T</code> — throws <code>EmptyResultDataAccessException</code> if 0 rows, <code>IncorrectResultSizeDataAccessException</code> if 2+</td></tr>
+    <tr><td><code>queryForObject(sql, Long.class, args...)</code></td><td>One row, one column (COUNT, MAX, a name)</td><td><code>Long</code>, <code>String</code>…</td></tr>
+    <tr><td><code>queryForList(sql, args...)</code></td><td>Quick look without a mapper</td><td><code>List&lt;Map&lt;String, Object&gt;&gt;</code></td></tr>
+    <tr><td><code>update(sql, args...)</code></td><td>INSERT, UPDATE, DELETE</td><td><code>int</code> = number of affected rows</td></tr>
+    <tr><td><code>update(PreparedStatementCreator, keyHolder)</code></td><td>INSERT and get the generated id</td><td>rows; id goes into the KeyHolder</td></tr>
+    <tr><td><code>batchUpdate(sql, List&lt;Object[]&gt;)</code></td><td>Many INSERT/UPDATEs at once (fast)</td><td><code>int[]</code></td></tr>
+    <tr><td><code>execute(sql)</code></td><td>DDL (CREATE TABLE…)</td><td>void</td></tr>
+  </table></div>
+  <pre><code class="lang-java">// many rows
+List&lt;Student&gt; javaStudents = jdbcTemplate.query(
+        "SELECT * FROM student WHERE course = ?", StudentRowMapper.INSTANCE, "Java");
+
+// one value
+Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM student", Long.class);
+
+// change data
+int rows = jdbcTemplate.update("UPDATE student SET marks = ? WHERE id = ?", 95, 1L);   // rows == 1</code></pre>
+  <p>Each <code>?</code> is a placeholder filled by the arguments <b>in order</b>. Spring uses a <code>PreparedStatement</code>, so values are sent separately from the SQL — <b>safe from SQL injection</b> (topic 19).</p>
+
+  <h3>3.6 RowMapper — "how one row becomes one object"</h3>
+  <p><code>RowMapper&lt;T&gt;</code> is a functional interface with one method: <code>T mapRow(ResultSet rs, int rowNum)</code>. JdbcTemplate runs the loop and calls it once per row.</p>
+  <pre><span class="file">repository/StudentRowMapper.java</span><code class="lang-java">public class StudentRowMapper implements RowMapper&lt;Student&gt; {
+    public static final StudentRowMapper INSTANCE = new StudentRowMapper();
+
+    @Override
+    public Student mapRow(ResultSet rs, int rowNum) throws SQLException {
+        return new Student(
+                rs.getLong("id"),
+                rs.getString("name"),
+                rs.getString("email"),
+                rs.getString("course"),
+                rs.getInt("marks"),
+                rs.getObject("enrolled_on", LocalDate.class));   // DATE -&gt; LocalDate
+    }
+}</code></pre>
+  <p>Because it is a functional interface, small mappers can be <b>lambdas</b> (topic 13):</p>
+  <pre><code class="lang-java">jdbcTemplate.query("SELECT course, COUNT(*) AS students FROM student GROUP BY course",
+        (rs, rowNum) -&gt; new CourseCount(rs.getString("course"), rs.getLong("students")));</code></pre>
+  <p>Ready-made mappers: <code>DataClassRowMapper</code> (records/constructors) and <code>BeanPropertyRowMapper</code> (classes with setters) map columns to properties by name — and they understand that <code>enrolled_on</code> means <code>enrolledOn</code>.</p>
+
+  <h3>3.7 NamedParameterJdbcTemplate — names instead of question marks</h3>
+  <p>With many parameters, <code>?</code> becomes error-prone: was marks the 4th or the 5th? Named parameters fix this:</p>
+  <pre><code class="lang-java">// JdbcTemplate: position matters
+jdbcTemplate.update("UPDATE student SET name = ?, email = ?, course = ?, marks = ? WHERE id = ?",
+        s.name(), s.email(), s.course(), s.marks(), s.id());
+
+// NamedParameterJdbcTemplate: names, any order
+namedJdbc.update("UPDATE student SET name = :name, email = :email, course = :course, marks = :marks WHERE id = :id",
+        new MapSqlParameterSource()
+                .addValue("id", s.id())
+                .addValue("name", s.name())
+                .addValue("email", s.email())
+                .addValue("course", s.course())
+                .addValue("marks", s.marks()));
+
+// simple cases: a Map works too
+namedJdbc.query("SELECT * FROM student WHERE id = :id", Map.of("id", 1L), StudentRowMapper.INSTANCE);</code></pre>
+  <p>Bonus: you can pass a <b>list</b> for <code>IN</code> clauses: <code>"WHERE id IN (:ids)"</code> with <code>Map.of("ids", List.of(1, 2, 3))</code> — it expands automatically. <code>BeanPropertySqlParameterSource(object)</code> reads parameter values from an object's getters.</p>
+
+  <h3>3.8 KeyHolder — getting the generated id</h3>
+  <p>The database generates the <code>id</code> when inserting. To return it to the client (for the <code>Location</code> header), ask JDBC to hand it back via a <b>KeyHolder</b>:</p>
+  <pre><code class="lang-java">KeyHolder keyHolder = new GeneratedKeyHolder();
+jdbcTemplate.update(connection -&gt; {
+    PreparedStatement ps = connection.prepareStatement(sql, new String[]{"id"});   // "return the id column"
+    ps.setString(1, s.name());
+    // ... other parameters
+    return ps;
+}, keyHolder);
+long newId = keyHolder.getKey().longValue();</code></pre>
+  <p>The plain <code>update(sql, args...)</code> can't return keys, so here we build the <code>PreparedStatement</code> ourselves with a lambda (a <code>PreparedStatementCreator</code>). Named and JdbcClient versions are shorter: <code>namedJdbc.update(sql, params, keyHolder, new String[]{"id"})</code> and <code>jdbcClient.sql(sql)...update(keyHolder, "id")</code>.</p>
+  <div class="callout info"><strong>ℹ️ SimpleJdbcInsert</strong> Spring also offers <code>SimpleJdbcInsert</code>, which builds the INSERT for you from the table metadata: <code>new SimpleJdbcInsert(dataSource).withTableName("student").usingGeneratedKeyColumns("id").executeAndReturnKey(params)</code>.</div>
+
+  <h3>3.9 JdbcClient — the modern fluent API (Spring 6.1+)</h3>
+  <p><code>JdbcClient</code> combines the best of both templates in one readable chain:</p>
+  <div class="flow">
+    <span class="box">.sql("…")</span><span class="arrow">→</span>
+    <span class="box alt">.param(…) / .params(…) / .paramSource(obj)</span><span class="arrow">→</span>
+    <span class="box info">.query(Type.class or RowMapper)</span><span class="arrow">→</span>
+    <span class="box">.list() / .single() / .optional() / .set()</span>
+  </div>
+  <div class="flow">
+    <span class="box">.sql("INSERT/UPDATE/DELETE …")</span><span class="arrow">→</span>
+    <span class="box alt">.param(…)</span><span class="arrow">→</span>
+    <span class="box info">.update() or .update(keyHolder, "id")</span>
+  </div>
+  <pre><code class="lang-java">List&lt;Student&gt; all = jdbcClient.sql("SELECT * FROM student ORDER BY id")
+        .query(Student.class)          // automatic mapping to the record, no RowMapper
+        .list();
+
+Optional&lt;Student&gt; one = jdbcClient.sql("SELECT * FROM student WHERE id = :id")
+        .param("id", 3)
+        .query(Student.class)
+        .optional();                   // no exception for 0 rows
+
+long count = jdbcClient.sql("SELECT COUNT(*) FROM student").query(Long.class).single();
+
+int rows = jdbcClient.sql("UPDATE student SET name = :name, marks = :marks WHERE id = :id")
+        .paramSource(student)          // takes :name, :marks, :id from the record's accessors
+        .update();</code></pre>
+  <ul>
+    <li>Supports both <code>?</code> (positional, <code>.param(value)</code>) and <code>:name</code> (named) parameters.</li>
+    <li><code>query(Student.class)</code> maps columns to record components/properties by name (snake_case ⇄ camelCase).</li>
+    <li>It is built on top of JdbcTemplate/NamedParameterJdbcTemplate — same safety, same transactions.</li>
+  </ul>
+  <div class="callout tip"><strong>💡 Which one should I use?</strong> For <b>new code</b> in Spring Boot 3.2+, <b>JdbcClient</b> is the most pleasant. You'll still see <code>JdbcTemplate</code> and <code>NamedParameterJdbcTemplate</code> in many existing projects (and they're needed for some features like <code>batchUpdate</code>), so you should know all three.</div>
+
+  <h3>3.10 DataAccessException — one exception family for all databases</h3>
+  <p>Spring translates <code>SQLException</code> (checked, with database-specific error codes) into an <b>unchecked</b> hierarchy that is the same for every database:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Exception</th><th>Typical cause</th></tr>
+    <tr><td><code>DuplicateKeyException</code></td><td>UNIQUE / primary key violation (our duplicate email → 409)</td></tr>
+    <tr><td><code>DataIntegrityViolationException</code></td><td>NOT NULL, CHECK, foreign key violation</td></tr>
+    <tr><td><code>EmptyResultDataAccessException</code></td><td><code>queryForObject</code> found no row</td></tr>
+    <tr><td><code>BadSqlGrammarException</code></td><td>Typo in SQL, unknown table/column</td></tr>
+    <tr><td><code>CannotGetJdbcConnectionException</code></td><td>Database down / wrong URL or password</td></tr>
+  </table></div>
+  <p>So your code can say <code>catch (DuplicateKeyException e)</code> and it works on H2, MySQL and PostgreSQL alike. This is also why <code>@Repository</code> exists as a separate stereotype (topic 23): it enables this translation for your repository classes.</p>
+
+  <h3>3.11 JDBC vs JPA — when to use which?</h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Spring JDBC (JdbcTemplate / JdbcClient)</th><th>Spring Data JPA (topic 38)</th></tr>
+    <tr><td>You write</td><td>All SQL + row mapping</td><td>Entity classes; most SQL is generated</td></tr>
+    <tr><td>Control / transparency</td><td>Full — you see every statement</td><td>Less — Hibernate decides (can surprise you: N+1, lazy loading)</td></tr>
+    <tr><td>Simple CRUD</td><td>More code</td><td>Almost no code (<code>save</code>, <code>findById</code>…)</td></tr>
+    <tr><td>Complex reports, bulk updates</td><td>Excellent</td><td>Possible, but often awkward</td></tr>
+    <tr><td>Relationships (orders ↔ items)</td><td>Manual joins and mapping</td><td>Mapped with annotations</td></tr>
+    <tr><td>Learning curve</td><td>Low (if you know SQL)</td><td>Higher (entity states, caching, fetching)</td></tr>
+    <tr><td>Performance</td><td>Very predictable</td><td>Good, but needs care</td></tr>
+  </table></div>
+  <p>Rule of thumb: JPA for a typical domain-heavy CRUD app; JDBC for reporting, batch, and performance-critical SQL. Mixing both in one app is common and perfectly fine. (There is also <b>Spring Data JDBC</b>, a simpler, non-Hibernate middle ground.)</p>
+
+  <!-- ============================================================ -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder (Java code under <code>src/main/java/com/course/jdbctemplate/</code>):</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>JdbcTemplateApplication.java</code></td><td>Entry point; comment lists what Boot sets up.</td></tr>
+    <tr><td><code>resources/application.properties</code></td><td>DataSource, Hikari, <code>spring.sql.init.mode</code>, H2 console, <code>app.repository.type</code>, SQL logging.</td></tr>
+    <tr><td><code>resources/schema.sql</code>, <code>data.sql</code></td><td>Table + 5 sample students.</td></tr>
+    <tr><td><code>model/Student.java</code></td><td>A record = one row. <code>withId()</code> returns a copy with the new id.</td></tr>
+    <tr><td><code>model/CourseStats.java</code></td><td>Result of a GROUP BY query.</td></tr>
+    <tr><td><code>repository/StudentRepository.java</code></td><td>The interface.</td></tr>
+    <tr><td><code>repository/StudentRowMapper.java</code></td><td>Reusable RowMapper.</td></tr>
+    <tr><td><code>repository/JdbcTemplateStudentRepository.java</code></td><td>Implementation 1: JdbcTemplate.</td></tr>
+    <tr><td><code>repository/NamedParameterStudentRepository.java</code></td><td>Implementation 2: NamedParameterJdbcTemplate.</td></tr>
+    <tr><td><code>repository/JdbcClientStudentRepository.java</code></td><td>Implementation 3: JdbcClient.</td></tr>
+    <tr><td><code>config/StartupReport.java</code></td><td>Logs the DataSource class, the active repository, and two quick JdbcTemplate queries.</td></tr>
+    <tr><td><code>service/StudentService.java</code>, <code>controller/StudentController.java</code>, <code>dto/StudentRequest.java</code></td><td>Layers + validation as in topics 33–34.</td></tr>
+    <tr><td><code>exception/ApiExceptionHandler.java</code></td><td>ProblemDetail handler; <code>DuplicateKeyException</code> → 409.</td></tr>
+    <tr><td><code>src/test/.../StudentRepositoryContractTest.java</code> + 3 subclasses</td><td>The same 7 tests run against every implementation with <code>@JdbcTest</code>.</td></tr>
+    <tr><td><code>requests.http</code></td><td>10 sample requests.</td></tr>
+  </table></div>
+
+  <h3>4.1 Choosing an implementation with a property</h3>
+  <pre><code class="lang-java">@Repository
+@ConditionalOnProperty(name = "app.repository.type", havingValue = "jdbc-template", matchIfMissing = true)
+public class JdbcTemplateStudentRepository implements StudentRepository { ... }
+
+@Repository
+@ConditionalOnProperty(name = "app.repository.type", havingValue = "named")
+public class NamedParameterStudentRepository implements StudentRepository { ... }
+
+@Repository
+@ConditionalOnProperty(name = "app.repository.type", havingValue = "jdbc-client")
+public class JdbcClientStudentRepository implements StudentRepository { ... }</code></pre>
+  <p>This is the <code>@Conditional</code> idea from topic 26 — the same trick Spring Boot auto-configuration uses. Exactly one bean exists, and <code>StudentService</code> receives it through the interface.</p>
+
+  <h3>4.2 JdbcTemplate implementation (key parts)</h3>
+  <pre><span class="file">repository/JdbcTemplateStudentRepository.java</span><code class="lang-java">@Override
+public Optional&lt;Student&gt; findById(long id) {
+    try {
+        Student student = jdbcTemplate.queryForObject(
+                SELECT_ALL + " WHERE id = ?", StudentRowMapper.INSTANCE, id);
+        return Optional.ofNullable(student);
+    } catch (EmptyResultDataAccessException e) {      // 0 rows
+        return Optional.empty();
+    }
+}
+
+@Override
+public boolean update(Student s) {
+    int rows = jdbcTemplate.update(
+            "UPDATE student SET name = ?, email = ?, course = ?, marks = ?, enrolled_on = ? WHERE id = ?",
+            s.name(), s.email(), s.course(), s.marks(), s.enrolledOn(), s.id());
+    return rows == 1;                                  // 0 means: no student with that id
+}
+
+@Override
+public List&lt;CourseStats&gt; courseStatistics() {
+    return jdbcTemplate.query("""
+                    SELECT course, COUNT(*) AS students, AVG(CAST(marks AS DOUBLE)) AS avg_marks
+                    FROM student
+                    GROUP BY course
+                    ORDER BY course
+                    """,
+            (rs, rowNum) -&gt; new CourseStats(rs.getString("course"), rs.getLong("students"),
+                    Math.round(rs.getDouble("avg_marks") * 10) / 10.0));
+}</code></pre>
+  <ul>
+    <li>Using the <b>affected row count</b> from <code>update</code> is a neat way to detect "not found" without an extra SELECT.</li>
+    <li>Text blocks (<code>"""</code>, topic 15) keep longer SQL readable.</li>
+    <li><code>LocalDate</code> can be passed directly as a parameter — the H2 and MySQL drivers understand <code>java.time</code> types.</li>
+  </ul>
+
+  <h3>4.3 JdbcClient implementation (key parts)</h3>
+  <pre><span class="file">repository/JdbcClientStudentRepository.java</span><code class="lang-java">@Override
+public Student save(Student s) {
+    KeyHolder keyHolder = new GeneratedKeyHolder();
+    jdbcClient.sql("""
+                    INSERT INTO student (name, email, course, marks, enrolled_on)
+                    VALUES (:name, :email, :course, :marks, :enrolledOn)
+                    """)
+            .param("name", s.name())
+            .param("email", s.email())
+            .param("course", s.course())
+            .param("marks", s.marks())
+            .param("enrolledOn", s.enrolledOn())
+            .update(keyHolder, "id");
+    return s.withId(keyHolder.getKey().longValue());
+}
+
+@Override
+public List&lt;Student&gt; findByCourse(String course) {
+    return jdbcClient.sql(SELECT_ALL + " WHERE LOWER(course) = LOWER(?) ORDER BY marks DESC")
+            .param(course)                        // positional parameter
+            .query(StudentRowMapper.INSTANCE)     // your own RowMapper also works
+            .list();
+}</code></pre>
+
+  <h3>4.4 The contract test</h3>
+  <pre><span class="file">src/test/java/.../JdbcClientStudentRepositoryTest.java</span><code class="lang-java">@JdbcTest(properties = "app.repository.type=jdbc-client")   // only the DB part of Spring Boot
+@Import(JdbcClientStudentRepository.class)                    // + our repository
+class JdbcClientStudentRepositoryTest extends StudentRepositoryContractTest { }</code></pre>
+  <pre><span class="file">StudentRepositoryContractTest.java (part)</span><code class="lang-java">@Transactional          // each test is rolled back -&gt; always the same 5 students
+abstract class StudentRepositoryContractTest {
+
+    @Autowired
+    protected StudentRepository repository;
+
+    @Test
+    void duplicateEmailIsTranslatedToDuplicateKeyException() {
+        Student duplicate = new Student(null, "Copy", "asha@college.edu", "Java", 50, LocalDate.of(2026, 7, 1));
+        assertThatThrownBy(() -&gt; repository.save(duplicate)).isInstanceOf(DuplicateKeyException.class);
+    }
+}</code></pre>
+  <p><code>@JdbcTest</code> starts an embedded database, runs <code>schema.sql</code>/<code>data.sql</code>, and makes each test transactional (rolled back at the end). Note the explicit <code>@Transactional</code> on the abstract class: Spring looks for it on the class that <i>declares</i> the test methods, so without it changes from one test would leak into the next — we hit exactly that bug while writing this lesson!</p>
+
+  <!-- ============================================================ -->
+  <h2 id="run">5. How to run</h2>
+  <h3>In VS Code</h3>
+  <ol>
+    <li>Open the folder <code>D:\Java-SpringBoot\37-Spring-JDBC-With-JdbcTemplate</code>.</li>
+    <li>Run <code>JdbcTemplateApplication.java</code>.</li>
+    <li>Use <code>requests.http</code> and watch the SQL appear in the terminal.</li>
+    <li>To try another implementation, change <code>app.repository.type</code> in <code>application.properties</code> to <code>named</code> or <code>jdbc-client</code> and restart.</li>
+  </ol>
+  <h3>From the terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\37-Spring-JDBC-With-JdbcTemplate"
+mvn spring-boot:run
+mvn spring-boot:run "-Dspring-boot.run.arguments=--app.repository.type=named"
+mvn spring-boot:run "-Dspring-boot.run.arguments=--app.repository.type=jdbc-client"</code></pre>
+  <p>Startup log (shortened):</p>
+  <pre class="terminal"><code>... com.zaxxer.hikari.HikariDataSource : StudentPool - Starting...
+... com.zaxxer.hikari.HikariDataSource : StudentPool - Start completed.
+... o.s.b.a.h2.H2ConsoleAutoConfiguration : H2 console available at '/h2-console'. Database available at 'jdbc:h2:mem:studentdb'
+... c.c.jdbctemplate.config.StartupReport : DataSource in use       : HikariDataSource
+... c.c.jdbctemplate.config.StartupReport : Repository in use       : JdbcTemplateStudentRepository
+... c.c.jdbctemplate.config.StartupReport : Students in database    : 5
+... c.c.jdbctemplate.config.StartupReport : Top student             : Asha Rao
+... c.c.jdbctemplate.config.StartupReport : Courses (queryForList)  : [{COURSE=Java}, {COURSE=SQL}, {COURSE=Spring}]</code></pre>
+  <h3>Try the API</h3>
+  <pre class="terminal"><code>curl "http://localhost:8080/api/students?course=java"
+[{"id":1,"name":"Asha Rao","email":"asha@college.edu","course":"Java","marks":92,"enrolledOn":"2026-06-01"},
+ {"id":2,"name":"Ravi Kumar","email":"ravi@college.edu","course":"Java","marks":78,"enrolledOn":"2026-06-03"}]
+
+curl -i -X POST http://localhost:8080/api/students -H "Content-Type: application/json" -d '{"name":"Kiran Kumar","email":"kiran@college.edu","course":"Java","marks":88,"enrolledOn":"2026-07-01"}'
+HTTP/1.1 201
+Location: http://localhost:8080/api/students/6
+{"id":6,"name":"Kiran Kumar","email":"kiran@college.edu","course":"Java","marks":88,"enrolledOn":"2026-07-01"}
+
+# same POST again
+{"type":"about:blank","title":"Conflict","status":409,"detail":"A student with this email already exists","instance":"/api/students"}
+
+curl http://localhost:8080/api/students/stats
+[{"course":"Java","students":3,"averageMarks":86.0},{"course":"SQL","students":1,"averageMarks":88.0},{"course":"Spring","students":2,"averageMarks":76.0}]
+
+curl -i -X DELETE http://localhost:8080/api/students/6        # 204
+curl http://localhost:8080/api/students/6                     # 404 ProblemDetail</code></pre>
+  <p>In the console you'll see each statement, e.g.:</p>
+  <pre class="terminal"><code>DEBUG ... o.s.jdbc.core.JdbcTemplate : Executing prepared SQL statement [SELECT id, name, email, course, marks, enrolled_on FROM student WHERE LOWER(course) = LOWER(?) ORDER BY marks DESC]</code></pre>
+  <h3>Look inside with the H2 console</h3>
+  <p>Open <b>http://localhost:8080/h2-console</b> → JDBC URL <code>jdbc:h2:mem:studentdb</code> → user <code>sa</code> → Connect → run <code>SELECT * FROM student;</code></p>
+  <h3>Run the tests</h3>
+  <pre class="terminal"><code>mvn test</code></pre>
+  <pre class="terminal"><code>[INFO] Tests run: 21, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS</code></pre>
+
+  <!-- ============================================================ -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>🛑 Mistake: building SQL with string concatenation</strong> <code>"SELECT * FROM student WHERE name = '" + name + "'"</code> — SQL injection (topic 19).<br><strong>Fix:</strong> Always use <code>?</code> or <code>:name</code> parameters. For dynamic <code>ORDER BY</code> columns, which can't be parameters, use a whitelist of allowed column names.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>queryForObject</code> when there may be no row</strong> Throws <code>EmptyResultDataAccessException</code> → 500.<br><strong>Fix:</strong> Catch it and return <code>Optional.empty()</code>, use <code>query(...)</code> + <code>stream().findFirst()</code>, or JdbcClient's <code>.optional()</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: column name typos in the RowMapper</strong> <code>rs.getString("enrolledOn")</code> when the column is <code>enrolled_on</code> → <code>SQLException: Column not found</code>.<br><strong>Fix:</strong> Use the <i>SQL</i> column names (or aliases with <code>AS</code>) in RowMappers; avoid <code>SELECT *</code> so the column list is explicit.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting the driver or starter</strong> "Failed to determine a suitable driver class" or no <code>JdbcTemplate</code> bean.<br><strong>Fix:</strong> Add <code>spring-boot-starter-jdbc</code> and the database driver (H2 / <code>mysql-connector-j</code>), and set <code>spring.datasource.url</code> for non-embedded databases.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: H2 console says "Database not found"</strong> Using the default URL <code>jdbc:h2:~/test</code> in the login form.<br><strong>Fix:</strong> Type exactly the URL from <code>application.properties</code>: <code>jdbc:h2:mem:studentdb</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>data.sql</code> fails with "Table not found"</strong> Script order or, with JPA, Hibernate creates tables <i>after</i> data.sql ran.<br><strong>Fix:</strong> Create tables in <code>schema.sql</code>; with JPA set <code>spring.jpa.defer-datasource-initialization=true</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: creating <code>new JdbcTemplate(...)</code> or <code>DriverManager</code> connections yourself</strong> Bypasses the pool and Spring transactions.<br><strong>Fix:</strong> Inject the auto-configured <code>JdbcTemplate</code>/<code>JdbcClient</code> bean.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: returning database error messages to clients</strong> <code>ex.getMessage()</code> of a <code>DuplicateKeyException</code> contains the full SQL and constraint names.<br><strong>Fix:</strong> Map to a friendly message in the exception handler (as <code>ApiExceptionHandler</code> does) and log the details.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li>Keep all SQL in <b>repository classes</b> behind an interface; services never see SQL.</li>
+    <li><b>Always use parameters</b> (<code>?</code>, <code>:name</code>) — never concatenate user input.</li>
+    <li>Prefer <b>JdbcClient</b> for new code; named parameters for statements with many values.</li>
+    <li><b>List columns explicitly</b> instead of <code>SELECT *</code>: clearer, faster, safer when columns are added.</li>
+    <li>Make RowMappers <b>stateless and reusable</b> (a constant like <code>StudentRowMapper.INSTANCE</code>).</li>
+    <li>Return <code>Optional</code> for "maybe one row"; use the affected-row count of <code>update</code> to detect "not found".</li>
+    <li>Use <code>batchUpdate</code> for bulk inserts/updates instead of one call per row.</li>
+    <li>Let the database protect integrity too: <code>NOT NULL</code>, <code>UNIQUE</code>, <code>CHECK</code>, foreign keys — then translate <code>DataAccessException</code>s into proper HTTP errors.</li>
+    <li>Use <b>Flyway</b> (topic 43) instead of <code>schema.sql</code> for real schemas; disable the H2 console outside development.</li>
+    <li>Leave HikariCP defaults unless you have measurements; a bigger pool is not automatically faster.</li>
+    <li>Wrap multi-statement operations in <code>@Transactional</code> service methods (topic 42).</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Raw JDBC needs lots of boilerplate; Spring JDBC handles connections, statements, loops, closing and exception translation — you keep writing SQL.</li>
+    <li><code>spring-boot-starter-jdbc</code> + a driver → Boot auto-configures a HikariCP <code>DataSource</code>, <code>JdbcTemplate</code>, <code>NamedParameterJdbcTemplate</code>, <code>JdbcClient</code> and a transaction manager.</li>
+    <li><code>schema.sql</code> and <code>data.sql</code> initialise the database (controlled by <code>spring.sql.init.mode</code>).</li>
+    <li>The H2 console (<code>spring.h2.console.enabled=true</code>) lets you inspect the in-memory DB — dev only.</li>
+    <li>JdbcTemplate: <code>query</code> (list), <code>queryForObject</code> (exactly one), <code>update</code> (insert/update/delete → row count).</li>
+    <li>A <code>RowMapper</code> converts one row into one object; it can be a class or a lambda.</li>
+    <li>NamedParameterJdbcTemplate uses <code>:name</code> parameters; KeyHolder returns generated ids.</li>
+    <li>JdbcClient (Spring 6.1) is a fluent API with automatic mapping and <code>.list()/.single()/.optional()</code>.</li>
+    <li>JDBC = full SQL control (reports, batch); JPA = less code for domain CRUD. Both can live in one app.</li>
+  </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Top N students.</b> Add <code>GET /api/students/top?limit=3</code> returning the best students by marks.</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-java">// repository (JdbcTemplate version)
+public List&lt;Student&gt; findTop(int limit) {
+    return jdbcTemplate.query(SELECT_ALL + " ORDER BY marks DESC LIMIT ?", StudentRowMapper.INSTANCE, limit);
+}
+// controller
+@GetMapping("/top")
+public List&lt;Student&gt; top(@RequestParam(defaultValue = "3") @Min(1) @Max(50) int limit) {
+    return service.top(limit);
+}</code></pre>
+      <p>Remember to add the method to the interface and to all three implementations (or the other two won't compile).</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Explore with the H2 console.</b> Using only SQL in the console: add a student, give everyone in "Spring" 5 extra marks, then check the result through <code>GET /api/students</code>. What happens if you try <code>UPDATE student SET marks = 150 WHERE id = 1</code>?</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-sql">INSERT INTO student (name, email, course, marks, enrolled_on) VALUES ('Lena', 'lena@college.edu', 'SQL', 70, DATE '2026-08-01');
+UPDATE student SET marks = marks + 5 WHERE course = 'Spring';
+UPDATE student SET marks = 150 WHERE id = 1;   -- fails: CHECK constraint violation</code></pre>
+      <p>The API shows the new data immediately — same database. The last statement is rejected by the <code>CHECK (marks BETWEEN 0 AND 100)</code> constraint.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Search with optional filters.</b> Add <code>GET /api/students/search?course=Java&amp;minMarks=80</code> where both parameters are optional. Use <code>NamedParameterJdbcTemplate</code> or <code>JdbcClient</code> and build the WHERE clause safely.</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-java">public List&lt;Student&gt; search(String course, Integer minMarks) {
+    StringBuilder sql = new StringBuilder(SELECT_ALL + " WHERE 1 = 1");
+    MapSqlParameterSource params = new MapSqlParameterSource();
+    if (course != null) {
+        sql.append(" AND LOWER(course) = LOWER(:course)");
+        params.addValue("course", course);
+    }
+    if (minMarks != null) {
+        sql.append(" AND marks &gt;= :minMarks");
+        params.addValue("minMarks", minMarks);
+    }
+    sql.append(" ORDER BY marks DESC");
+    return jdbc.query(sql.toString(), params, StudentRowMapper.INSTANCE);
+}</code></pre>
+      <p>We only append <b>fixed</b> SQL fragments; user values always go through parameters, so this stays injection-safe.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Bulk import with batchUpdate.</b> Add <code>POST /api/students/bulk</code> that accepts a JSON array of <code>StudentRequest</code> and inserts them all with one <code>jdbcTemplate.batchUpdate</code> call. Return how many rows were inserted.</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-java">public int saveAll(List&lt;Student&gt; students) {
+    List&lt;Object[]&gt; rows = students.stream()
+            .map(s -&gt; new Object[]{s.name(), s.email(), s.course(), s.marks(), s.enrolledOn()})
+            .toList();
+    int[] counts = jdbcTemplate.batchUpdate(
+            "INSERT INTO student (name, email, course, marks, enrolled_on) VALUES (?, ?, ?, ?, ?)", rows);
+    return Arrays.stream(counts).sum();
+}</code></pre>
+      <p>In the controller use <code>@RequestBody List&lt;@Valid StudentRequest&gt; requests</code>. Batching sends many statements in one round trip — much faster for large imports. Put it in a <code>@Transactional</code> service method so a failure rolls back everything (topic 42).</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>A second table with a join.</b> Create a <code>course</code> table (<code>code</code> PK, <code>title</code>, <code>teacher</code>) and change <code>student.course</code> into a foreign key to <code>course.code</code>. Add <code>GET /api/students/{id}/details</code> returning the student together with the course title and teacher, using one SQL JOIN.</p>
+    <details><summary>Hint / solution</summary>
+<pre><code class="lang-sql">-- schema.sql (create course BEFORE student, drop student first)
+DROP TABLE IF EXISTS student;
+DROP TABLE IF EXISTS course;
+CREATE TABLE course (code VARCHAR(50) PRIMARY KEY, title VARCHAR(100) NOT NULL, teacher VARCHAR(100) NOT NULL);
+CREATE TABLE student ( ..., course VARCHAR(50) NOT NULL REFERENCES course(code), ... );</code></pre>
+<pre><code class="lang-java">public record StudentDetails(long id, String name, String courseTitle, String teacher) { }
+
+public Optional&lt;StudentDetails&gt; findDetails(long id) {
+    return jdbcClient.sql("""
+            SELECT s.id, s.name, c.title AS course_title, c.teacher
+            FROM student s JOIN course c ON c.code = s.course
+            WHERE s.id = :id
+            """)
+        .param("id", id)
+        .query(StudentDetails.class)      // course_title -&gt; courseTitle
+        .optional();
+}</code></pre>
+      <p>Insert courses in <code>data.sql</code> before students. Inserting a student with an unknown course now fails with <code>DataIntegrityViolationException</code> — map it to 400 or 422.</p>
+    </details>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What problems does JdbcTemplate solve compared with plain JDBC?</summary><p>It removes boilerplate: acquiring and releasing connections, creating statements and setting parameters, iterating result sets, closing resources in all cases, and converting checked <code>SQLException</code>s into Spring's unchecked, database-independent <code>DataAccessException</code> hierarchy. It also participates automatically in Spring-managed transactions. You still write the SQL.</p></details>
+  <details><summary>Q2. What is a RowMapper?</summary><p>A functional interface <code>RowMapper&lt;T&gt;</code> with <code>T mapRow(ResultSet rs, int rowNum)</code> that converts the current row into an object. JdbcTemplate iterates the result set and calls it once per row. It can be a class, a lambda, or a ready-made <code>BeanPropertyRowMapper</code>/<code>DataClassRowMapper</code>.</p></details>
+  <details><summary>Q3. Difference between query, queryForObject and queryForList?</summary><p><code>query</code> returns a <code>List&lt;T&gt;</code> using a RowMapper (empty list for no rows). <code>queryForObject</code> expects exactly one row and throws <code>EmptyResultDataAccessException</code> for zero or <code>IncorrectResultSizeDataAccessException</code> for more; it can map to a simple type like <code>Long.class</code>. <code>queryForList</code> returns <code>List&lt;Map&lt;String, Object&gt;&gt;</code> (or a list of a simple type) without a mapper.</p></details>
+  <details><summary>Q4. What is NamedParameterJdbcTemplate and why use it?</summary><p>A wrapper around JdbcTemplate that supports named parameters (<code>:email</code>) instead of positional <code>?</code>. It improves readability, avoids ordering mistakes, allows reusing a parameter several times, and expands collections for <code>IN (:ids)</code>. Parameters are supplied via a <code>Map</code>, <code>MapSqlParameterSource</code> or <code>BeanPropertySqlParameterSource</code>.</p></details>
+  <details><summary>Q5. How do you get an auto-generated primary key after an insert?</summary><p>Use a <code>KeyHolder</code> (<code>GeneratedKeyHolder</code>): <code>jdbcTemplate.update(PreparedStatementCreator, keyHolder)</code> where the statement is created with <code>prepareStatement(sql, new String[]{"id"})</code>, or <code>namedJdbc.update(sql, params, keyHolder, keyColumns)</code>, or <code>jdbcClient...update(keyHolder, "id")</code>. Alternatively <code>SimpleJdbcInsert.executeAndReturnKey</code>.</p></details>
+  <details><summary>Q6. What is JdbcClient?</summary><p>A fluent JDBC API added in Spring Framework 6.1 (auto-configured in Spring Boot 3.2+). It unifies positional and named parameters, offers automatic mapping to records/beans (<code>query(Type.class)</code>), and terminal operations like <code>list()</code>, <code>single()</code>, <code>optional()</code> and <code>update()</code>. It delegates to JdbcTemplate/NamedParameterJdbcTemplate internally.</p></details>
+  <details><summary>Q7. What is HikariCP and why do we need a connection pool?</summary><p>HikariCP is a fast JDBC connection pool and Spring Boot's default DataSource. Creating a database connection is expensive (network handshake, authentication); a pool keeps a set of open connections and lends them out per operation, which greatly improves throughput and limits the load on the database (max pool size).</p></details>
+  <details><summary>Q8. What are schema.sql and data.sql?</summary><p>SQL scripts in <code>src/main/resources</code> that Spring Boot runs at startup to create the schema and insert data. By default they run only for embedded databases; <code>spring.sql.init.mode=always</code> runs them for any database. They're great for demos and tests; production schemas should use a migration tool like Flyway or Liquibase.</p></details>
+  <details><summary>Q9. What is DataAccessException?</summary><p>The root of Spring's unchecked data access exception hierarchy. Spring translates vendor-specific <code>SQLException</code>s (using error codes/SQL states) into meaningful subclasses such as <code>DuplicateKeyException</code>, <code>DataIntegrityViolationException</code>, <code>EmptyResultDataAccessException</code> or <code>BadSqlGrammarException</code>, so code is independent of the database vendor.</p></details>
+  <details><summary>Q10. When would you choose JdbcTemplate over JPA?</summary><p>When you need full control over SQL and performance: reporting and analytics queries, bulk/batch operations, database-specific features, simple apps with few tables, or teams strong in SQL. JPA is better for rich domain models with relationships and lots of standard CRUD. Many applications combine both.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../36-Thymeleaf-Server-Side-Web-Apps/lesson.html"><small>← Previous</small>36. Thymeleaf Server-Side Web Apps</a>
+    <a class="next" href="../38-Spring-Data-JPA-Fundamentals/lesson.html"><small>Next →</small>38. Spring Data JPA Fundamentals</a>
+  </nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>55 · Reactive Programming with WebFlux</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part E · Advanced Spring Boot › Topic 55</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part E · Advanced Spring Boot</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>55. Reactive Programming with WebFlux</h1>
+  <p class="subtitle">Build non-blocking APIs with Mono and Flux, stream live data to the browser, call other services with WebClient, read a database reactively with R2DBC, and test it all with StepVerifier.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="55-Reactive-Programming-With-WebFlux"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>The difference between <strong>blocking</strong> and <strong>non-blocking</strong> code, and why it matters for busy servers.</li>
+      <li>What <strong>Reactive Streams</strong> are and the 4 interfaces behind them.</li>
+      <li><strong>Mono</strong> (0 or 1 value) and <strong>Flux</strong> (0 to many values) from Project Reactor.</li>
+      <li>The most useful operators: <code>map</code>, <code>filter</code>, <code>flatMap</code>, <code>zip</code>, <code>onErrorResume</code>, <code>delayElements</code>, <code>switchIfEmpty</code>.</li>
+      <li><strong>Backpressure</strong> in simple words.</li>
+      <li>Spring WebFlux with <strong>annotated controllers</strong> and <strong>functional routes</strong>.</li>
+      <li>A <strong>Server-Sent Events</strong> (SSE) streaming endpoint.</li>
+      <li><strong>WebClient</strong> – the reactive HTTP client.</li>
+      <li><strong>R2DBC</strong> with H2 and a reactive repository.</li>
+      <li>When <strong>NOT</strong> to use reactive programming.</li>
+      <li>Testing with <strong>StepVerifier</strong> and <strong>WebTestClient</strong>.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../14-Streams-API-And-Optional/lesson.html">Topic 14 · Streams &amp; Optional</a> (map/filter look very similar), <a href="../17-Multithreading-And-Concurrency/lesson.html">Topic 17 · Multithreading</a> (threads, CompletableFuture), <a href="../32-Request-Handling-And-Responses/lesson.html">Topic 32 · Request Handling</a> and <a href="../45-Consuming-External-APIs-RestClient-WebClient/lesson.html">Topic 45 · RestClient/WebClient</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Until now every Spring Boot app in this course used <strong>Spring MVC</strong> on <strong>Tomcat</strong>. Tomcat gives each incoming request its own thread (remember <a href="../17-Multithreading-And-Concurrency/lesson.html">Topic 17</a>: "each request = a thread"). That thread does the work and, very often, simply <em>waits</em>: it waits for the database, waits for another microservice, waits for a file.</p>
+  <p>A waiting thread is not free. Each thread uses memory (about 0.5–1 MB of stack) and Tomcat has a limited pool (200 threads by default). If 200 requests are all waiting for a slow service, request number 201 must queue — even though the CPU is doing almost nothing!</p>
+  <p><strong>Reactive programming</strong> fixes this. Instead of "wait for the answer", the code says "<em>call me back when the answer arrives</em>". A small number of threads can then serve thousands of connections, because no thread ever sits idle waiting.</p>
+  <p>Where you will meet it at work:</p>
+  <ul>
+    <li><strong>Spring Cloud Gateway</strong> (Topic 61) is built on WebFlux. You will configure it even if you never write reactive code yourself.</li>
+    <li><strong>WebClient</strong> is used in many MVC apps too, to call other services.</li>
+    <li>Streaming apps: live dashboards, stock tickers, chat, notifications, IoT sensor data.</li>
+    <li>"Gateway-like" services that mostly call other services and combine the results.</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ Honest note from your trainer</strong>Most enterprise Spring Boot apps are still Spring MVC — and that is fine. You learn WebFlux so you can <em>read</em> reactive code confidently, use WebClient, work with Spring Cloud Gateway, and choose wisely. Section 3.12 tells you when NOT to use it.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🍽️ Two kinds of restaurant waiters</strong>
+    <p><strong>Blocking restaurant:</strong> A waiter takes your order, walks to the kitchen and <em>stands there</em> until your food is cooked. Only then does he come back and serve another table. With 10 waiters you can serve only 10 tables at a time. More customers? Hire more waiters (more threads, more memory).</p>
+    <p><strong>Non-blocking (reactive) restaurant:</strong> A waiter takes your order, gives it to the kitchen, and <em>immediately</em> goes to take the next order. When the kitchen rings the bell ("your food is ready!"), any free waiter picks it up and serves it. With just 2 waiters you can serve 50 tables, because nobody stands still.</p>
+    <p>The kitchen bell = a <strong>callback / event</strong>. The waiters = the few <strong>event-loop threads</strong> of Netty. The order slip = a <strong>Mono/Flux</strong>: a promise that food will arrive later.</p>
+  </div>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 250" role="img" aria-label="Blocking vs non-blocking threads">
+      <style>
+        .t{font:600 14px 'Segoe UI',sans-serif;fill:currentColor}
+        .s{font:12px 'Segoe UI',sans-serif;fill:currentColor}
+      </style>
+      <text x="10" y="22" class="t">Blocking (Spring MVC): 1 thread per request, thread waits</text>
+      <g>
+        <rect x="10" y="35" width="90" height="26" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/>
+        <text x="20" y="53" class="s">work</text>
+        <rect x="100" y="35" width="260" height="26" rx="5" fill="var(--danger-soft)" stroke="var(--danger)"/>
+        <text x="150" y="53" class="s">WAITING for database ... (thread idle)</text>
+        <rect x="360" y="35" width="90" height="26" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/>
+        <text x="370" y="53" class="s">work</text>
+        <text x="465" y="53" class="s">Thread-1 busy the whole time</text>
+        <rect x="10" y="68" width="90" height="26" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/>
+        <rect x="100" y="68" width="260" height="26" rx="5" fill="var(--danger-soft)" stroke="var(--danger)"/>
+        <text x="150" y="86" class="s">WAITING for other service ...</text>
+        <rect x="360" y="68" width="90" height="26" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/>
+        <text x="465" y="86" class="s">Thread-2 busy the whole time</text>
+      </g>
+      <text x="10" y="135" class="t">Non-blocking (WebFlux): few threads, never waiting</text>
+      <g>
+        <rect x="10" y="150" width="60" height="26" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="18" y="168" class="s">req A</text>
+        <rect x="72" y="150" width="60" height="26" rx="5" fill="var(--info-soft)" stroke="var(--info)"/><text x="80" y="168" class="s">req B</text>
+        <rect x="134" y="150" width="60" height="26" rx="5" fill="var(--warn-soft)" stroke="var(--warn)"/><text x="142" y="168" class="s">req C</text>
+        <rect x="196" y="150" width="60" height="26" rx="5" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="200" y="168" class="s">A done</text>
+        <rect x="258" y="150" width="60" height="26" rx="5" fill="var(--info-soft)" stroke="var(--info)"/><text x="262" y="168" class="s">B done</text>
+        <rect x="320" y="150" width="60" height="26" rx="5" fill="var(--warn-soft)" stroke="var(--warn)"/><text x="324" y="168" class="s">C done</text>
+        <text x="395" y="168" class="s">ONE event-loop thread serves A, B, C</text>
+        <text x="10" y="205" class="s">While A waits for the DB, the same thread starts B and C. When the DB answers, an event</text>
+        <text x="10" y="222" class="s">("data ready!") is queued and the thread finishes A. No thread is ever parked doing nothing.</text>
+      </g>
+    </svg>
+    <figcaption>Blocking: threads sit idle while waiting. Non-blocking: the same thread keeps working on other requests.</figcaption>
+  </figure>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Blocking vs non-blocking in code</h3>
+  <p>Look at these two ways to get a user:</p>
+  <pre><code class="lang-java">// BLOCKING: the current thread stops on this line until the DB answers.
+User user = userRepository.findById(1L).orElseThrow();
+System.out.println(user.getName());
+
+// NON-BLOCKING: we get back a "promise" immediately. The lambda runs LATER,
+// when the data arrives. The current thread is free right away.
+Mono&lt;User&gt; userMono = reactiveUserRepository.findById(1L);
+userMono.subscribe(u -&gt; System.out.println(u.getName()));</code></pre>
+  <p>In the second version, <code>findById</code> returns instantly with a <code>Mono&lt;User&gt;</code> — think of it as an <strong>order slip</strong>. The real data comes later, and our lambda is called then.</p>
+
+  <h3>3.2 Reactive Streams – the standard</h3>
+  <p><strong>Reactive Streams</strong> is a tiny standard (now also inside Java as <code>java.util.concurrent.Flow</code>) that defines how a producer and consumer talk <em>asynchronously</em> and <em>with backpressure</em>. It has just 4 interfaces:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Interface</th><th>Role</th><th>Everyday picture</th></tr>
+    <tr><td><code>Publisher&lt;T&gt;</code></td><td>Produces data items</td><td>The kitchen</td></tr>
+    <tr><td><code>Subscriber&lt;T&gt;</code></td><td>Consumes items: <code>onSubscribe</code>, <code>onNext</code>, <code>onError</code>, <code>onComplete</code></td><td>The customer at the table</td></tr>
+    <tr><td><code>Subscription</code></td><td>The link between them: <code>request(n)</code>, <code>cancel()</code></td><td>"Bring me 2 more dishes, please" / "I'm leaving"</td></tr>
+    <tr><td><code>Processor&lt;T,R&gt;</code></td><td>Both subscriber and publisher (a middle step)</td><td>A waiter who adds sauce on the way</td></tr>
+  </table></div>
+  <p>The conversation always follows the same order:</p>
+  <div class="flow">
+    <span class="box">subscribe()</span><span class="arrow">→</span>
+    <span class="box info">onSubscribe(subscription)</span><span class="arrow">→</span>
+    <span class="box alt">request(n)</span><span class="arrow">→</span>
+    <span class="box">onNext(item) × n</span><span class="arrow">→</span>
+    <span class="box info">onComplete() <em>or</em> onError(e)</span>
+  </div>
+  <p>You will almost never implement these interfaces yourself. <strong>Project Reactor</strong> (the library Spring uses) gives us two ready-made publishers: <strong>Mono</strong> and <strong>Flux</strong>.</p>
+
+  <h3>3.3 Mono and Flux</h3>
+  <div class="grid">
+    <div class="card"><strong>Mono&lt;T&gt;</strong><br>0 or 1 item, then complete (or an error).<br>Like <code>Optional</code> — but arriving <em>later</em>.<br>Examples: find one product, save, delete, one HTTP response.</div>
+    <div class="card"><strong>Flux&lt;T&gt;</strong><br>0, 1, 2 … or infinite items, then complete (or an error).<br>Like a <code>List</code>/<code>Stream</code> — but items arrive <em>over time</em>.<br>Examples: all products, live prices, chat messages.</div>
+  </div>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 700 170" role="img" aria-label="Marble diagram of a Flux and a Mono">
+      <style>
+        .m{font:600 13px 'Segoe UI',sans-serif;fill:currentColor}
+        .ms{font:12px 'Segoe UI',sans-serif;fill:currentColor}
+      </style>
+      <text x="10" y="30" class="m">Flux</text>
+      <line x1="70" y1="25" x2="560" y2="25" stroke="currentColor" stroke-width="2"/>
+      <polygon points="560,19 572,25 560,31" fill="currentColor"/>
+      <circle cx="130" cy="25" r="14" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/><text x="125" y="30" class="ms">1</text>
+      <circle cx="230" cy="25" r="14" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/><text x="225" y="30" class="ms">2</text>
+      <circle cx="330" cy="25" r="14" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/><text x="325" y="30" class="ms">3</text>
+      <line x1="450" y1="10" x2="450" y2="40" stroke="currentColor" stroke-width="3"/>
+      <text x="585" y="30" class="ms">| = complete</text>
+
+      <text x="10" y="90" class="m">Mono</text>
+      <line x1="70" y1="85" x2="560" y2="85" stroke="currentColor" stroke-width="2"/>
+      <polygon points="560,79 572,85 560,91" fill="currentColor"/>
+      <circle cx="230" cy="85" r="14" fill="var(--info-soft)" stroke="var(--info)" stroke-width="2"/><text x="225" y="90" class="ms">A</text>
+      <line x1="300" y1="70" x2="300" y2="100" stroke="currentColor" stroke-width="3"/>
+
+      <text x="10" y="150" class="m">Error</text>
+      <line x1="70" y1="145" x2="400" y2="145" stroke="currentColor" stroke-width="2"/>
+      <circle cx="130" cy="145" r="14" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/><text x="125" y="150" class="ms">1</text>
+      <text x="390" y="152" class="m" fill="var(--danger)">✕</text>
+      <text x="420" y="150" class="ms">✕ = onError (stream ends, nothing more comes)</text>
+    </svg>
+    <figcaption>"Marble diagrams": time flows left to right. Circles are items, a bar is completion, ✕ is an error.</figcaption>
+  </figure>
+
+  <pre><code class="lang-java">Mono&lt;String&gt; one   = Mono.just("Asha");                 // exactly one value
+Mono&lt;String&gt; none  = Mono.empty();                      // completes with no value
+Mono&lt;String&gt; boom  = Mono.error(new IllegalStateException("oops"));
+
+Flux&lt;String&gt;  many = Flux.just("apple", "banana", "cherry");
+Flux&lt;Integer&gt; nums = Flux.range(1, 5);                  // 1,2,3,4,5
+Flux&lt;String&gt;  list = Flux.fromIterable(List.of("a", "b"));
+Flux&lt;Long&gt;    tick = Flux.interval(Duration.ofSeconds(1)); // 0,1,2,... forever</code></pre>
+
+  <h3>3.4 Rule #1: nothing happens until you subscribe</h3>
+  <p>A Mono/Flux is a <strong>recipe</strong>, not a meal. Building the chain only writes the recipe. Cooking starts when someone calls <code>subscribe()</code>. In a WebFlux app <strong>the framework subscribes for you</strong> when it writes the HTTP response — you just <em>return</em> the Mono/Flux from your controller.</p>
+  <pre><span class="file">playground/ReactorPlayground.java (part 1)</span><code class="lang-java">Flux&lt;String&gt; fruits = Flux.just("apple", "banana", "cherry")
+        .doOnNext(f -&gt; System.out.println("  producing " + f));
+System.out.println("  (pipeline built, nothing printed yet)");
+fruits.subscribe(f -&gt; System.out.println("  got " + f));</code></pre>
+  <pre class="terminal"><code>  (pipeline built, nothing printed yet)
+  producing apple
+  got apple
+  producing banana
+  got banana
+  producing cherry
+  got cherry</code></pre>
+  <div class="callout tip"><strong>💡 Same idea as Java Streams</strong>In <a href="../14-Streams-API-And-Optional/lesson.html">Topic 14</a>, intermediate operations were lazy until a terminal operation ran. Reactor is the same — <code>subscribe()</code> is the "terminal operation". The big difference: a Java Stream pulls data <em>now</em> on your thread; a Flux pushes data <em>whenever it arrives</em>, possibly on another thread.</div>
+
+  <h3>3.5 The everyday operators</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Operator</th><th>What it does</th><th>Tiny example</th></tr>
+    <tr><td><code>map</code></td><td>Transform each item synchronously (1 in → 1 out)</td><td><code>.map(String::toUpperCase)</code></td></tr>
+    <tr><td><code>filter</code></td><td>Keep only items that match</td><td><code>.filter(n -&gt; n % 2 == 0)</code></td></tr>
+    <tr><td><code>flatMap</code></td><td>For each item, start another <em>async</em> call (returns Mono/Flux) and merge the results</td><td><code>.flatMap(id -&gt; repo.findById(id))</code></td></tr>
+    <tr><td><code>concatMap</code></td><td>Like flatMap but one at a time, keeps the order</td><td><code>.concatMap(this::callApi)</code></td></tr>
+    <tr><td><code>zip</code></td><td>Wait for several sources and combine them pair by pair</td><td><code>Mono.zip(userMono, ordersMono)</code></td></tr>
+    <tr><td><code>switchIfEmpty</code></td><td>Use another Mono/Flux if nothing was emitted</td><td><code>.switchIfEmpty(Mono.error(...))</code></td></tr>
+    <tr><td><code>defaultIfEmpty</code></td><td>Use a default value if nothing was emitted</td><td><code>.defaultIfEmpty("guest")</code></td></tr>
+    <tr><td><code>onErrorResume</code></td><td>On error, switch to a fallback publisher</td><td><code>.onErrorResume(e -&gt; Mono.just(cached))</code></td></tr>
+    <tr><td><code>onErrorReturn</code></td><td>On error, emit one fallback value</td><td><code>.onErrorReturn(0)</code></td></tr>
+    <tr><td><code>delayElements</code></td><td>Wait a bit before each item (without blocking)</td><td><code>.delayElements(Duration.ofMillis(100))</code></td></tr>
+    <tr><td><code>take</code></td><td>Only the first N items, then complete</td><td><code>.take(10)</code></td></tr>
+    <tr><td><code>collectList</code></td><td>Flux&lt;T&gt; → Mono&lt;List&lt;T&gt;&gt;</td><td><code>.collectList()</code></td></tr>
+    <tr><td><code>timeout</code></td><td>Fail if nothing arrives in time</td><td><code>.timeout(Duration.ofSeconds(3))</code></td></tr>
+    <tr><td><code>retry</code></td><td>Re-subscribe after an error</td><td><code>.retry(2)</code></td></tr>
+    <tr><td><code>doOnNext</code>, <code>doOnError</code></td><td>"Peek" for logging; does not change data</td><td><code>.doOnNext(p -&gt; log.info("{}", p))</code></td></tr>
+  </table></div>
+
+  <h4>map and filter</h4>
+  <pre><code class="lang-java">Flux.range(1, 10)                 // 1..10
+        .filter(n -&gt; n % 2 == 0)  // 2,4,6,8,10
+        .map(n -&gt; n * n)          // 4,16,36,64,100
+        .subscribe(n -&gt; System.out.print(n + " "));
+// Output: 4 16 36 64 100</code></pre>
+
+  <h4>map vs flatMap — the most important difference</h4>
+  <p>Use <strong>map</strong> when the transformation is a normal, instant function (returns a plain value). Use <strong>flatMap</strong> when the transformation itself is asynchronous (returns a Mono or Flux) — for example a database or HTTP call.</p>
+  <pre><code class="lang-java">// WRONG: map with an async function gives a "box inside a box"
+Flux&lt;Mono&lt;String&gt;&gt; wrong = Flux.just(1L, 2L).map(id -&gt; findUserName(id));
+
+// RIGHT: flatMap subscribes to each inner Mono and "flattens" the results
+Flux&lt;String&gt; names = Flux.just(1L, 2L, 3L).flatMap(id -&gt; findUserName(id));</code></pre>
+  <div class="callout info"><strong>ℹ️ flatMap does not keep order</strong><code>flatMap</code> runs the inner calls <em>at the same time</em>, so the fastest answer comes first. In our playground the result is <code>[user-3, user-2, user-1]</code> because user-3 was the fastest. Need the original order? Use <code>concatMap</code> (one by one) or <code>flatMapSequential</code> (parallel, but re-ordered).</div>
+
+  <h4>zip — combine results that arrive at different times</h4>
+  <pre><code class="lang-java">// Both calls start together. Total time = the SLOWER one, not the sum.
+Mono&lt;ProductDetails&gt; details = Mono.zip(findById(id), stockFor(id))
+        .map(tuple -&gt; new ProductDetails(tuple.getT1(), tuple.getT2()));</code></pre>
+
+  <h4>Errors — onErrorResume</h4>
+  <p>In Reactor an error is a <strong>signal</strong> that travels down the chain, like an item. When an error happens, the stream <em>ends</em>. You cannot use normal <code>try/catch</code> around a Mono (the error happens later, on another thread), so you use error operators instead:</p>
+  <pre><code class="lang-java">Flux.just(10, 5, 0, 2)
+        .map(n -&gt; 100 / n)                  // 100/0 throws ArithmeticException
+        .onErrorResume(ex -&gt; Flux.just(-1)) // replace the error with a fallback
+        .subscribe(n -&gt; System.out.print(n + " "));
+// Output: 10 20 -1     (2 is never processed - the error ended the original stream)</code></pre>
+
+  <h4>delayElements — time without blocking</h4>
+  <pre><code class="lang-java">Flux.just("tick", "tock", "tick")
+        .delayElements(Duration.ofMillis(100))   // no Thread.sleep! a timer fires later
+        .subscribe(System.out::println);</code></pre>
+
+  <h3>3.6 Backpressure (simple version)</h3>
+  <p><strong>Backpressure</strong> means: <em>the consumer tells the producer how much it can handle</em>. Imagine a conveyor belt of sushi. If the chef puts plates faster than you can eat, plates fall on the floor. With backpressure you say "send me 2 plates", eat them, then "send me 2 more".</p>
+  <div class="flow">
+    <span class="box">Producer (Flux)</span><span class="arrow">→ items →</span>
+    <span class="box info">Consumer</span>
+  </div>
+  <div class="flow">
+    <span class="box">Producer (Flux)</span><span class="arrow">← request(2) ←</span>
+    <span class="box info">Consumer</span>
+  </div>
+  <pre><code class="lang-java">Flux.range(1, 6)
+        .doOnRequest(n -&gt; System.out.println("upstream was asked for " + n))
+        .limitRate(2)   // ask for at most 2 at a time
+        .subscribe(n -&gt; System.out.println("received " + n));</code></pre>
+  <pre class="terminal"><code>  upstream was asked for 2
+  received 1
+  received 2
+  upstream was asked for 2
+  received 3
+  ...</code></pre>
+  <p>Over HTTP, backpressure is mostly handled for you by TCP flow control and Netty. Operators like <code>limitRate</code>, <code>onBackpressureBuffer</code> and <code>onBackpressureDrop</code> exist for when a fast source (e.g. sensor events) is faster than the consumer.</p>
+
+  <h3>3.7 Spring WebFlux – the reactive web stack</h3>
+  <p>Spring offers two web stacks side by side:</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Spring MVC (Topics 31–54)</th><th>Spring WebFlux (this topic)</th></tr>
+    <tr><td>Starter</td><td><code>spring-boot-starter-web</code></td><td><code>spring-boot-starter-webflux</code></td></tr>
+    <tr><td>Default server</td><td>Tomcat (Servlet)</td><td>Netty (event loop)</td></tr>
+    <tr><td>Threads</td><td>1 thread per request (pool of ~200)</td><td>A few event-loop threads (≈ number of CPU cores)</td></tr>
+    <tr><td>Return types</td><td><code>Product</code>, <code>List&lt;Product&gt;</code></td><td><code>Mono&lt;Product&gt;</code>, <code>Flux&lt;Product&gt;</code></td></tr>
+    <tr><td>HTTP client</td><td>RestClient (blocking)</td><td>WebClient (non-blocking)</td></tr>
+    <tr><td>Database</td><td>JDBC / JPA (blocking)</td><td>R2DBC, reactive MongoDB, reactive Redis</td></tr>
+    <tr><td>Tests</td><td>MockMvc</td><td>WebTestClient + StepVerifier</td></tr>
+    <tr><td>Styles</td><td>@Controller</td><td>@Controller <em>and</em> functional routes</td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Pick ONE starter</strong>If both <code>starter-web</code> and <code>starter-webflux</code> are on the classpath, Spring Boot starts <strong>Spring MVC on Tomcat</strong> (MVC wins). Use only <code>starter-webflux</code> for a reactive app. (Adding webflux to an MVC app is fine if you only want WebClient.)</div>
+
+  <h4>How a request flows through WebFlux</h4>
+  <div class="flow">
+    <span class="box">HTTP request</span><span class="arrow">→</span>
+    <span class="box info">Netty event loop</span><span class="arrow">→</span>
+    <span class="box alt">DispatcherHandler</span><span class="arrow">→</span>
+    <span class="box">Controller / RouterFunction<br><small>returns Mono/Flux</small></span><span class="arrow">→</span>
+    <span class="box info">Framework subscribes &amp; writes JSON as data arrives</span>
+  </div>
+  <p><code>DispatcherHandler</code> is the reactive twin of the <code>DispatcherServlet</code> from <a href="../31-Spring-MVC-And-REST-Fundamentals/lesson.html">Topic 31</a>.</p>
+
+  <h3>3.8 Style 1 – annotated controllers</h3>
+  <p>Good news: it looks almost exactly like Spring MVC. Same annotations, just reactive return types.</p>
+  <pre><code class="lang-java">@RestController
+@RequestMapping("/api/products")
+public class ProductController {
+
+    @GetMapping
+    public Flux&lt;Product&gt; all() { return service.findAll(); }          // JSON array
+
+    @GetMapping("/{id}")
+    public Mono&lt;Product&gt; one(@PathVariable Long id) { return service.findById(id); }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public Mono&lt;Product&gt; create(@RequestBody Product p) { return service.create(p); }
+}</code></pre>
+
+  <h3>3.9 Style 2 – functional routes</h3>
+  <p>The functional style separates <strong>routing</strong> (which URL goes where) from <strong>handling</strong> (what to do). Everything is plain Java code — no annotations on the handler methods. Some teams like it because all routes are visible in one place.</p>
+  <pre><code class="lang-java">@Bean
+public RouterFunction&lt;ServerResponse&gt; functionalRoutes(GreetingHandler handler) {
+    return route(GET("/fn/hello"), handler::hello)
+            .andRoute(GET("/fn/products"), handler::products);
+}
+
+// in GreetingHandler:
+public Mono&lt;ServerResponse&gt; hello(ServerRequest request) {
+    String name = request.queryParam("name").orElse("learner");
+    return ServerResponse.ok().bodyValue("Hello, " + name + "!");
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Annotated</th><th>Functional</th></tr>
+    <tr><td>Familiar if you know Spring MVC</td><td>Routes are code: easy to compose, conditionally add, test</td></tr>
+    <tr><td>Uses <code>@PathVariable</code>, <code>@RequestBody</code></td><td>Uses <code>request.pathVariable("id")</code>, <code>request.bodyToMono(X.class)</code></td></tr>
+    <tr><td>Most common in companies</td><td>Popular in small, lightweight services</td></tr>
+  </table></div>
+
+  <h3>3.10 Server-Sent Events (SSE)</h3>
+  <p>Normally HTTP is "one request → one response → connection closed". With <strong>Server-Sent Events</strong> the server keeps the response open and pushes events one by one. The browser has built-in support (<code>new EventSource(url)</code>). It is simpler than WebSockets when data only flows <em>server → client</em>.</p>
+  <pre><code class="lang-java">@GetMapping(value = "/prices", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+public Flux&lt;PriceTick&gt; prices() {
+    return Flux.interval(Duration.ofSeconds(1))     // one item per second
+            .map(seq -&gt; new PriceTick(seq, "Laptop", randomPrice(), LocalTime.now()))
+            .take(10);                               // then complete
+}</code></pre>
+  <p>On the wire every item looks like this (a blank line separates events):</p>
+  <pre class="terminal"><code>data:{"sequence":0,"product":"Laptop","price":919.84,"time":"10:01:30"}
+
+data:{"sequence":1,"product":"Laptop","price":883.82,"time":"10:01:31"}</code></pre>
+  <p>Browser side (just for your information):</p>
+  <pre><code class="lang-java">// JavaScript in a web page
+const source = new EventSource("/api/stream/prices");
+source.onmessage = e =&gt; console.log(JSON.parse(e.data));</code></pre>
+
+  <h3>3.11 WebClient – the reactive HTTP client</h3>
+  <p>You met WebClient briefly in <a href="../45-Consuming-External-APIs-RestClient-WebClient/lesson.html">Topic 45</a>. In a WebFlux app it is <em>the</em> way to call other services, because it does not block.</p>
+  <pre><code class="lang-java">webClient.get()
+        .uri("/api/products")
+        .retrieve()                          // 4xx/5xx become WebClientResponseException
+        .bodyToFlux(Product.class)           // JSON array -&gt; Flux&lt;Product&gt;
+        .timeout(Duration.ofSeconds(3))      // always set a timeout!
+        .onErrorResume(ex -&gt; Flux.empty());  // fallback if the service is down</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>Use it for</th></tr>
+    <tr><td><code>bodyToMono(X.class)</code></td><td>One JSON object</td></tr>
+    <tr><td><code>bodyToFlux(X.class)</code></td><td>JSON array or stream</td></tr>
+    <tr><td><code>toEntity(X.class)</code></td><td>Need status code + headers too</td></tr>
+    <tr><td><code>onStatus(...)</code></td><td>Map specific error statuses to your own exceptions</td></tr>
+  </table></div>
+
+  <h3>3.12 R2DBC – reactive SQL databases</h3>
+  <p>JDBC (and so JPA/Hibernate) is <strong>blocking</strong>: the thread waits for the database. If you call JPA inside WebFlux, you freeze an event-loop thread — the whole point is lost. <strong>R2DBC</strong> (Reactive Relational Database Connectivity) is a non-blocking driver API for SQL databases (H2, PostgreSQL, MySQL, MariaDB, SQL Server, Oracle).</p>
+  <div class="flow">
+    <span class="box">ProductRepository<br><small>ReactiveCrudRepository</small></span><span class="arrow">→</span>
+    <span class="box info">Spring Data R2DBC</span><span class="arrow">→</span>
+    <span class="box alt">r2dbc-h2 driver</span><span class="arrow">→</span>
+    <span class="box">H2 database</span>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Spring Data JPA (Topic 38)</th><th>Spring Data R2DBC</th></tr>
+    <tr><td>Entity annotation</td><td><code>@Entity</code> (jakarta.persistence)</td><td><code>@Table</code> (spring data relational) — no @Entity</td></tr>
+    <tr><td>Repository</td><td><code>JpaRepository&lt;T, ID&gt;</code></td><td><code>ReactiveCrudRepository&lt;T, ID&gt;</code></td></tr>
+    <tr><td>findById returns</td><td><code>Optional&lt;T&gt;</code></td><td><code>Mono&lt;T&gt;</code> (empty if not found)</td></tr>
+    <tr><td>findAll returns</td><td><code>List&lt;T&gt;</code></td><td><code>Flux&lt;T&gt;</code></td></tr>
+    <tr><td>Relationships, lazy loading</td><td>Yes (@OneToMany ...)</td><td>No — keep it simple, join yourself</td></tr>
+    <tr><td>Table creation</td><td><code>ddl-auto</code></td><td><code>schema.sql</code> (or Flyway via JDBC)</td></tr>
+    <tr><td>URL</td><td><code>jdbc:h2:mem:db</code></td><td><code>r2dbc:h2:mem:///db</code></td></tr>
+  </table></div>
+
+  <h3>3.13 When NOT to use reactive</h3>
+  <div class="callout danger"><strong>🚫 Do not go reactive just because it sounds modern</strong>
+    <ul>
+      <li><strong>Your app uses JPA/Hibernate or other blocking libraries</strong> heavily → stay with Spring MVC. Mixing blocking calls into WebFlux is worse than plain MVC.</li>
+      <li><strong>Simple CRUD apps with normal traffic</strong> → MVC is simpler to write, read, debug and test.</li>
+      <li><strong>Your team is new to reactive</strong> → the learning curve (and stack traces!) is steep.</li>
+      <li><strong>CPU-heavy work</strong> (image processing, big calculations) → reactive does not make the CPU faster.</li>
+      <li><strong>Java 21+ virtual threads</strong> (newer Java) let blocking MVC code scale to many waiting requests too, with simpler code. Many teams now prefer that.</li>
+    </ul>
+    <strong>Good fits:</strong> gateways, streaming (SSE/WebSockets), services that mostly call many other services, very high numbers of concurrent, mostly-waiting connections.
+  </div>
+
+  <h3>3.14 Testing with StepVerifier</h3>
+  <p>How do you test something that produces values <em>later</em>? <strong>StepVerifier</strong> (from <code>reactor-test</code>) subscribes for you and checks each signal in order:</p>
+  <pre><code class="lang-java">StepVerifier.create(Flux.range(1, 6).filter(n -&gt; n % 2 == 0).map(n -&gt; n * n))
+        .expectNext(4, 16, 36)   // exactly these items, in this order
+        .verifyComplete();       // and then a completion signal
+
+StepVerifier.create(Flux.just(10, 0).map(n -&gt; 100 / n))
+        .expectNext(10)
+        .expectError(ArithmeticException.class)
+        .verify();</code></pre>
+  <p><strong>Virtual time</strong> lets you test slow, time-based streams instantly:</p>
+  <pre><code class="lang-java">StepVerifier.withVirtualTime(() -&gt; Flux.interval(Duration.ofMinutes(20)).take(3))
+        .expectSubscription()
+        .thenAwait(Duration.ofHours(1))   // "fast forward" one hour - takes milliseconds
+        .expectNext(0L, 1L, 2L)
+        .verifyComplete();</code></pre>
+  <p>For HTTP endpoints, <strong>WebTestClient</strong> is the reactive version of MockMvc (<a href="../46-Testing-Spring-Boot-Applications/lesson.html">Topic 46</a>).</p>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder (package <code>com.course.webflux</code>):</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td><code>spring-boot-starter-webflux</code>, <code>spring-boot-starter-data-r2dbc</code>, <code>r2dbc-h2</code>, <code>reactor-test</code></td></tr>
+    <tr><td><code>application.properties</code></td><td>R2DBC URL, SQL init, WebClient base URL</td></tr>
+    <tr><td><code>schema.sql</code>, <code>data.sql</code></td><td>Create the <code>products</code> table and insert 4 rows</td></tr>
+    <tr><td><code>ReactiveWebfluxApplication.java</code></td><td>Main class (starts Netty)</td></tr>
+    <tr><td><code>playground/ReactorPlayground.java</code></td><td>Mono/Flux operators in a plain <code>main()</code> — start here!</td></tr>
+    <tr><td><code>product/Product.java</code></td><td>R2DBC entity with <code>@Table</code> and <code>@Id</code></td></tr>
+    <tr><td><code>product/ProductRepository.java</code></td><td><code>ReactiveCrudRepository</code> + derived query <code>findByCategory</code></td></tr>
+    <tr><td><code>product/ProductService.java</code></td><td><code>switchIfEmpty</code> → 404, <code>flatMap</code> delete, <code>Mono.zip</code>, <code>delayElement</code></td></tr>
+    <tr><td><code>product/ProductController.java</code></td><td>Annotated reactive REST controller</td></tr>
+    <tr><td><code>product/ProductDetails.java</code></td><td>Record combining product + stock</td></tr>
+    <tr><td><code>stream/PriceStreamController.java</code>, <code>PriceTick.java</code></td><td>Server-Sent Events endpoint</td></tr>
+    <tr><td><code>functional/RouterConfig.java</code>, <code>GreetingHandler.java</code></td><td>Functional routes</td></tr>
+    <tr><td><code>client/WebClientConfig.java</code>, <code>CatalogClientController.java</code>, <code>CatalogSummary.java</code></td><td>WebClient bean and a call with timeout + fallback</td></tr>
+    <tr><td><code>test/ReactorOperatorsTest.java</code></td><td>5 pure StepVerifier tests (incl. virtual time)</td></tr>
+    <tr><td><code>test/ProductApiTest.java</code></td><td>6 integration tests with WebTestClient + StepVerifier (incl. SSE)</td></tr>
+    <tr><td><code>requests.http</code></td><td>Ready-made requests for the REST Client extension</td></tr>
+  </table></div>
+
+  <h3>4.1 pom.xml – the key dependencies</h3>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-webflux&lt;/artifactId&gt;   &lt;!-- NOT starter-web --&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-data-r2dbc&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;io.r2dbc&lt;/groupId&gt;
+    &lt;artifactId&gt;r2dbc-h2&lt;/artifactId&gt;
+    &lt;scope&gt;runtime&lt;/scope&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;io.projectreactor&lt;/groupId&gt;
+    &lt;artifactId&gt;reactor-test&lt;/artifactId&gt;      &lt;!-- StepVerifier --&gt;
+    &lt;scope&gt;test&lt;/scope&gt;
+&lt;/dependency&gt;</code></pre>
+
+  <h3>4.2 application.properties</h3>
+  <pre><span class="file">src/main/resources/application.properties</span><code class="lang-properties">spring.r2dbc.url=r2dbc:h2:mem:///shopdb;DB_CLOSE_DELAY=-1
+spring.r2dbc.username=sa
+spring.r2dbc.password=
+spring.sql.init.mode=always
+app.webclient.base-url=http://localhost:${server.port}</code></pre>
+  <p>Note the URL starts with <code>r2dbc:</code>. <code>DB_CLOSE_DELAY=-1</code> keeps the in-memory DB alive while the app runs. <code>spring.sql.init.mode=always</code> runs <code>schema.sql</code> and <code>data.sql</code> at startup.</p>
+
+  <h3>4.3 The entity and the reactive repository</h3>
+  <pre><span class="file">product/Product.java (key part)</span><code class="lang-java">@Table("products")            // org.springframework.data.relational.core.mapping.Table
+public class Product {
+    @Id                       // org.springframework.data.annotation.Id
+    private Long id;          // null -&gt; INSERT, not null -&gt; UPDATE
+    private String name;
+    private String category;
+    private BigDecimal price;
+    // no-args constructor, getters, setters ...
+}</code></pre>
+  <pre><span class="file">product/ProductRepository.java</span><code class="lang-java">public interface ProductRepository extends ReactiveCrudRepository&lt;Product, Long&gt; {
+    Flux&lt;Product&gt; findByCategory(String category);   // derived query, returns Flux
+}</code></pre>
+
+  <h3>4.4 The service – real operators in action</h3>
+  <pre><span class="file">product/ProductService.java</span><code class="lang-java">public Mono&lt;Product&gt; findById(Long id) {
+    return repository.findById(id)
+            .switchIfEmpty(Mono.error(
+                    new ResponseStatusException(HttpStatus.NOT_FOUND, "Product " + id + " not found")));
+}
+
+public Mono&lt;Void&gt; delete(Long id) {
+    return findById(id).flatMap(repository::delete);   // async step after async step
+}
+
+public Mono&lt;Integer&gt; stockFor(Long productId) {
+    return Mono.just((int) (productId * 7 % 20))
+            .delayElement(Duration.ofMillis(300));      // pretend slow remote call
+}
+
+public Mono&lt;ProductDetails&gt; details(Long id) {
+    return Mono.zip(findById(id), stockFor(id))         // both run at the same time
+            .map(tuple -&gt; new ProductDetails(tuple.getT1(), tuple.getT2()));
+}</code></pre>
+  <p>Line by line:</p>
+  <ul>
+    <li><code>repository.findById(id)</code> returns an <strong>empty</strong> Mono when no row exists (not <code>null</code>, not an exception).</li>
+    <li><code>switchIfEmpty(Mono.error(...))</code> turns "empty" into an error. <code>ResponseStatusException</code> is understood by WebFlux and becomes a 404 response.</li>
+    <li><code>flatMap(repository::delete)</code>: <code>delete</code> returns <code>Mono&lt;Void&gt;</code> (async!), so we must use <code>flatMap</code>, not <code>map</code>.</li>
+    <li><code>Mono.zip</code> subscribes to both Monos at once and gives a <code>Tuple2</code> with <code>getT1()</code> and <code>getT2()</code>.</li>
+  </ul>
+
+  <h3>4.5 The WebClient demo</h3>
+  <pre><span class="file">client/CatalogClientController.java</span><code class="lang-java">@GetMapping("/summary")
+public Mono&lt;CatalogSummary&gt; summary() {
+    return webClient.get()
+            .uri("/api/products")
+            .retrieve()
+            .bodyToFlux(Product.class)
+            .timeout(Duration.ofSeconds(3))
+            .map(Product::getPrice)
+            .collectList()                                  // Flux -&gt; Mono&lt;List&gt;
+            .map(prices -&gt; new CatalogSummary(
+                    prices.size(),
+                    prices.stream().reduce(BigDecimal.ZERO, BigDecimal::add),
+                    "via WebClient"))
+            .onErrorResume(ex -&gt; Mono.just(
+                    new CatalogSummary(0, BigDecimal.ZERO, "fallback (catalog unavailable)")));
+}</code></pre>
+  <p>The WebClient calls <strong>our own</strong> <code>/api/products</code> endpoint, as if it were another microservice. That way the demo works offline. The base URL comes from <code>app.webclient.base-url</code> in <code>WebClientConfig</code>.</p>
+
+  <h3>4.6 The tests</h3>
+  <pre><span class="file">src/test/java/com/course/webflux/ProductApiTest.java (excerpt)</span><code class="lang-java">@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+class ProductApiTest {
+
+    @Autowired WebTestClient webTestClient;
+    @Autowired ProductRepository repository;
+
+    @Test
+    void repositoryFindsSeededElectronics() {
+        StepVerifier.create(repository.findByCategory("electronics").map(Product::getName))
+                .expectNext("Laptop", "Headphones")
+                .verifyComplete();
+    }
+
+    @Test
+    void missingProductGives404() {
+        webTestClient.get().uri("/api/products/9999")
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+}</code></pre>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 The Reactor playground (no server)</h3>
+  <p>In VS Code open <code>src/main/java/com/course/webflux/playground/ReactorPlayground.java</code> and click <strong>Run</strong> above <code>main</code>. Expected output (shortened):</p>
+  <pre class="terminal"><code>== 1. Nothing happens until you subscribe ==
+  (pipeline built, nothing printed yet)
+  producing apple
+  got apple
+  ...
+== 2. map and filter ==
+4 16 36 64 100
+== 3. Mono: zero or one value ==
+ASHA
+nobody
+== 4. flatMap: each element starts another async call ==
+  users: [user-3, user-2, user-1]
+== 5. zip: combine two sources pair by pair ==
+Laptop costs 900
+Mouse costs 20
+== 6. Errors: onErrorResume gives a fallback ==
+10 20 -1
+== 7. delayElements: time-based streams ==
+  [tick, tock, tick]
+== 8. Backpressure: subscriber asks for small batches ==
+  upstream was asked for 2
+  received 1
+  received 2
+  ...</code></pre>
+
+  <h3>5.2 The web app</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\55-Reactive-Programming-With-WebFlux"
+mvn spring-boot:run</code></pre>
+  <p>In the log look for <code>Netty started on port 8080</code> (not Tomcat!). Or in VS Code: open <code>ReactiveWebfluxApplication.java</code> → <strong>Run</strong>, or use the Spring Boot Dashboard.</p>
+  <p>Now try the endpoints (or open <code>requests.http</code> and click <em>Send Request</em>):</p>
+  <pre class="terminal"><code>curl http://localhost:8080/api/products
+curl http://localhost:8080/api/products/1
+curl -i http://localhost:8080/api/products/999
+curl http://localhost:8080/api/products/category/electronics
+curl http://localhost:8080/api/products/1/details
+curl -X POST http://localhost:8080/api/products -H "Content-Type: application/json" -d "{\"name\":\"Keyboard\",\"category\":\"Electronics\",\"price\":25.00}"
+curl -X DELETE http://localhost:8080/api/products/2
+curl "http://localhost:8080/fn/hello?name=Asha"
+curl http://localhost:8080/fn/products
+curl http://localhost:8080/api/client/summary
+curl -N http://localhost:8080/api/stream/prices</code></pre>
+  <p>Sample responses:</p>
+  <pre class="terminal"><code>[{"id":1,"name":"Laptop","category":"electronics","price":899.99},{"id":2,"name":"Headphones",...}]
+
+HTTP/1.1 404 Not Found
+{"timestamp":"...","path":"/api/products/999","status":404,"error":"Not Found","requestId":"66dfe99d-10"}
+
+{"product":{"id":1,"name":"Laptop","category":"electronics","price":899.99},"stock":7}
+
+Hello, Asha! This answer came from a functional route.
+
+{"productCount":4,"totalValue":1005.74,"source":"via WebClient"}
+
+data:{"sequence":0,"product":"Laptop","price":919.84,"time":"10:01:30"}
+
+data:{"sequence":1,"product":"Laptop","price":883.82,"time":"10:01:31"}</code></pre>
+  <div class="callout tip"><strong>💡 See SSE in the browser</strong>Open <code>http://localhost:8080/api/stream/prices</code> in Chrome/Edge: a new line appears every second for 10 seconds. <code>curl -N</code> disables buffering so you see each event immediately. (In Windows PowerShell use <code>curl.exe</code> instead of <code>curl</code> if the alias gets in the way.)</div>
+
+  <h3>5.3 Run the tests</h3>
+  <pre class="terminal"><code>mvn test</code></pre>
+  <pre class="terminal"><code>[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0 -- in com.course.webflux.ProductApiTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0 -- in com.course.webflux.ReactorOperatorsTest
+[INFO] BUILD SUCCESS</code></pre>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>🚫 Mistake: calling <code>.block()</code> inside a controller or service</strong>
+    <code>Product p = repository.findById(id).block();</code> freezes an event-loop thread. With only a few such threads, the whole server can stall. In WebFlux it even throws <code>IllegalStateException: block()/blockFirst()/blockLast() are blocking, which is not supported in thread reactor-http-nio-2</code>.<br>
+    <strong>Fix:</strong> return the Mono and chain with <code>map</code>/<code>flatMap</code>. Use <code>block()</code> only in <code>main</code> methods or tests.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: building a chain and never subscribing</strong>
+    <pre><code class="lang-java">public Mono&lt;Void&gt; save(Product p) {
+    repository.save(p);          // BUG: Mono created and thrown away - nothing is saved!
+    return Mono.empty();
+}</code></pre>
+    <strong>Fix:</strong> <code>return repository.save(p).then();</code> — return the chain so WebFlux subscribes.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: <code>map</code> with an async function</strong>
+    <code>.map(id -&gt; repo.findById(id))</code> gives <code>Flux&lt;Mono&lt;Product&gt;&gt;</code> and the inner Monos never run.<br>
+    <strong>Fix:</strong> use <code>flatMap</code> when the function returns a Mono/Flux.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: using JPA / JDBC / RestTemplate inside WebFlux</strong>
+    They are blocking. Your reactive app becomes slower than plain MVC.<br>
+    <strong>Fix:</strong> use R2DBC (or reactive Mongo/Redis) and WebClient. If you really must call a blocking library, wrap it: <code>Mono.fromCallable(() -&gt; blockingCall()).subscribeOn(Schedulers.boundedElastic())</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: try/catch around a Mono</strong>
+    The error happens later, after your method has returned, so the <code>catch</code> never runs.<br>
+    <strong>Fix:</strong> use <code>onErrorResume</code>, <code>onErrorReturn</code>, <code>onErrorMap</code>, <code>doOnError</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: both starter-web and starter-webflux in the pom</strong>
+    Boot starts Tomcat + MVC, and you wonder why your app is not reactive.<br>
+    <strong>Fix:</strong> keep only <code>spring-boot-starter-webflux</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting <code>verify()</code> in StepVerifier</strong>
+    <code>StepVerifier.create(flux).expectNext(1)</code> without <code>.verify()</code>/<code>.verifyComplete()</code> checks nothing — the test is always green.<br>
+    <strong>Fix:</strong> always end with a <code>verify...</code> call.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: <code>@Entity</code> / <code>jakarta.persistence.Id</code> on R2DBC entities</strong>
+    R2DBC ignores JPA annotations.<br>
+    <strong>Fix:</strong> use <code>org.springframework.data.annotation.Id</code> and <code>org.springframework.data.relational.core.mapping.Table</code>.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Choose the stack on purpose.</strong> Default to Spring MVC; choose WebFlux for streaming, gateways and high-concurrency I/O-bound services.</li>
+    <li><strong>Be reactive end-to-end.</strong> Web layer, HTTP client, database driver — all non-blocking. One blocking call breaks the chain.</li>
+    <li><strong>Never block on event-loop threads.</strong> If you must use a blocking library, isolate it with <code>subscribeOn(Schedulers.boundedElastic())</code>.</li>
+    <li><strong>Always add <code>timeout()</code></strong> to remote calls, and a fallback with <code>onErrorResume</code> where it makes sense.</li>
+    <li><strong>Keep chains readable.</strong> Extract steps into small, well-named methods that return Mono/Flux. Avoid deeply nested flatMaps.</li>
+    <li><strong>Log with <code>doOnNext</code>/<code>doOnError</code></strong>, and use <code>.log()</code> or <code>.checkpoint("name")</code> while debugging to see signals.</li>
+    <li><strong>Reuse one WebClient</strong> per target service (it is thread-safe), built from the Boot-provided <code>WebClient.Builder</code>.</li>
+    <li><strong>Test with StepVerifier</strong> and use virtual time for time-based streams so tests stay fast.</li>
+    <li><strong>Limit infinite streams</strong> (<code>take</code>, client disconnects) and think about backpressure for fast producers.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Blocking code parks a thread while waiting; non-blocking code frees the thread and continues when data arrives.</li>
+    <li>Reactive Streams = Publisher, Subscriber, Subscription, Processor + backpressure (<code>request(n)</code>).</li>
+    <li><strong>Mono</strong> = 0..1 item, <strong>Flux</strong> = 0..N items. Nothing happens until someone subscribes.</li>
+    <li><code>map</code> for plain transformations, <code>flatMap</code> for async ones; <code>zip</code> combines; <code>onErrorResume</code> recovers.</li>
+    <li>WebFlux runs on Netty; controllers return Mono/Flux; functional routes are an alternative style.</li>
+    <li><code>produces = TEXT_EVENT_STREAM_VALUE</code> + a Flux = Server-Sent Events.</li>
+    <li>WebClient is the non-blocking HTTP client; R2DBC is the non-blocking SQL access.</li>
+    <li>Never call <code>block()</code> in reactive code; never use JPA/JDBC in WebFlux.</li>
+    <li>Reactive is not always better — choose it for I/O-heavy, high-concurrency or streaming needs.</li>
+    <li>Test with StepVerifier (and WebTestClient for endpoints).</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Playground warm-up.</strong> In <code>ReactorPlayground</code>, create a Flux of the names <code>"ravi", "asha", "john"</code>, keep only names longer than 3 letters, convert them to upper case and print them.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">Flux.just("ravi", "al", "john", "bo")
+        .filter(n -&gt; n.length() &gt; 3)
+        .map(String::toUpperCase)
+        .subscribe(System.out::println);
+// Output: RAVI  JOHN   ("al" and "bo" are filtered out)</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Cheap products endpoint.</strong> Add <code>GET /api/products/cheap?max=50</code> that returns products with a price below <code>max</code> (default 50). Use <code>filter</code> on <code>findAll()</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@GetMapping("/cheap")
+public Flux&lt;Product&gt; cheap(@RequestParam(defaultValue = "50") BigDecimal max) {
+    return service.findAll()
+            .filter(p -&gt; p.getPrice().compareTo(max) &lt; 0);
+}
+// Better for big tables: a derived query in the repository
+// Flux&lt;Product&gt; findByPriceLessThan(BigDecimal max);</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Update a product.</strong> Add <code>PUT /api/products/{id}</code>. Find the product (404 if missing), copy name/category/price from the request body, and save it.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// ProductService
+public Mono&lt;Product&gt; update(Long id, Product changes) {
+    return findById(id)                       // 404 if missing
+            .map(existing -&gt; {                // plain change: map is fine
+                existing.setName(changes.getName());
+                existing.setCategory(changes.getCategory().toLowerCase());
+                existing.setPrice(changes.getPrice());
+                return existing;
+            })
+            .flatMap(repository::save);       // async save: flatMap
+}
+
+// ProductController
+@PutMapping("/{id}")
+public Mono&lt;Product&gt; update(@PathVariable Long id, @RequestBody Product body) {
+    return service.update(id, body);
+}</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. A countdown SSE stream.</strong> Add <code>GET /api/stream/countdown/{from}</code> that sends <code>from, from-1, ... 0</code>, one number every 500 ms, as Server-Sent Events. Then write a StepVerifier test using virtual time.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@GetMapping(value = "/countdown/{from}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+public Flux&lt;Integer&gt; countdown(@PathVariable int from) {
+    return countdownFlux(from);
+}
+
+public static Flux&lt;Integer&gt; countdownFlux(int from) {
+    return Flux.range(0, from + 1)
+            .map(i -&gt; from - i)
+            .delayElements(Duration.ofMillis(500));
+}
+
+// Test
+StepVerifier.withVirtualTime(() -&gt; PriceStreamController.countdownFlux(3))
+        .expectSubscription()
+        .thenAwait(Duration.ofSeconds(2))
+        .expectNext(3, 2, 1, 0)
+        .verifyComplete();</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Functional CRUD.</strong> Add functional routes <code>GET /fn/products/{id}</code> and <code>POST /fn/products</code> to <code>RouterConfig</code>, with handler methods that return 404 when the product does not exist.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// RouterConfig
+return route(GET("/fn/hello"), handler::hello)
+        .andRoute(GET("/fn/products"), handler::products)
+        .andRoute(GET("/fn/products/{id}"), handler::productById)
+        .andRoute(POST("/fn/products"), handler::createProduct);
+
+// GreetingHandler (use the repository so empty stays empty)
+public Mono&lt;ServerResponse&gt; productById(ServerRequest request) {
+    Long id = Long.valueOf(request.pathVariable("id"));
+    return repository.findById(id)
+            .flatMap(p -&gt; ServerResponse.ok().bodyValue(p))
+            .switchIfEmpty(ServerResponse.notFound().build());
+}
+
+public Mono&lt;ServerResponse&gt; createProduct(ServerRequest request) {
+    return request.bodyToMono(Product.class)
+            .flatMap(productService::create)
+            .flatMap(saved -&gt; ServerResponse.status(HttpStatus.CREATED).bodyValue(saved));
+}</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Parallel WebClient calls.</strong> Write an endpoint <code>GET /api/client/compare/{id1}/{id2}</code> that fetches two products via WebClient <em>in parallel</em> and returns the name of the cheaper one. Measure: it should take about as long as one call.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@GetMapping("/compare/{id1}/{id2}")
+public Mono&lt;String&gt; compare(@PathVariable Long id1, @PathVariable Long id2) {
+    Mono&lt;Product&gt; a = webClient.get().uri("/api/products/{id}", id1).retrieve().bodyToMono(Product.class);
+    Mono&lt;Product&gt; b = webClient.get().uri("/api/products/{id}", id2).retrieve().bodyToMono(Product.class);
+    return Mono.zip(a, b)
+            .map(t -&gt; t.getT1().getPrice().compareTo(t.getT2().getPrice()) &lt;= 0
+                    ? t.getT1().getName() : t.getT2().getName())
+            .timeout(Duration.ofSeconds(3));
+}</code></pre></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between blocking and non-blocking I/O?</summary>
+    <p>With blocking I/O the calling thread stops and waits until the operation finishes (e.g. a DB query), so it cannot do anything else. With non-blocking I/O the call returns immediately and the result is delivered later via a callback/event, so the thread can serve other work in the meantime. Non-blocking lets a few threads handle many concurrent connections.</p></details>
+  <details><summary>Q2. What is the difference between Mono and Flux?</summary>
+    <p>Both are Reactor implementations of the Reactive Streams <code>Publisher</code>. <code>Mono</code> emits at most one item (0..1) then completes or errors — like an async <code>Optional</code>. <code>Flux</code> emits 0..N items (possibly infinite) then completes or errors — like an async stream/list.</p></details>
+  <details><summary>Q3. What is the difference between map and flatMap?</summary>
+    <p><code>map</code> applies a synchronous function, one item in → one item out. <code>flatMap</code> applies a function that returns a Publisher (Mono/Flux), subscribes to it and merges the results, so it is used for asynchronous steps such as database or HTTP calls. <code>flatMap</code> runs inner publishers concurrently and does not preserve order; <code>concatMap</code> does.</p></details>
+  <details><summary>Q4. What is backpressure?</summary>
+    <p>A mechanism where the subscriber controls how many items it wants via <code>Subscription.request(n)</code>, so a fast producer cannot overwhelm a slow consumer. Reactor offers strategies such as <code>limitRate</code>, <code>onBackpressureBuffer</code>, <code>onBackpressureDrop</code> and <code>onBackpressureLatest</code>.</p></details>
+  <details><summary>Q5. What does "nothing happens until you subscribe" mean?</summary>
+    <p>Reactor publishers are lazy (cold). Operators only describe a pipeline. Execution starts on <code>subscribe()</code>. In WebFlux the framework subscribes to the Mono/Flux returned by a controller. A common bug is creating a Mono (e.g. <code>repository.save(x)</code>) and not returning/subscribing to it, so nothing runs.</p></details>
+  <details><summary>Q6. Spring MVC vs Spring WebFlux — when would you choose each?</summary>
+    <p>MVC: thread-per-request on a Servlet container, simple, huge ecosystem, works with JPA/JDBC — best default for most CRUD apps. WebFlux: event loop on Netty, non-blocking end-to-end, good for high concurrency with lots of waiting (calling many services), streaming (SSE/WebSocket) and gateways. Don't choose WebFlux if your dependencies are blocking or the team isn't experienced; with Java 21 virtual threads MVC can also scale well.</p></details>
+  <details><summary>Q7. Why can't you use JPA in a WebFlux app, and what do you use instead?</summary>
+    <p>JPA/Hibernate is built on JDBC, which is blocking; calling it on an event-loop thread blocks the loop and kills throughput. Use R2DBC (Spring Data R2DBC) for SQL databases, or reactive drivers for MongoDB/Redis/Cassandra. If unavoidable, wrap blocking calls with <code>subscribeOn(Schedulers.boundedElastic())</code>.</p></details>
+  <details><summary>Q8. How do you handle errors in a reactive chain?</summary>
+    <p>With error operators: <code>onErrorResume</code> (fallback publisher), <code>onErrorReturn</code> (fallback value), <code>onErrorMap</code> (translate exception), <code>doOnError</code> (side effect such as logging), <code>retry</code>/<code>retryWhen</code>. An error is a terminal signal — the original sequence ends. In WebFlux, <code>@ExceptionHandler</code>/<code>@ControllerAdvice</code> and <code>ResponseStatusException</code> also work.</p></details>
+  <details><summary>Q9. How do you test reactive code?</summary>
+    <p>With <code>StepVerifier</code> from reactor-test: <code>StepVerifier.create(publisher).expectNext(...).expectError(...).verifyComplete()</code>. For time-based operators use <code>StepVerifier.withVirtualTime</code> and <code>thenAwait</code>. For endpoints use <code>WebTestClient</code>. Always finish with a verify call.</p></details>
+  <details><summary>Q10. What are Server-Sent Events and how do you implement them in WebFlux?</summary>
+    <p>SSE is a standard where the server keeps an HTTP response open and pushes text events (<code>data: ...</code>) to the client; browsers support it via <code>EventSource</code>. In WebFlux you return a <code>Flux</code> from a handler with <code>produces = MediaType.TEXT_EVENT_STREAM_VALUE</code> (or <code>Flux&lt;ServerSentEvent&lt;T&gt;&gt;</code> for id/event name control). It is one-way (server → client); use WebSockets for two-way.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../54-File-Upload-Download-And-Emails/lesson.html"><small>← Previous</small>54. File Upload, Download &amp; Emails</a>
+    <a class="next" href="../56-GraphQL-With-Spring/lesson.html"><small>Next →</small>56. GraphQL with Spring</a>
+  </nav>
+</main>
+</body>
+</html>

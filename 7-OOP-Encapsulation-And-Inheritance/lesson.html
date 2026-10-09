@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>7 · Encapsulation &amp; Inheritance</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 7</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>7. Encapsulation &amp; Inheritance</h1>
+  <p class="subtitle">Protect your objects' data so nobody can break the rules, and re-use code by building new classes on top of existing ones — the right way.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="7-OOP-Encapsulation-And-Inheritance"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li><strong>Encapsulation</strong>: <code>private</code> fields, getters and setters, validation, read-only fields.</li>
+      <li><strong>Inheritance</strong>: <code>extends</code>, what a child gets from its parent, and what it does not.</li>
+      <li><code>super(...)</code>, <code>super.method()</code> and the <strong>order</strong> in which constructors run.</li>
+      <li><strong>Method overriding</strong>, the <code>@Override</code> annotation, and overriding vs overloading.</li>
+      <li>Types of inheritance and why Java has <strong>no multiple inheritance of classes</strong>.</li>
+      <li>The <code>Object</code> class — the parent of every class — and the <code>protected</code> modifier.</li>
+      <li><strong>IS-A vs HAS-A</strong> and the famous rule: <em>favour composition over inheritance</em>.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../6-OOP-Classes-And-Objects/lesson.html">Topic 6 · Classes &amp; Objects</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- =========================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>At the end of Topic 6 our <code>BankAccount</code> had a serious problem: any code anywhere could write
+     <code>account.balance = 1000000;</code>. No deposit, no check, no record. In a real bank that is a disaster.
+     <strong>Encapsulation</strong> fixes this: the class keeps its data private and only allows changes through methods that follow the rules.</p>
+  <p>The second problem is <strong>repetition</strong>. A company has managers, developers, testers and interns. All of them have a name, a salary,
+     and can get a raise. Copy-pasting those fields and methods into four classes means four places to fix every bug.
+     <strong>Inheritance</strong> lets you write the common part once (<code>Employee</code>) and let each specific class <em>extend</em> it.</p>
+  <p>Where you will see this at work:</p>
+  <ul>
+    <li>Every Spring Boot <strong>entity</strong> (a class saved to a database, Topic 38) uses private fields with getters and setters.</li>
+    <li>Spring and Java libraries are full of class hierarchies: your exceptions <code>extends RuntimeException</code> (Topic 10), your filters
+        <code>extends OncePerRequestFilter</code> (Topic 49).</li>
+    <li>"HAS-A" (composition) is exactly how Spring wires your application: a <code>OrderService</code> <em>has a</em> <code>OrderRepository</code>.
+        That idea becomes <strong>dependency injection</strong> in Topic 22.</li>
+  </ul>
+
+  <!-- =========================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏧 Encapsulation = an ATM</strong>
+    The cash inside an ATM is locked away (<code>private</code>). You cannot open the machine and grab notes.
+    You can only use the buttons — <em>Withdraw</em>, <em>Deposit</em>, <em>Check balance</em> (<code>public</code> methods).
+    Each button checks the rules first: correct PIN? enough balance? within the daily limit?
+    The bank can completely change the machine's insides without changing the buttons you use.
+  </div>
+  <div class="callout analogy"><strong>👨‍👩‍👧 Inheritance = family traits (with your own twist)</strong>
+    A child inherits traits from a parent — eye colour, surname — without doing anything. The child can also have
+    their own skills (plays guitar) and can do some things <em>their own way</em> (the parent cooks biryani one way, the child cooks it differently — that's <strong>overriding</strong>).
+    And before a child can exist, the parent must exist first — that's why the <strong>parent's constructor always runs first</strong>.
+  </div>
+  <div class="callout analogy"><strong>🚗 HAS-A = a car and its engine</strong>
+    A car <em>is a</em> vehicle (inheritance). A car <em>has an</em> engine (composition). Mechanics can swap the engine without building a new car.
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Encapsulation: hide the data, expose safe methods</h3>
+  <p><strong>Encapsulation</strong> means wrapping data and the code that works on that data together in one class, and <strong>hiding</strong> the data
+     from the outside world. Recipe:</p>
+  <ol>
+    <li>Make fields <code>private</code> — visible only inside the class.</li>
+    <li>Provide <code>public</code> methods for what outsiders are allowed to do.</li>
+    <li>Put the <strong>rules</strong> (validation) inside those methods.</li>
+  </ol>
+  <pre><code class="lang-java">class BankAccount {
+    private double balance;                 // hidden
+
+    public double getBalance() {            // read access
+        return balance;
+    }
+
+    public void deposit(double amount) {    // controlled write access
+        if (amount &lt;= 0) {
+            System.out.println("Rejected: deposit amount must be positive");
+            return;
+        }
+        balance += amount;
+    }
+}
+
+account.balance = 1_000_000;   // ❌ compile error: balance has private access in BankAccount
+account.deposit(500);          // ✅ goes through the rules</code></pre>
+
+  <h4>Getters and setters</h4>
+  <p>The Java convention (also called the <strong>JavaBean</strong> convention) for accessor methods:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Field</th><th>Getter (read)</th><th>Setter (write)</th></tr>
+    <tr><td><code>private String holderName;</code></td><td><code>public String getHolderName()</code></td><td><code>public void setHolderName(String holderName)</code></td></tr>
+    <tr><td><code>private double balance;</code></td><td><code>public double getBalance()</code></td><td>(none on purpose — use deposit/withdraw)</td></tr>
+    <tr><td><code>private boolean active;</code></td><td><code>public boolean <strong>is</strong>Active()</code></td><td><code>public void setActive(boolean active)</code></td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Why the naming matters</strong>
+    Frameworks rely on it! In Spring Boot, the JSON library <em>Jackson</em> turns <code>getHolderName()</code> into a JSON field <code>"holderName"</code>,
+    and JPA/Hibernate uses getters/setters to read and write database columns. Wrong names = missing fields.
+    VS Code can generate them: right-click → <em>Source Action… → Generate Getters and Setters</em>.</div>
+
+  <h4>A setter with validation</h4>
+  <pre><code class="lang-java">public void setHolderName(String holderName) {
+    if (holderName == null || holderName.isBlank()) {
+        System.out.println("Rejected: holder name cannot be blank");
+        return;                                // keep the old, valid value
+    }
+    this.holderName = holderName.strip();
+}</code></pre>
+  <p>In real code you would usually <strong>throw an exception</strong> instead of printing (Topic 10): <code>throw new IllegalArgumentException("Name required");</code></p>
+
+  <h4>Read-only fields</h4>
+  <p>Some values should never change after creation — an account number, an order id. Make the field <code>final</code> (can be assigned only once, in the
+     constructor) and give it a getter but <strong>no setter</strong>.</p>
+  <pre><code class="lang-java">private final String accountNumber;      // set once in the constructor, never again</code></pre>
+
+  <h4>Benefits of encapsulation</h4>
+  <ul>
+    <li><strong>Data is always valid</strong> — the class enforces its own rules (no negative balance).</li>
+    <li><strong>Freedom to change the inside</strong> — store the balance in paise as a <code>long</code> tomorrow; callers still call <code>getBalance()</code>.</li>
+    <li><strong>Easier debugging</strong> — the balance can only change in two methods, so you know where to look.</li>
+    <li><strong>Security</strong> — sensitive data (like a password hash) can be kept without a getter at all.</li>
+  </ul>
+  <div class="callout tip"><strong>💡 Behaviour methods beat dumb setters</strong>
+    <code>setBalance(balance + 500)</code> lets callers do the maths (and make mistakes). <code>deposit(500)</code> keeps the logic inside the class.
+    Don't blindly generate a setter for every field — ask "should outsiders really change this?"</div>
+
+  <h3>3.2 Inheritance: <code>extends</code></h3>
+  <p><strong>Inheritance</strong> lets a new class (the <strong>child</strong>, subclass, derived class) be built on an existing class
+     (the <strong>parent</strong>, superclass, base class). The child automatically gets the parent's fields and methods and can add more.</p>
+  <pre><code class="lang-java">class Employee {                       // parent
+    private String name;
+    private double salary;
+    public void giveRaise(double percent) { ... }
+    public void printBasicInfo() { ... }
+}
+
+class Manager extends Employee {       // child: Manager IS-A Employee
+    private int teamSize;              // extra field
+    public void conductMeeting() { ... }   // extra method
+}</code></pre>
+  <figure class="diagram">
+    <svg viewBox="0 0 520 200" width="520" role="img" aria-label="Employee is the parent of Manager and Developer">
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="180" y="15" width="160" height="56" rx="8"/>
+        <rect x="40" y="130" width="170" height="56" rx="8"/>
+        <rect x="310" y="130" width="170" height="56" rx="8"/>
+        <path d="M125 130 L125 100 L395 100 L395 130"/>
+        <path d="M260 100 L260 78"/>
+        <path d="M252 84 L260 71 L268 84 Z" fill="currentColor"/>
+      </g>
+      <g fill="currentColor" font-family="Segoe UI, sans-serif" font-size="15" text-anchor="middle">
+        <text x="260" y="40" font-weight="bold">Employee</text>
+        <text x="260" y="60" font-size="12">name, salary, giveRaise()</text>
+        <text x="125" y="155" font-weight="bold">Manager</text>
+        <text x="125" y="175" font-size="12">+ teamSize, conductMeeting()</text>
+        <text x="395" y="155" font-weight="bold">Developer</text>
+        <text x="395" y="175" font-size="12">+ language, writeCode()</text>
+      </g>
+    </svg>
+    <figcaption>The arrow points from the children to the parent (UML style): "Manager <em>extends</em> Employee".</figcaption>
+  </figure>
+  <p>What the child gets and doesn't get:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Parent member</th><th>Inherited by the child?</th></tr>
+    <tr><td><code>public</code> and <code>protected</code> fields/methods</td><td>Yes — usable directly</td></tr>
+    <tr><td>Package-private (no modifier) members</td><td>Yes, if the child is in the same package (Topic 9)</td></tr>
+    <tr><td><code>private</code> fields/methods</td><td>They exist inside the object, but the child <strong>cannot access them directly</strong> — use the parent's public getters</td></tr>
+    <tr><td>Constructors</td><td><strong>No</strong> — the child must write its own and call the parent's with <code>super(...)</code></td></tr>
+  </table></div>
+  <p><strong>The IS-A test:</strong> inheritance is correct only if the sentence "<em>Child is a Parent</em>" is true. "A Manager is an Employee" ✅.
+     "A SavingsAccount is an Account" ✅. "A Car is an Engine" ❌.</p>
+
+  <h3>3.3 <code>super</code> and the constructor call order</h3>
+  <p>Before a child object can be built, its parent part must be built. So <strong>constructors run from the top of the family tree down</strong>:</p>
+  <div class="flow">
+    <span class="box info">new ElectricCar(...)</span><span class="arrow">→</span>
+    <span class="box">1. Vehicle constructor</span><span class="arrow">→</span>
+    <span class="box">2. Car constructor</span><span class="arrow">→</span>
+    <span class="box alt">3. ElectricCar constructor</span>
+  </div>
+  <p>(Strictly speaking, <code>Object</code>'s constructor runs even before <code>Vehicle</code>'s.)</p>
+  <p>The child chooses <em>which</em> parent constructor to call with <code>super(...)</code>:</p>
+  <pre><code class="lang-java">class Car extends Vehicle {
+    Car(String brand, int seats) {
+        super(brand);          // MUST be the first line: build the Vehicle part first
+        this.seats = seats;    // then the Car part
+    }
+}</code></pre>
+  <ul>
+    <li>If you don't write <code>super(...)</code>, Java silently inserts <code>super();</code> (call the parent's <strong>no-argument</strong> constructor).</li>
+    <li>If the parent has <strong>no</strong> no-arg constructor, you <strong>must</strong> call <code>super(...)</code> with arguments, otherwise: compile error
+        "constructor Vehicle in class Vehicle cannot be applied to given types".</li>
+    <li>A constructor can begin with <code>this(...)</code> <em>or</em> <code>super(...)</code>, never both.</li>
+  </ul>
+  <p>The word <code>super</code> has two uses (just like <code>this</code> in Topic 6):</p>
+  <div class="table-wrap"><table>
+    <tr><th>Syntax</th><th>Meaning</th></tr>
+    <tr><td><code>super(...)</code></td><td>Call a parent constructor (first line of a constructor only)</td></tr>
+    <tr><td><code>super.method()</code></td><td>Call the <strong>parent's version</strong> of a method — very common inside an overriding method</td></tr>
+    <tr><td><code>super.field</code></td><td>The parent's field (only needed if the child has a field with the same name — avoid that)</td></tr>
+  </table></div>
+
+  <h3>3.4 Method overriding</h3>
+  <p><strong>Overriding</strong> = a child class provides its <strong>own implementation</strong> of a method it inherited.
+     Same name, same parameters, same (or compatible) return type.</p>
+  <pre><code class="lang-java">class Account {
+    double calculateInterest() { return 0; }
+}
+
+class SavingsAccount extends Account {
+    @Override
+    double calculateInterest() {           // SavingsAccount's own rule
+        return balance * 0.04;
+    }
+}</code></pre>
+  <p><strong><code>@Override</code></strong> is an annotation that asks the compiler to check: "is there really a parent method with this exact signature?"
+     If you misspell it (<code>calculateIntrest</code>) or change a parameter type, you get a compile error instead of a silent bug. <strong>Always use it.</strong></p>
+  <p>Using the parent's version and adding to it:</p>
+  <pre><code class="lang-java">@Override
+String describe() {
+    return super.describe() + " (Savings, 4% interest)";
+}</code></pre>
+  <p>Which version runs? The one belonging to the <strong>real object</strong>, not the variable type:</p>
+  <pre><code class="lang-java">Account someAccount = new SavingsAccount("S-2", 2_000);
+someAccount.describe();     // runs SavingsAccount.describe()</code></pre>
+  <p>This is called <strong>runtime polymorphism</strong> — the star of <a href="../8-OOP-Polymorphism-Abstraction-Interfaces/lesson.html">Topic 8</a>.</p>
+
+  <h4>Rules for overriding</h4>
+  <div class="table-wrap"><table>
+    <tr><th>Rule</th><th>Example</th></tr>
+    <tr><td>Same method name and parameter list</td><td><code>withdraw(double)</code> overrides <code>withdraw(double)</code>; <code>withdraw(int)</code> would be an overload</td></tr>
+    <tr><td>Return type: same, or a subclass of it ("covariant return")</td><td>Parent returns <code>Account</code>, child may return <code>SavingsAccount</code></td></tr>
+    <tr><td>Cannot make access <strong>more restrictive</strong></td><td>Parent <code>public</code> → child cannot be <code>private</code></td></tr>
+    <tr><td><code>private</code> methods are not inherited, so they can't be overridden</td><td></td></tr>
+    <tr><td><code>final</code> methods cannot be overridden</td><td><code>final void audit()</code> (Topic 9)</td></tr>
+    <tr><td><code>static</code> methods are not overridden (a same-named static method in the child just <em>hides</em> the parent's)</td><td></td></tr>
+    <tr><td>Cannot throw new/broader <em>checked</em> exceptions (Topic 10)</td><td></td></tr>
+  </table></div>
+
+  <h4>Overriding vs overloading — don't mix them up</h4>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Overloading</th><th>Overriding</th></tr>
+    <tr><td>Where</td><td>Same class (or parent + child)</td><td>Parent and child classes</td></tr>
+    <tr><td>Method name</td><td>Same</td><td>Same</td></tr>
+    <tr><td>Parameters</td><td><strong>Different</strong></td><td><strong>Same</strong></td></tr>
+    <tr><td>Decided when?</td><td>Compile time (by argument types)</td><td>Runtime (by the real object)</td></tr>
+    <tr><td>Purpose</td><td>Convenience: <code>deposit(500)</code>, <code>deposit(500, "Salary")</code></td><td>Specialized behaviour: savings vs current withdraw rules</td></tr>
+    <tr><td><code>@Override</code>?</td><td>No</td><td>Yes</td></tr>
+  </table></div>
+
+  <h3>3.5 Types of inheritance</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Type</th><th>Shape</th><th>Allowed with classes?</th><th>Example</th></tr>
+    <tr><td>Single</td><td>A → B</td><td>✅</td><td><code>PhysicalProduct extends Product</code></td></tr>
+    <tr><td>Multilevel</td><td>A → B → C</td><td>✅</td><td><code>EBook extends DigitalProduct extends Product</code></td></tr>
+    <tr><td>Hierarchical</td><td>A → B, A → C</td><td>✅</td><td><code>PhysicalProduct</code> and <code>DigitalProduct</code> both extend <code>Product</code></td></tr>
+    <tr><td>Multiple</td><td>A, B → C</td><td>❌ (classes) / ✅ (interfaces, Topic 8)</td><td><code>class SmartWatch extends A, B</code> — compile error</td></tr>
+    <tr><td>Hybrid</td><td>a mix</td><td>Only through interfaces</td><td></td></tr>
+  </table></div>
+
+  <h4>Why no multiple inheritance of classes? The diamond problem</h4>
+  <figure class="diagram">
+    <svg viewBox="0 0 420 220" width="420" role="img" aria-label="Diamond problem: SmartWatch extends two parents that both override finalPrice">
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="150" y="10" width="120" height="40" rx="6"/>
+        <rect x="20" y="90" width="150" height="40" rx="6"/>
+        <rect x="250" y="90" width="150" height="40" rx="6"/>
+        <rect x="140" y="170" width="140" height="40" rx="6" stroke-dasharray="6 4"/>
+        <path d="M95 90 L195 50"/><path d="M325 90 L225 50"/>
+        <path d="M95 130 L190 170" stroke-dasharray="6 4"/><path d="M325 130 L230 170" stroke-dasharray="6 4"/>
+      </g>
+      <g fill="currentColor" font-family="Segoe UI, sans-serif" font-size="13" text-anchor="middle">
+        <text x="210" y="35">Product</text>
+        <text x="95" y="108">PhysicalProduct</text><text x="95" y="124" font-size="11">finalPrice(): + delivery</text>
+        <text x="325" y="108">DigitalProduct</text><text x="325" y="124" font-size="11">finalPrice(): + 18% tax</text>
+        <text x="210" y="195">SmartWatch ???</text>
+      </g>
+    </svg>
+    <figcaption>If <code>SmartWatch</code> extended both, which <code>finalPrice()</code> should it inherit? Java avoids the confusion by allowing only one parent class.</figcaption>
+  </figure>
+
+  <h3>3.6 The <code>Object</code> class — the root of everything</h3>
+  <p>If a class doesn't say <code>extends</code>, Java makes it extend <code>java.lang.Object</code>. So <strong>every</strong> class is ultimately a child of <code>Object</code>,
+     and every object has these methods:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>Default behaviour</th><th>Usually override?</th></tr>
+    <tr><td><code>toString()</code></td><td><code>ClassName@hexHash</code></td><td>Yes — readable text</td></tr>
+    <tr><td><code>equals(Object o)</code></td><td>Same as <code>==</code></td><td>Yes, for value equality</td></tr>
+    <tr><td><code>hashCode()</code></td><td>A number based on the object identity</td><td>Yes, together with equals</td></tr>
+    <tr><td><code>getClass()</code></td><td>Returns the runtime class (<code>EBook</code>)</td><td>No (it's <code>final</code>)</td></tr>
+    <tr><td><code>clone()</code>, <code>wait()</code>, <code>notify()</code>, <code>notifyAll()</code></td><td>Copying and thread coordination (advanced)</td><td>Rarely</td></tr>
+  </table></div>
+  <p>Because of this, an <code>Object</code> variable can hold <em>any</em> object: <code>Object anything = new EBook(...);</code></p>
+
+  <h3>3.7 The <code>protected</code> modifier</h3>
+  <p>You know <code>private</code> (only this class) and <code>public</code> (everyone). <code>protected</code> sits in between:
+     visible to <strong>subclasses</strong> (even in other packages) and to classes in the <strong>same package</strong>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Modifier</th><th>Same class</th><th>Same package</th><th>Subclass (other package)</th><th>Everyone</th></tr>
+    <tr><td><code>private</code></td><td>✅</td><td>❌</td><td>❌</td><td>❌</td></tr>
+    <tr><td>(none) package-private</td><td>✅</td><td>✅</td><td>❌</td><td>❌</td></tr>
+    <tr><td><code>protected</code></td><td>✅</td><td>✅</td><td>✅</td><td>❌</td></tr>
+    <tr><td><code>public</code></td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+  </table></div>
+  <p>Packages and this table are covered in depth in Topic 9. For now: prefer <code>private</code> + getters; use <code>protected</code> when you deliberately
+     want subclasses to work with a field or method directly.</p>
+
+  <h3>3.8 IS-A vs HAS-A: composition over inheritance</h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>IS-A (inheritance)</th><th>HAS-A (composition)</th></tr>
+    <tr><td>How</td><td><code>class Truck extends MotorVehicle</code></td><td><code>class SportsCar { private Engine engine; }</code></td></tr>
+    <tr><td>Sentence test</td><td>"A truck <em>is a</em> motor vehicle"</td><td>"A car <em>has an</em> engine"</td></tr>
+    <tr><td>Coupling</td><td>Tight — child depends on parent's internals</td><td>Loose — only uses the part's public methods</td></tr>
+    <tr><td>Change at runtime?</td><td>No — the parent is fixed at compile time</td><td>Yes — swap the part (<code>replaceEngine(...)</code>)</td></tr>
+    <tr><td>Number</td><td>Only one parent class</td><td>As many parts as you like</td></tr>
+  </table></div>
+  <p><strong>"Favour composition over inheritance"</strong> is one of the most quoted design rules (from the famous <em>Design Patterns</em> book and <em>Effective Java</em>).
+     Inheritance is powerful but rigid: a change in the parent can break every child. Composition builds objects from small, replaceable parts.
+     Use inheritance only when the IS-A test is clearly true <em>and</em> the child really is a specialised version of the parent.</p>
+  <pre><span class="file">Example06_CompositionVsInheritance.java (part)</span><code class="lang-java">class SportsCar {
+    private Engine engine;                 // HAS-A
+    private final MusicSystem musicSystem; // HAS-A
+
+    SportsCar(String model, Engine engine, MusicSystem musicSystem) {
+        this.engine = engine;              // parts are handed IN from outside
+        this.musicSystem = musicSystem;
+    }
+
+    void start() {
+        engine.ignite();                   // delegation: let the part do the work
+    }
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ Spring preview</strong>
+    Notice that <code>SportsCar</code> does not create its own engine with <code>new</code> — the engine is <strong>given to it</strong> through the constructor.
+    This is exactly what Spring does with your services: <code>OrderService(OrderRepository repo)</code>. Spring builds the parts and hands them in.
+    This is called <strong>constructor injection</strong> (Topics 22–24). In the next topic you'll make it even more flexible with interfaces.</div>
+
+  <!-- =========================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>Example01_Encapsulation.java</code></td><td><code>BankAccount</code> with private fields, getters, a validated setter, a read-only <code>final</code> account number, deposit/withdraw instead of <code>setBalance</code>.</td></tr>
+    <tr><td><code>Example02_InheritanceBasics.java</code></td><td><code>Employee</code> → <code>Manager</code>/<code>Developer</code>: inherited methods, added fields/methods, <code>super(...)</code>, <code>instanceof</code>.</td></tr>
+    <tr><td><code>Example03_SuperAndConstructorOrder.java</code></td><td>3-level chain <code>Vehicle → Car → ElectricCar</code>: constructor order, explicit and implicit <code>super</code>, <code>super.describe()</code>, hidden fields.</td></tr>
+    <tr><td><code>Example04_MethodOverriding.java</code></td><td><code>Account → SavingsAccount/CurrentAccount</code>: overriding interest and withdraw rules, <code>super.describe()</code>, overloading <code>deposit</code>.</td></tr>
+    <tr><td><code>Example05_ObjectClassAndProtected.java</code></td><td>Methods from <code>Object</code>, <code>protected</code> vs <code>private</code>, single/multilevel/hierarchical inheritance, the family tree printed with <code>getSuperclass()</code>.</td></tr>
+    <tr><td><code>Example06_CompositionVsInheritance.java</code></td><td><code>SportsCar</code> HAS-A <code>Engine</code> + <code>MusicSystem</code>, swapping the engine, delegation; <code>Truck</code> IS-A <code>MotorVehicle</code>.</td></tr>
+  </table></div>
+
+  <h3>4.1 Example01 — encapsulated BankAccount</h3>
+  <pre><span class="file">Example01_Encapsulation.java</span><code class="lang-java">class BankAccount {
+    private final String accountNumber;   // final + no setter -&gt; read-only after creation
+    private String holderName;
+    private double balance;
+    private int transactionCount;
+
+    BankAccount(String accountNumber, String holderName, double openingBalance) {
+        if (openingBalance &lt; 0) {
+            throw new IllegalArgumentException("Opening balance cannot be negative");
+        }
+        this.accountNumber = accountNumber;
+        setHolderName(holderName);        // re-use the validation in the setter
+        this.balance = openingBalance;
+    }
+    ...
+    // NO setBalance(...) on purpose!
+}</code></pre>
+  <p>Key points: even the <strong>constructor</strong> validates (an invalid object can never be born); the setter is reused so the name rule lives in one place;
+     <code>transactionCount</code> has only a getter — it is counted by the class itself. The <code>throw</code> statement stops the program with an error;
+     you will learn it properly in Topic 10.</p>
+
+  <h3>4.2 Example02 — Employee family</h3>
+  <pre><span class="file">Example02_InheritanceBasics.java</span><code class="lang-java">class Manager extends Employee {
+    private int teamSize;
+
+    Manager(String name, double salary, int teamSize) {
+        super(name, salary);      // FIRST: let Employee set up name and salary
+        this.teamSize = teamSize;
+    }
+
+    public void conductMeeting() {
+        System.out.println(getName() + " is conducting a meeting with " + teamSize + " people");
+    }
+}</code></pre>
+  <p><code>Manager</code> can't read <code>name</code> directly (it's private in <code>Employee</code>), so it uses the inherited <code>getName()</code>.
+     <code>developer.giveRaise(10)</code> works although <code>Developer</code> never declared <code>giveRaise</code> — it's inherited.
+     <code>printBasicInfo()</code> uses <code>getClass().getSimpleName()</code>, which prints the <em>real</em> class name (Manager or Developer).</p>
+
+  <h3>4.3 Example03 — who runs first?</h3>
+  <pre><span class="file">Example03_SuperAndConstructorOrder.java</span><code class="lang-java">ElectricCar(String brand, int seats, int batteryKwh) {
+    super(brand, seats);              // Car's constructor (which calls Vehicle's)
+    this.batteryKwh = batteryKwh;
+    System.out.println("3. ElectricCar constructor -&gt; battery = " + batteryKwh + " kWh");
+}
+
+@Override
+void describe() {
+    super.describe();                 // Car.describe() -&gt; which calls Vehicle.describe()
+    System.out.println("Battery: " + batteryKwh + " kWh");
+}</code></pre>
+  <p>Output shows <code>1. Vehicle</code>, <code>2. Car</code>, <code>3. ElectricCar</code>. <code>describe()</code> chains upward through <code>super</code>, printing brand, then seats,
+     then battery. <code>Bicycle</code> never writes <code>super(...)</code>, yet "1. Vehicle() constructor" is printed — proof of the implicit <code>super()</code>.
+     <code>showNames()</code> demonstrates <strong>field hiding</strong> (Car declares its own <code>type</code>): it's legal but confusing, which is why real code avoids same-named fields.</p>
+
+  <h3>4.4 Example04 — different rules for different accounts</h3>
+  <pre><span class="file">Example04_MethodOverriding.java</span><code class="lang-java">class CurrentAccount extends Account {
+    private final double overdraftLimit;
+
+    @Override
+    void withdraw(double amount) {
+        if (amount &gt; balance + overdraftLimit) {
+            System.out.println(accountNumber + ": REFUSED, overdraft limit reached");
+            return;
+        }
+        balance -= amount;
+        ...
+    }
+}</code></pre>
+  <p>Withdrawing 12,000 from a 10,000 balance is refused for <code>Account</code> and <code>SavingsAccount</code> (they use the parent rule) but allowed for
+     <code>CurrentAccount</code> (its own rule). <code>CurrentAccount</code> doesn't override <code>calculateInterest()</code>, so it inherits the parent's <code>0</code>.</p>
+
+  <h3>4.5 Example05 — Object and protected</h3>
+  <pre><span class="file">Example05_ObjectClassAndProtected.java</span><code class="lang-java">class PhysicalProduct extends Product {
+    @Override
+    double finalPrice() {
+        double delivery = 40 + weightKg * 10;
+        return price + delivery;          // 'price' is protected in Product -&gt; OK
+        // return price + sku;            // would NOT compile: sku is private in Product
+    }
+}</code></pre>
+  <p>The program prints EBook's family tree by walking <code>getSuperclass()</code> until it reaches <code>null</code>:
+     <code>EBook -&gt; DigitalProduct -&gt; Product -&gt; Object</code>. <code>Class&lt;?&gt;</code> means "a Class object of some type" — you'll understand the
+     <code>&lt;?&gt;</code> in Topic 12 (Generics) and reflection in Topic 18.</p>
+
+  <h3>4.6 Example06 — HAS-A in action</h3>
+  <p><code>car.replaceEngine(new Engine("Electric Dual Motor", 480))</code> upgrades the car at runtime — the horse-power jumps from 300 to 480 without touching
+     the <code>SportsCar</code> class. The <code>Truck</code> part shows a correct use of inheritance; the comment at the bottom explains why <code>Car extends Engine</code> is wrong.</p>
+
+  <!-- =========================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <h3>In VS Code</h3>
+  <ol>
+    <li>Open <code>D:\Java-SpringBoot</code> in VS Code.</li>
+    <li>Open a file in <code>7-OOP-Encapsulation-And-Inheritance</code> and click <strong>Run</strong> above <code>main</code>.</li>
+    <li>Try un-commenting <code>account.balance = 1_000_000;</code> in Example01 — VS Code underlines it in red: "<em>balance has private access</em>". That's encapsulation working!</li>
+  </ol>
+  <h3>From the terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\7-OOP-Encapsulation-And-Inheritance"
+java Example01_Encapsulation.java
+java Example02_InheritanceBasics.java
+java Example03_SuperAndConstructorOrder.java
+java Example04_MethodOverriding.java
+java Example05_ObjectClassAndProtected.java
+java Example06_CompositionVsInheritance.java</code></pre>
+  <p>Expected output of <code>Example01</code>:</p>
+  <pre class="terminal"><code>Holder name set to: Neha
+Deposited 500.0, balance = 1500.0
+Rejected: deposit amount must be positive (-200.0)
+Rejected: insufficient balance for 5000.0 (balance 1500.0)
+Withdrew 300.0, balance = 1200.0
+Holder name set to: Neha Verma
+Rejected: holder name cannot be blank
+
+Account : ACC-501
+Holder  : Neha Verma
+Balance : 1200.0
+Transactions done: 2</code></pre>
+  <p>Expected output of <code>Example02</code>:</p>
+  <pre class="terminal"><code>Manager: Anil, salary 120000.0
+Developer: Divya, salary 90000.0
+Divya's new salary: 99000.0
+Anil is conducting a meeting with 8 people
+Divya is writing Java code
+manager instanceof Employee? true</code></pre>
+  <p>Expected output of <code>Example03</code>:</p>
+  <pre class="terminal"><code>Creating an ElectricCar...
+1. Vehicle(String) constructor -&gt; brand = Tesla
+2. Car constructor -&gt; seats = 5
+3. ElectricCar constructor -&gt; battery = 75 kWh
+
+Brand: Tesla
+Seats: 5
+Battery: 75 kWh
+
+type       = Car
+super.type = Car
+((Vehicle) this).type = Vehicle
+
+Creating a Bicycle (no explicit super call)...
+1. Vehicle() constructor
+2. Bicycle constructor</code></pre>
+  <p>Expected output of <code>Example04</code>:</p>
+  <pre class="terminal"><code>--- Interest for one year ---
+Account        : 0.0
+SavingsAccount : 400.0
+CurrentAccount : 0.0
+
+--- Withdraw 12,000 from each ---
+A-1: REFUSED, balance is only 10000.0
+S-1: REFUSED, balance is only 10000.0
+C-1: withdrew 12000.0, balance -2000.0 (overdraft allowed)
+
+--- Parent-type variable, child object ---
+Account S-2 with balance 2000.0 (Savings, 4% interest)
+
+--- Overloading (same name, different parameters) ---
+S-1: deposited 500.0
+S-1: deposited 500.0 (Salary credit)</code></pre>
+  <p>Expected output of <code>Example05</code>:</p>
+  <pre class="terminal"><code>toString()  : EBook{name='Clean Code', price=350.0}
+getClass()  : EBook
+hashCode()  : same for same object? true
+equals(self): true
+Empty's superclass: java.lang.Object
+
+Phone [SKU-PHONE] -&gt; final price 15042.0
+Java Course [SKU-JAVA-COURSE] -&gt; final price 588.82
+Clean Code [SKU-CLEAN-CODE] -&gt; final price 413.0, pages 464
+
+EBook's family tree: EBook -&gt; DigitalProduct -&gt; Product -&gt; Object</code></pre>
+  <p>Expected output of <code>Example06</code>:</p>
+  <pre class="terminal"><code>Mustang starting:
+  Engine (Petrol V6) is running
+  JBL speakers playing: Believer
+Mustang has 300 HP
+
+Upgrading the engine...
+Mustang starting:
+  Engine (Electric Dual Motor) is running
+Mustang has 480 HP
+
+Ashok Leyland: Beep beep!
+Ashok Leyland truck loaded 10 of 16 tons</code></pre>
+
+  <!-- =========================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: public fields "because it's easier"</strong>
+    <code>public double balance;</code> lets anyone set any value; you lose all control.<br>
+    <strong>Fix:</strong> <code>private</code> fields + methods that enforce the rules.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: getters/setters for everything, with no checks</strong>
+    A setter that just does <code>this.x = x</code> for every field is barely better than a public field.<br>
+    <strong>Fix:</strong> only add setters that make sense, validate inside them, and prefer behaviour methods (<code>deposit</code>, <code>cancel</code>).</div>
+
+  <div class="callout danger"><strong>❌ Mistake: forgetting <code>super(...)</code> when the parent has no no-arg constructor</strong>
+    Error: <em>constructor Employee in class Employee cannot be applied to given types; required: String,double; found: no arguments</em>.<br>
+    <strong>Fix:</strong> make the first line of the child constructor <code>super(name, salary);</code></div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: <code>super(...)</code> not as the first statement</strong>
+    "call to super must be first statement in constructor".<br><strong>Fix:</strong> move it to the top.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: "overriding" with a typo or different parameters</strong>
+    <code>double calculateIntrest()</code> or <code>withdraw(int amount)</code> silently creates a <em>new</em> method; the parent's version still runs.<br>
+    <strong>Fix:</strong> always write <code>@Override</code> — the compiler will catch it ("method does not override or implement a method from a supertype").</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: trying to access a parent's <code>private</code> field from the child</strong>
+    "name has private access in Employee".<br><strong>Fix:</strong> use the parent's getter, or (if appropriate) make it <code>protected</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: using inheritance just to re-use code</strong>
+    <code>class Car extends Engine</code> because Car needs <code>ignite()</code>. It fails the IS-A test.<br>
+    <strong>Fix:</strong> use composition: give <code>Car</code> an <code>Engine</code> field and delegate.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: reducing visibility when overriding</strong>
+    Parent: <code>public String toString()</code>; child: <code>String toString()</code> → "attempting to assign weaker access privileges".<br>
+    <strong>Fix:</strong> keep the same (or wider) access, e.g. <code>public</code>.</div>
+
+  <!-- =========================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Make every field <code>private</code> by default.</strong> Open access only when you have a reason.</li>
+    <li><strong>Make fields <code>final</code></strong> when they should never change (ids, creation dates). Immutable data = fewer bugs.</li>
+    <li><strong>Validate in constructors and setters</strong> so an object can never be in an invalid state. Throw <code>IllegalArgumentException</code> for bad input (Topic 10).</li>
+    <li><strong>Follow the JavaBean naming</strong> (<code>getX</code>, <code>isX</code>, <code>setX</code>) — Spring, Jackson and JPA depend on it.</li>
+    <li><strong>Always use <code>@Override</code>.</strong></li>
+    <li><strong>Inherit only for true IS-A relationships</strong> and keep hierarchies shallow (2–3 levels). Deep trees become hard to understand.</li>
+    <li><strong>Favour composition over inheritance</strong> — build from parts, pass the parts in through the constructor (this is dependency injection in Spring).</li>
+    <li><strong>Don't declare a field with the same name as a parent field</strong> (field hiding) — it confuses everyone.</li>
+    <li>If a class isn't designed to be extended, consider making it <code>final</code> (Topic 9). <em>Effective Java</em>: "Design and document for inheritance or else prohibit it."</li>
+  </ul>
+
+  <!-- =========================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li><strong>Encapsulation</strong> = private data + public methods that enforce rules. Callers can't break your object.</li>
+    <li>Getters/setters follow <code>getX/isX/setX</code>; a field with no setter (and <code>final</code>) is read-only.</li>
+    <li><strong>Inheritance</strong> (<code>extends</code>) lets a child reuse and extend a parent. Use it only if "child IS-A parent" is true.</li>
+    <li>Private members and constructors are <strong>not</strong> accessible/inherited by the child.</li>
+    <li>Parent constructors run <strong>first</strong>; <code>super(...)</code> picks one; otherwise <code>super()</code> is inserted automatically.</li>
+    <li><strong>Overriding</strong> = same signature in the child; the real object decides which version runs. <code>@Override</code> protects you from typos.</li>
+    <li>Java allows single, multilevel and hierarchical inheritance of classes, but <strong>not multiple</strong> (diamond problem).</li>
+    <li>Every class extends <code>Object</code>; <code>protected</code> = subclasses + same package.</li>
+    <li><strong>HAS-A (composition)</strong> is usually more flexible than IS-A — and it's the idea behind Spring's dependency injection.</li>
+  </ul></div>
+
+  <!-- =========================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Encapsulate a Student.</strong> Create a <code>Student</code> class with private <code>name</code> and <code>marks</code> (0–100).
+       Add getters and setters; the marks setter must reject values outside 0–100. Test with 85 and 150.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public class Practice01 {
+    public static void main(String[] args) {
+        Student s = new Student("Rahul", 70);
+        s.setMarks(85);
+        s.setMarks(150);                                   // Invalid marks: 150
+        System.out.println(s.getName() + " " + s.getMarks()); // Rahul 85
+    }
+}
+
+class Student {
+    private String name;
+    private int marks;
+
+    Student(String name, int marks) {
+        this.name = name;
+        setMarks(marks);
+    }
+
+    public String getName() { return name; }
+    public int getMarks() { return marks; }
+
+    public void setMarks(int marks) {
+        if (marks &lt; 0 || marks &gt; 100) {
+            System.out.println("Invalid marks: " + marks);
+            return;
+        }
+        this.marks = marks;
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Animal sounds.</strong> Create <code>Animal</code> with a <code>name</code> and a method <code>sound()</code> returning "...".
+       Create <code>Dog</code> and <code>Cat</code> that extend it and override <code>sound()</code>. Print "Tommy says Woof" and "Kitty says Meow".</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public class Practice02 {
+    public static void main(String[] args) {
+        Animal[] animals = { new Dog("Tommy"), new Cat("Kitty") };
+        for (Animal a : animals) {
+            System.out.println(a.getName() + " says " + a.sound());
+        }
+    }
+}
+
+class Animal {
+    private final String name;
+    Animal(String name) { this.name = name; }
+    String getName() { return name; }
+    String sound() { return "..."; }
+}
+
+class Dog extends Animal {
+    Dog(String name) { super(name); }
+    @Override String sound() { return "Woof"; }
+}
+
+class Cat extends Animal {
+    Cat(String name) { super(name); }
+    @Override String sound() { return "Meow"; }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Predict the order.</strong> What does this print? Then run it.</p>
+    <pre><code class="lang-java">class A { A() { System.out.println("A"); } }
+class B extends A { B() { System.out.println("B"); } }
+class C extends B { C() { super(); System.out.println("C"); } }
+// in main:  new C();</code></pre>
+    <details><summary>Hint / solution</summary>
+      <p>Parents first, top to bottom. <code>B()</code> has an implicit <code>super()</code>.</p>
+      <pre class="terminal"><code>A
+B
+C</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Salary with bonus.</strong> Create <code>Staff</code> (name, baseSalary) with <code>monthlyPay()</code> returning the base.
+       Create <code>SalesPerson extends Staff</code> with a <code>commission</code>; override <code>monthlyPay()</code> to return
+       <code>super.monthlyPay() + commission</code>. Print both pays.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public class Practice04 {
+    public static void main(String[] args) {
+        Staff clerk = new Staff("Uma", 30000);
+        Staff seller = new SalesPerson("Ravi", 25000, 8000);
+        System.out.println(clerk.getName() + ": " + clerk.monthlyPay());   // Uma: 30000.0
+        System.out.println(seller.getName() + ": " + seller.monthlyPay()); // Ravi: 33000.0
+    }
+}
+
+class Staff {
+    private final String name;
+    private final double baseSalary;
+
+    Staff(String name, double baseSalary) {
+        this.name = name;
+        this.baseSalary = baseSalary;
+    }
+
+    String getName() { return name; }
+
+    double monthlyPay() { return baseSalary; }
+}
+
+class SalesPerson extends Staff {
+    private final double commission;
+
+    SalesPerson(String name, double baseSalary, double commission) {
+        super(name, baseSalary);
+        this.commission = commission;
+    }
+
+    @Override
+    double monthlyPay() {
+        return super.monthlyPay() + commission;
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Composition: a Computer.</strong> Build <code>Processor</code> (model, cores), <code>Memory</code> (sizeGb) and a <code>Computer</code> that HAS both.
+       <code>Computer</code> gets them through its constructor, has <code>printSpecs()</code>, and an <code>upgradeMemory(Memory)</code> method. Upgrade from 8 GB to 16 GB and print again.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public class Practice05 {
+    public static void main(String[] args) {
+        Computer pc = new Computer(new Processor("Ryzen 5", 6), new Memory(8));
+        pc.printSpecs();                 // Ryzen 5 (6 cores), 8 GB RAM
+        pc.upgradeMemory(new Memory(16));
+        pc.printSpecs();                 // Ryzen 5 (6 cores), 16 GB RAM
+    }
+}
+
+class Processor {
+    private final String model;
+    private final int cores;
+    Processor(String model, int cores) { this.model = model; this.cores = cores; }
+    String describe() { return model + " (" + cores + " cores)"; }
+}
+
+class Memory {
+    private final int sizeGb;
+    Memory(int sizeGb) { this.sizeGb = sizeGb; }
+    int getSizeGb() { return sizeGb; }
+}
+
+class Computer {
+    private final Processor processor;   // HAS-A
+    private Memory memory;               // HAS-A (replaceable)
+
+    Computer(Processor processor, Memory memory) {
+        this.processor = processor;
+        this.memory = memory;
+    }
+
+    void upgradeMemory(Memory newMemory) {
+        this.memory = newMemory;
+    }
+
+    void printSpecs() {
+        System.out.println(processor.describe() + ", " + memory.getSizeGb() + " GB RAM");
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Spot the design problem.</strong> A teammate wrote <code>class ShoppingCart extends ArrayList&lt;Product&gt;</code> "so the cart gets add/remove for free".
+       Explain two problems and sketch a better design.</p>
+    <details><summary>Hint / solution</summary>
+      <p><strong>Problems:</strong> (1) A cart is not a list — it fails the IS-A test. (2) All list methods become part of the cart's public API:
+         anyone can call <code>cart.clear()</code>, <code>cart.set(0, null)</code> or add a product without your stock/price checks — encapsulation is broken.
+         (3) You're tied to <code>ArrayList</code> forever.</p>
+      <p><strong>Better:</strong> composition — the cart <em>has</em> a private list and exposes only what makes sense:</p>
+      <pre><code class="lang-java">class ShoppingCart {
+    private final List&lt;Product&gt; items = new ArrayList&lt;&gt;();
+
+    public void addProduct(Product p) {
+        if (p == null) {
+            throw new IllegalArgumentException("Product required");
+        }
+        items.add(p);
+    }
+
+    public int itemCount() {
+        return items.size();
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is encapsulation and what are its benefits?</summary>
+    <p>Bundling data and the methods that operate on it in one class while hiding the data (<code>private</code>) and exposing controlled access through
+       methods. Benefits: data integrity through validation, freedom to change the internal implementation without affecting callers, easier maintenance
+       and debugging, and better security.</p></details>
+
+  <details><summary>Q2. What is inheritance? What is not inherited?</summary>
+    <p>A mechanism where a class (subclass) acquires the fields and methods of another class (superclass) using <code>extends</code>, modelling an IS-A relationship
+       and enabling reuse. Constructors are not inherited; private members are not accessible in the subclass; static methods are not overridden (only hidden).</p></details>
+
+  <details><summary>Q3. Why doesn't Java support multiple inheritance of classes?</summary>
+    <p>To avoid ambiguity — the diamond problem: if two parents provide the same method, which one does the child inherit? It also keeps the object model
+       and constructor chaining simple. Java allows a class to implement multiple <em>interfaces</em> instead (Topic 8).</p></details>
+
+  <details><summary>Q4. In what order are constructors called in an inheritance chain?</summary>
+    <p>From the top down: <code>Object</code> → grandparent → parent → child. Each constructor's first statement is a call to <code>super(...)</code>
+       (explicit or the implicit no-arg <code>super()</code>), so the parent part is fully initialized before the child's constructor body runs.</p></details>
+
+  <details><summary>Q5. Difference between <code>this</code> and <code>super</code>?</summary>
+    <p><code>this</code> refers to the current object (<code>this.field</code>, <code>this.method()</code>, <code>this(...)</code> for another constructor of the same class).
+       <code>super</code> refers to the parent part of the current object (<code>super.method()</code> for the parent's version, <code>super(...)</code> for a parent constructor).
+       Both <code>this(...)</code> and <code>super(...)</code> must be the first statement, so a constructor can use only one of them.</p></details>
+
+  <details><summary>Q6. Method overloading vs method overriding?</summary>
+    <p>Overloading: same name, different parameter lists, resolved at compile time, usually in the same class. Overriding: same signature in a subclass,
+       replaces inherited behaviour, resolved at runtime based on the actual object (dynamic dispatch), marked with <code>@Override</code>.</p></details>
+
+  <details><summary>Q7. Can we override a static, private or final method?</summary>
+    <p>No. <code>private</code> methods aren't visible to the subclass; <code>final</code> methods are explicitly forbidden from being overridden;
+       <code>static</code> methods belong to the class — a same-signature static method in the subclass <em>hides</em> the parent's, it does not override it.</p></details>
+
+  <details><summary>Q8. What is the purpose of <code>@Override</code>?</summary>
+    <p>It tells the compiler the method is intended to override a superclass (or interface) method. If no such method exists — typo, wrong parameters —
+       compilation fails. It also documents intent for readers.</p></details>
+
+  <details><summary>Q9. What is the difference between IS-A and HAS-A? Why "composition over inheritance"?</summary>
+    <p>IS-A is inheritance (<code>Truck extends Vehicle</code>); HAS-A is composition (a <code>Car</code> has an <code>Engine</code> field). Composition is preferred because it is
+       loosely coupled, allows changing parts at runtime, avoids fragile deep hierarchies, isn't limited to one parent, and doesn't expose unwanted inherited methods.</p></details>
+
+  <details><summary>Q10. What is the <code>Object</code> class? Name some of its methods.</summary>
+    <p><code>java.lang.Object</code> is the root superclass of every Java class. Methods: <code>toString()</code>, <code>equals()</code>, <code>hashCode()</code>, <code>getClass()</code>,
+       <code>clone()</code>, <code>wait()</code>, <code>notify()</code>, <code>notifyAll()</code> (and the deprecated <code>finalize()</code>).</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../6-OOP-Classes-And-Objects/lesson.html"><small>← Previous</small>6. Classes &amp; Objects</a>
+    <a class="next" href="../8-OOP-Polymorphism-Abstraction-Interfaces/lesson.html"><small>Next →</small>8. Polymorphism, Abstraction &amp; Interfaces</a>
+  </nav>
+</main>
+</body>
+</html>

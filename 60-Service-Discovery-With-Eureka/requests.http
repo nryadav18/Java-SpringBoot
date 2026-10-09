@@ -1,0 +1,33 @@
+### Topic 60 - Service discovery with Eureka
+### Start: eureka-server (8761) -> product-service (8081, optional 2nd on 8091) -> order-service (8082)
+
+### 1. Eureka registry as JSON (the dashboard is http://localhost:8761 in a browser)
+GET http://localhost:8761/eureka/apps
+Accept: application/json
+
+### 2. What does order-service see in the registry for product-service?
+GET http://localhost:8082/api/orders/discovery
+
+### 3. Load-balancing demo: 6 calls, see which instance answered each one
+GET http://localhost:8082/api/orders/lb-demo
+
+### 4. Place an order (product-service is found BY NAME through Eureka)
+POST http://localhost:8082/api/orders
+Content-Type: application/json
+
+{
+  "productId": 1,
+  "quantity": 2
+}
+
+### 5. List orders - look at "productServedBy"
+GET http://localhost:8082/api/orders
+
+### 6. product-service instances directly
+GET http://localhost:8081/api/products/1
+
+###
+GET http://localhost:8091/api/products/1
+
+### 7. EXPERIMENT: stop ALL product-service instances, wait ~15 s, send request 4 again
+###    -> 503 "No instances available for product-service"

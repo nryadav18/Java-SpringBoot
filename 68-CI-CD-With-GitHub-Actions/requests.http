@@ -1,0 +1,13 @@
+### Topic 68 - sample requests (VS Code "REST Client" extension)
+
+### Standard delivery, 2.5 kg -> cost 10.00
+GET http://localhost:8080/api/shipping/quote?weightKg=2.5
+
+### Express delivery, 2.5 kg -> cost 15.00
+GET http://localhost:8080/api/shipping/quote?weightKg=2.5&express=true
+
+### Too heavy -> 400 Bad Request (ProblemDetail)
+GET http://localhost:8080/api/shipping/quote?weightKg=50
+
+### Health
+GET http://localhost:8080/actuator/health

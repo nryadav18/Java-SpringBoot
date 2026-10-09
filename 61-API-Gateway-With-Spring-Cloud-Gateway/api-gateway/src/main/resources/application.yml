@@ -1,0 +1,99 @@
+# ------------------------------------------------------------------
+# api-gateway configuration (Topic 61)
+# ------------------------------------------------------------------
+# Clients talk ONLY to http://localhost:8080. The gateway decides where each
+# request goes. A ROUTE = id + uri (where to send) + predicates (WHEN does this
+# route match?) + filters (WHAT to change on the way).
+#
+# NOTE for Spring Cloud 2025.0: the property prefix is
+#   spring.cloud.gateway.server.webflux.*
+# Older tutorials use spring.cloud.gateway.* - that old prefix is DEPRECATED in
+# 2025.0, so always use the new prefix in new projects.
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            # ---- Route 1: /api/products/** -> product-service --------------------
+            - id: product-route
+              # lb:// = "load-balanced": ask Eureka for a live instance of product-service
+              uri: lb://product-service
+              predicates:
+                - Path=/api/products/**
+              filters:
+                # add a header on the way IN (the service can see the request came via the gateway)
+                - AddRequestHeader=X-Request-Source, api-gateway
+                # add a header on the way OUT (the client sees it)
+                - AddResponseHeader=X-Powered-By, course-api-gateway
+
+            # ---- Route 2: /api/orders/** -> order-service ------------------------
+            - id: order-route
+              uri: lb://order-service
+              predicates:
+                - Path=/api/orders/**
+              filters:
+                - AddRequestHeader=X-Request-Source, api-gateway
+
+            # ---- Route 3: a "public, friendly" URL rewritten to the internal one --
+            #   GET /shop/products/1  ->  product-service  GET /api/products/1
+            - id: shop-products-rewrite
+              uri: lb://product-service
+              predicates:
+                - Path=/shop/products, /shop/products/**
+              filters:
+                # RewritePath=<regex>, <replacement>   (${segment} = the captured part)
+                - RewritePath=/shop/(?<segment>.*), /api/$\{segment}
+                - AddRequestHeader=X-Request-Source, api-gateway-rewrite
+
+            # ---- Route 4: an external website, just to show uri can be ANY URL ----
+            #   GET /demo/get -> https://httpbin.org/get   (needs internet; optional)
+            - id: external-demo
+              uri: https://httpbin.org
+              predicates:
+                - Path=/demo/**
+              filters:
+                - StripPrefix=1      # remove the first path part: /demo/get -> /get
+
+          # Discovery locator: creates an AUTOMATIC route for every service in Eureka:
+          #   http://localhost:8080/product-service/api/products  -> product-service
+          # Handy for learning; in production prefer explicit routes (more control).
+          discovery:
+            locator:
+              enabled: true
+              lower-case-service-id: true
+
+# Our own setting, used by ApiKeyGlobalFilter. In real life read it from an
+# environment variable, e.g.  api-key: ${GATEWAY_API_KEY}
+gateway:
+  api-key: course-secret-123
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    registry-fetch-interval-seconds: 5      # DEV ONLY
+  instance:
+    hostname: localhost
+    instance-id: ${spring.application.name}:${server.port}
+    lease-renewal-interval-in-seconds: 5     # DEV ONLY
+    lease-expiration-duration-in-seconds: 15 # DEV ONLY
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # /actuator/gateway/routes lists every route the gateway knows
+        include: health,info,gateway
+  endpoint:
+    gateway:
+      access: read-only
+
+logging:
+  level:
+    com.course.gateway: INFO

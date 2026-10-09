@@ -1,0 +1,26 @@
+# ------------------------------------------------------------------
+# product-service configuration (Topic 61)
+# ------------------------------------------------------------------
+spring:
+  application:
+    name: product-service      # the gateway route uses lb://product-service
+
+server:
+  port: 8081                   # 2nd instance: --server.port=8091
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    registry-fetch-interval-seconds: 5      # DEV ONLY
+  instance:
+    hostname: localhost
+    instance-id: ${spring.application.name}:${server.port}
+    lease-renewal-interval-in-seconds: 5     # DEV ONLY
+    lease-expiration-duration-in-seconds: 15 # DEV ONLY
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

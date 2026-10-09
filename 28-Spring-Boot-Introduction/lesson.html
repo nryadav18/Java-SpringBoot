@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>28 · Spring Boot Introduction</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 28</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>28. Spring Boot Introduction</h1>
+  <p class="subtitle">Create, understand, run and package your first Spring Boot application — and finally see the "magic" of auto-configuration explained in plain words.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="28-Spring-Boot-Introduction"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What Spring Boot adds on top of the Spring Framework you learned in topics 22–27.</li>
+      <li>The big ideas: <strong>auto-configuration</strong>, <strong>starters</strong>, <strong>embedded Tomcat</strong>, opinionated defaults, Actuator, no XML.</li>
+      <li>How to create a project with <strong>start.spring.io</strong> and with the VS Code <strong>Spring Initializr</strong> command.</li>
+      <li>Every folder and file of a new Spring Boot project.</li>
+      <li>What <code>@SpringBootApplication</code> really is (3 annotations in 1).</li>
+      <li>What happens, step by step, inside <code>SpringApplication.run(...)</code>.</li>
+      <li><code>CommandLineRunner</code>, your first "Hello" REST endpoint, a custom banner, DevTools.</li>
+      <li>Running with <code>mvn spring-boot:run</code>, building a jar and running it with <code>java -jar</code>.</li>
+      <li>How auto-configuration decides what to create (conditions and the <code>--debug</code> report).</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../20-Maven-Build-Tool/lesson.html">Topic 20 · Maven</a>, <a href="../23-Spring-IoC-Container-And-Beans/lesson.html">Topic 23 · IoC Container &amp; Beans</a> and <a href="../26-Spring-Configuration-Profiles-And-Environment/lesson.html">Topic 26 · @Conditional</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ 1. WHY -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>In topics 22–27 you used the plain Spring Framework. It worked well, but think about how much <em>setup</em> you did:
+    you picked the right version of <code>spring-context</code>, wrote <code>@Configuration</code> classes, created the
+    <code>AnnotationConfigApplicationContext</code> yourself, and added the exec plugin just to run <code>main</code>.</p>
+  <p>Now imagine a real web application. Before Spring Boot (before 2014), a developer also had to:</p>
+  <ul>
+    <li>install a separate web server (Apache Tomcat) and copy a <code>.war</code> file into it,</li>
+    <li>write a <code>web.xml</code> file to register Spring's <code>DispatcherServlet</code>,</li>
+    <li>configure a JSON library, a database connection pool, a transaction manager, logging…</li>
+    <li>and make sure all 30+ library versions worked together (they often did not!).</li>
+  </ul>
+  <p>That could take a <strong>whole day</strong> before writing one line of business code. <strong>Spring Boot</strong> removes almost all of it.
+    You add one dependency, write one class with <code>main</code>, and you have a running web server in seconds.</p>
+  <div class="callout info"><strong>ℹ️ Where you will see it at work</strong>
+    Today almost every new Spring project in companies is a Spring Boot project: banking back-ends, e-commerce APIs, microservices,
+    batch jobs, internal tools. When a job advert says "Spring", it practically always means "Spring Boot". Everything from here to the
+    end of the course is built on Spring Boot.</div>
+
+  <!-- ============================================================ 2. ANALOGY -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏠 A furnished apartment vs an empty plot of land</strong>
+    <p>The <strong>Spring Framework</strong> is like buying a plot of land plus a truck full of excellent building materials. You can build
+      any house you want — but you must design it, lay the pipes, fit the wiring and buy matching parts yourself.</p>
+    <p><strong>Spring Boot</strong> is like moving into a <strong>fully furnished apartment</strong>. Electricity, water, a kitchen, a bed — all ready.
+      The builder made sensible choices for you ("opinionated defaults"). You just bring your clothes (your business code) and start living.
+      And if you don't like the sofa? You can still replace it (override any default).</p>
+    <ul>
+      <li><strong>Starters</strong> = furniture packages ("kitchen package" = stove + fridge + pots that fit together).</li>
+      <li><strong>Auto-configuration</strong> = the caretaker who notices "you brought a coffee machine, let me connect it to power and water".</li>
+      <li><strong>Embedded Tomcat</strong> = the apartment comes with its own front door; you don't need to rent a separate building to receive guests.</li>
+      <li><strong>Actuator</strong> = the smart meter on the wall that tells you if everything is healthy.</li>
+    </ul>
+  </div>
+
+  <!-- ============================================================ 3. CONCEPTS -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 What exactly is Spring Boot?</h3>
+  <p><strong>Spring Boot is not a new framework that replaces Spring.</strong> It is a layer <em>on top of</em> the Spring Framework that configures
+    Spring for you. Inside every Spring Boot app there is the same <code>ApplicationContext</code>, the same beans, the same
+    dependency injection you learned in topics 22–27. Spring Boot just builds and wires it automatically.</p>
+  <div class="flow">
+    <span class="box">Your code<br><small>controllers, services</small></span><span class="arrow">on top of</span>
+    <span class="box alt">Spring Boot<br><small>auto-config, starters, embedded server</small></span><span class="arrow">on top of</span>
+    <span class="box info">Spring Framework<br><small>IoC, DI, MVC, AOP…</small></span><span class="arrow">on top of</span>
+    <span class="box">Java 17 / JVM</span>
+  </div>
+
+  <p>Spring Boot gives you six big things:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Feature</th><th>What it means in simple words</th></tr>
+    <tr><td><strong>Auto-configuration</strong></td><td>Spring Boot looks at the libraries on your classpath and creates the beans you probably need. Web library present? It starts a web server. H2 database present? It creates a <code>DataSource</code>.</td></tr>
+    <tr><td><strong>Starters</strong></td><td>One dependency that pulls in a whole, tested set of libraries. <code>spring-boot-starter-web</code> = Spring MVC + Jackson + Tomcat + validation helpers + logging.</td></tr>
+    <tr><td><strong>Embedded server</strong></td><td>Tomcat runs <em>inside</em> your application. Your app is a normal <code>main</code> method and a normal jar. No server to install.</td></tr>
+    <tr><td><strong>Opinionated defaults</strong></td><td>Sensible choices are made for you: port 8080, Logback for logging, Jackson for JSON, HikariCP for DB connections. You override only what you want to change.</td></tr>
+    <tr><td><strong>Actuator</strong></td><td>Production-ready endpoints like <code>/actuator/health</code> and metrics, by adding one starter (topic 53 goes deeper).</td></tr>
+    <tr><td><strong>No XML</strong></td><td>Configuration is Java annotations plus one simple <code>application.properties</code> (or <code>.yml</code>) file.</td></tr>
+  </table></div>
+
+  <h3>3.2 Spring vs Spring Boot — side by side</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Topic</th><th>Plain Spring (topics 22–27)</th><th>Spring Boot</th></tr>
+    <tr><td>Dependencies</td><td>Choose each library and its version yourself</td><td>Starters + parent POM manage versions for you</td></tr>
+    <tr><td>Configuration</td><td>Write <code>@Configuration</code>/<code>@Bean</code> for everything (or XML in old projects)</td><td>Auto-configured; you write config only for <em>your</em> things</td></tr>
+    <tr><td>Web server</td><td>Install external Tomcat, deploy a <code>.war</code></td><td>Embedded Tomcat inside a runnable <code>.jar</code></td></tr>
+    <tr><td>Starting the app</td><td><code>new AnnotationConfigApplicationContext(...)</code></td><td><code>SpringApplication.run(...)</code></td></tr>
+    <tr><td>Settings</td><td><code>@PropertySource</code> + your own files</td><td><code>application.properties</code>/<code>.yml</code> loaded automatically, profiles built in</td></tr>
+    <tr><td>Monitoring</td><td>Build it yourself</td><td>Actuator starter</td></tr>
+    <tr><td>Time to "Hello World" web page</td><td>An hour or more</td><td>About 2 minutes</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Remember</strong> Spring Boot = Spring Framework + automatic configuration + sensible defaults + easy running. Everything you learned about beans and DI still applies 100%.</div>
+
+  <h3>3.3 Starters — dependency "packages"</h3>
+  <p>A <strong>starter</strong> is a Maven dependency that contains almost no code. Its job is to <em>pull in</em> a group of other dependencies that
+    belong together, in versions that are tested together. Starters are named <code>spring-boot-starter-*</code>.</p>
+  <pre><span class="file">pom.xml (part)</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-web&lt;/artifactId&gt;
+    &lt;!-- no &lt;version&gt;! The parent POM decides it --&gt;
+&lt;/dependency&gt;</code></pre>
+  <p>That single block brings in Spring MVC, Jackson (JSON), embedded Tomcat, logging (SLF4J + Logback), YAML support and more — about 20 jars.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Starter</th><th>What you get</th><th>Topic</th></tr>
+    <tr><td><code>spring-boot-starter</code></td><td>Core: Spring context, auto-configuration, logging, YAML</td><td>every app</td></tr>
+    <tr><td><code>spring-boot-starter-web</code></td><td>REST APIs and web apps with Spring MVC + embedded Tomcat + Jackson</td><td>28, 31, 32…</td></tr>
+    <tr><td><code>spring-boot-starter-validation</code></td><td>Bean Validation (<code>@NotBlank</code>, <code>@Email</code>…) with Hibernate Validator</td><td>29, 34</td></tr>
+    <tr><td><code>spring-boot-starter-thymeleaf</code></td><td>Server-side HTML pages</td><td>36</td></tr>
+    <tr><td><code>spring-boot-starter-jdbc</code></td><td><code>JdbcTemplate</code> + HikariCP connection pool</td><td>37</td></tr>
+    <tr><td><code>spring-boot-starter-data-jpa</code></td><td>JPA + Hibernate + Spring Data repositories</td><td>38–43</td></tr>
+    <tr><td><code>spring-boot-starter-security</code></td><td>Authentication and authorization</td><td>47–50</td></tr>
+    <tr><td><code>spring-boot-starter-actuator</code></td><td>Health, metrics, info endpoints</td><td>28, 53</td></tr>
+    <tr><td><code>spring-boot-starter-cache</code> / <code>-data-redis</code></td><td>Caching, Redis</td><td>51</td></tr>
+    <tr><td><code>spring-boot-starter-webflux</code></td><td>Reactive web apps</td><td>55</td></tr>
+    <tr><td><code>spring-boot-starter-amqp</code> / <code>spring-kafka</code></td><td>Messaging with RabbitMQ / Kafka</td><td>57, 58</td></tr>
+    <tr><td><code>spring-boot-starter-test</code></td><td>JUnit 5, Mockito, AssertJ, MockMvc, Spring test support</td><td>46</td></tr>
+    <tr><td><code>spring-boot-devtools</code> (not a "starter" by name)</td><td>Automatic restart while developing</td><td>28</td></tr>
+  </table></div>
+
+  <h3>3.4 The parent POM — one version to rule them all</h3>
+  <pre><span class="file">pom.xml (part)</span><code class="lang-xml">&lt;parent&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-parent&lt;/artifactId&gt;
+    &lt;version&gt;3.5.6&lt;/version&gt;
+&lt;/parent&gt;</code></pre>
+  <p>Remember parent POMs and BOMs from <a href="../20-Maven-Build-Tool/lesson.html">topic 20</a>? The Spring Boot parent contains a huge list of
+    "approved" versions for hundreds of libraries (Spring, Jackson, Tomcat, Hibernate, JUnit…). That is why we never write
+    <code>&lt;version&gt;</code> for those dependencies. When you upgrade Spring Boot, you change <strong>one</strong> number and all libraries move together.
+    The parent also sets the Java version (from <code>&lt;java.version&gt;</code>), UTF-8 encoding and good plugin settings.</p>
+
+  <h3>3.5 The embedded server</h3>
+  <p>Old way: the <em>server</em> was the main program and your app was a guest inside it. Spring Boot way: <em>your app</em> is the main program and it
+    starts Tomcat inside itself, like starting a thread.</p>
+  <div class="flow">
+    <span class="box">Old: Tomcat installed on server</span><span class="arrow">→</span><span class="box">deploy app.war into it</span>
+  </div>
+  <div class="flow">
+    <span class="box alt">Boot: java -jar app.jar</span><span class="arrow">→</span><span class="box alt">main() starts</span><span class="arrow">→</span><span class="box alt">embedded Tomcat starts on port 8080</span>
+  </div>
+  <p>Benefits: the same jar runs on your laptop, a test server, a Docker container or the cloud (topics 66–69). Tomcat is the default; you can swap to
+    Jetty or Undertow by changing dependencies.</p>
+
+  <h3>3.6 Creating a project — option A: start.spring.io</h3>
+  <p><strong>Spring Initializr</strong> is a free website that generates an empty, correct Spring Boot project for you.</p>
+  <ol>
+    <li>Open <strong>https://start.spring.io</strong> in your browser.</li>
+    <li><strong>Project:</strong> Maven. <strong>Language:</strong> Java. <strong>Spring Boot:</strong> choose 3.5.x (in this course we use 3.5.6; if the site offers a newer 3.5.x that is fine, but set the pom back to 3.5.6 to match the course).</li>
+    <li><strong>Project Metadata:</strong> Group <code>com.course</code>, Artifact <code>boot-intro</code>, Name <code>boot-intro</code>, Package name <code>com.course.bootintro</code>, Packaging <strong>Jar</strong>, Java <strong>17</strong>.</li>
+    <li>Click <strong>ADD DEPENDENCIES</strong> and add: <em>Spring Web</em>, <em>Spring Boot Actuator</em>, <em>Spring Boot DevTools</em>.</li>
+    <li>Click <strong>GENERATE</strong>. A zip file downloads.</li>
+    <li>Unzip it (for example into <code>D:\Java-SpringBoot\my-first-boot</code>) and open that folder in VS Code (<em>File → Open Folder…</em>).</li>
+  </ol>
+  <div class="callout tip"><strong>💡 Tip</strong> The <strong>EXPLORE</strong> button on start.spring.io shows you every file before you download. Great for learning what each dependency adds to <code>pom.xml</code>.</div>
+
+  <h3>3.7 Creating a project — option B: inside VS Code</h3>
+  <p>With the <strong>Spring Boot Extension Pack</strong> installed (topic 1), VS Code talks to start.spring.io for you:</p>
+  <ol>
+    <li>Press <strong>Ctrl + Shift + P</strong> to open the Command Palette.</li>
+    <li>Type <strong>Spring Initializr: Create a Maven Project…</strong> and press Enter.</li>
+    <li>Choose Spring Boot version <strong>3.5.x</strong>.</li>
+    <li>Language: <strong>Java</strong>.</li>
+    <li>Group Id: <code>com.course</code> → Enter.</li>
+    <li>Artifact Id: <code>boot-intro</code> → Enter.</li>
+    <li>Packaging: <strong>Jar</strong>. Java version: <strong>17</strong>.</li>
+    <li>Dependencies: search and tick <em>Spring Web</em>, <em>Spring Boot Actuator</em>, <em>Spring Boot DevTools</em>, then press Enter.</li>
+    <li>Choose a folder where the project should be created. Click <strong>Open</strong> when VS Code asks.</li>
+  </ol>
+  <p>VS Code shows a <strong>Spring Boot Dashboard</strong> in the left sidebar from which you can start/stop apps with one click.</p>
+
+  <h3>3.8 Project structure walkthrough</h3>
+  <pre><code>28-Spring-Boot-Introduction/
+├── pom.xml                                  ← Maven build file (parent, starters, plugin)
+├── src/
+│   ├── main/
+│   │   ├── java/com/course/bootintro/
+│   │   │   ├── BootIntroApplication.java    ← main class with @SpringBootApplication
+│   │   │   ├── HelloController.java         ← REST endpoints
+│   │   │   ├── GreetingService.java         ← a normal @Service bean
+│   │   │   └── StartupRunner.java           ← CommandLineRunner
+│   │   └── resources/
+│   │       ├── application.properties       ← settings (port, name, …)
+│   │       ├── banner.txt                   ← custom startup banner
+│   │       ├── static/   (optional)         ← css/js/images served as-is
+│   │       └── templates/ (optional)        ← HTML templates (Thymeleaf, topic 36)
+│   └── test/java/com/course/bootintro/
+│       └── BootIntroApplicationTests.java   ← tests
+└── target/                                  ← created by Maven when you build (never edit)</code></pre>
+  <div class="callout warn"><strong>⚠️ Golden rule of packages</strong> Put the main class in the <strong>top</strong> package (<code>com.course.bootintro</code>) and all other classes in that package or its <strong>sub-packages</strong> (<code>com.course.bootintro.web</code>, <code>com.course.bootintro.service</code>…). Component scanning starts at the main class's package and only goes <em>down</em>.</div>
+  <p>start.spring.io also adds <code>mvnw</code> / <code>mvnw.cmd</code> (the Maven wrapper from topic 20) and a <code>.gitignore</code>. In this course Maven is installed, so we use plain <code>mvn</code>.</p>
+
+  <h3>3.9 @SpringBootApplication = three annotations in one</h3>
+  <pre><span class="file">BootIntroApplication.java</span><code class="lang-java">@SpringBootApplication
+public class BootIntroApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(BootIntroApplication.class, args);
+    }
+}</code></pre>
+  <p>If you open the source of <code>@SpringBootApplication</code> (Ctrl + click it in VS Code), you find it is made of:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Annotation inside</th><th>What it does</th><th>You met it in</th></tr>
+    <tr><td><code>@SpringBootConfiguration</code> (a special <code>@Configuration</code>)</td><td>This class is a configuration class; it may contain <code>@Bean</code> methods.</td><td>Topic 22/23</td></tr>
+    <tr><td><code>@EnableAutoConfiguration</code></td><td>Turns on Spring Boot's automatic configuration.</td><td>New! (built on <code>@Conditional</code>, topic 26)</td></tr>
+    <tr><td><code>@ComponentScan</code></td><td>Finds <code>@Component</code>, <code>@Service</code>, <code>@Repository</code>, <code>@Controller</code> classes in this package and below.</td><td>Topic 23</td></tr>
+  </table></div>
+  <p>So this is exactly equivalent (you would never write it this way, it just proves the point):</p>
+  <pre><code class="lang-java">@Configuration
+@EnableAutoConfiguration
+@ComponentScan
+public class BootIntroApplication { ... }</code></pre>
+
+  <h3>3.10 What happens inside SpringApplication.run(...)</h3>
+  <p>This one line does a lot. Here is the startup journey in order:</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 760 330" role="img" aria-label="Spring Boot startup steps" font-family="sans-serif" font-size="13">
+      <g fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="10" y="10" width="230" height="46" rx="8"/>
+        <rect x="265" y="10" width="230" height="46" rx="8"/>
+        <rect x="520" y="10" width="230" height="46" rx="8"/>
+        <rect x="520" y="100" width="230" height="46" rx="8"/>
+        <rect x="265" y="100" width="230" height="46" rx="8"/>
+        <rect x="10" y="100" width="230" height="46" rx="8"/>
+        <rect x="10" y="190" width="230" height="46" rx="8"/>
+        <rect x="265" y="190" width="230" height="46" rx="8"/>
+        <rect x="520" y="190" width="230" height="46" rx="8"/>
+        <path d="M240 33 h20 M495 33 h20 M635 56 v40 M520 123 h-20 M265 123 h-20 M125 146 v40 M240 213 h20 M495 213 h20"/>
+      </g>
+      <g fill="currentColor">
+        <text x="20" y="30">1. Create SpringApplication</text><text x="20" y="48" font-size="11">detect app type: web (servlet)</text>
+        <text x="275" y="30">2. Prepare Environment</text><text x="275" y="48" font-size="11">read properties, env vars, args</text>
+        <text x="530" y="30">3. Print banner</text><text x="530" y="48" font-size="11">banner.txt or Spring logo</text>
+        <text x="530" y="120">4. Create ApplicationContext</text><text x="530" y="138" font-size="11">the IoC container (topic 23)</text>
+        <text x="275" y="120">5. Component scan</text><text x="275" y="138" font-size="11">find YOUR @Component classes</text>
+        <text x="20" y="120">6. Auto-configuration</text><text x="20" y="138" font-size="11">add beans based on classpath</text>
+        <text x="20" y="210">7. Create + inject beans</text><text x="20" y="228" font-size="11">singletons, @PostConstruct</text>
+        <text x="275" y="210">8. Start embedded Tomcat</text><text x="275" y="228" font-size="11">listen on port 8080</text>
+        <text x="530" y="210">9. Call CommandLineRunners</text><text x="530" y="228" font-size="11">then: "Started … in X seconds"</text>
+        <text x="10" y="290" font-size="12">The app now waits for HTTP requests until you stop it (Ctrl + C). On shutdown: @PreDestroy, server stops, context closes.</text>
+      </g>
+    </svg>
+    <figcaption>Startup steps of <code>SpringApplication.run()</code></figcaption>
+  </figure>
+  <p>You can see these steps in the console log. Look for lines like <code>Tomcat initialized with port 8080</code>,
+    <code>Root WebApplicationContext: initialization completed</code> and finally <code>Started BootIntroApplication in 3.2 seconds</code>.</p>
+
+  <h3>3.11 CommandLineRunner — "do this once at startup"</h3>
+  <p>Sometimes you need to run code once, right after the app has started: insert sample data, print a summary, check a connection.
+    Any bean that implements <code>CommandLineRunner</code> is called automatically at step 9.</p>
+  <pre><code class="lang-java">@Component
+public class StartupRunner implements CommandLineRunner {
+    @Override
+    public void run(String... args) {
+        System.out.println("App started with args: " + Arrays.toString(args));
+    }
+}</code></pre>
+  <p>You can also write it as a <code>@Bean</code> returning a lambda (we use this style in topic 29):</p>
+  <pre><code class="lang-java">@Bean
+CommandLineRunner sayHi() {
+    return args -&gt; System.out.println("Hi from a lambda runner!");
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ ApplicationRunner</strong> is the twin of <code>CommandLineRunner</code>. It receives an <code>ApplicationArguments</code> object that already splits options like <code>--name=Asha</code> for you. If you have several runners, order them with <code>@Order(1)</code>, <code>@Order(2)</code>.</div>
+
+  <h3>3.12 Your first REST endpoint</h3>
+  <pre><code class="lang-java">@RestController
+public class HelloController {
+    @GetMapping("/hello")
+    public String hello(@RequestParam(defaultValue = "World") String name) {
+        return "Hello, " + name + "!";
+    }
+}</code></pre>
+  <ul>
+    <li><code>@RestController</code> — "this class answers HTTP requests and writes return values directly into the response".</li>
+    <li><code>@GetMapping("/hello")</code> — "call this method for <code>GET http://localhost:8080/hello</code>".</li>
+    <li><code>@RequestParam</code> — reads <code>?name=Asha</code> from the URL; if missing, uses <code>World</code>.</li>
+    <li>Return a <code>String</code> → plain text. Return an object, list or <code>Map</code> → <strong>JSON</strong>, automatically, thanks to Jackson.</li>
+  </ul>
+  <p>Topics 31 and 32 explain all of this in depth. For now, enjoy that this is the <em>entire</em> code needed for a web endpoint.</p>
+
+  <h3>3.13 Running: mvn spring-boot:run vs java -jar</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Command</th><th>What it does</th><th>When to use</th></tr>
+    <tr><td><code>mvn spring-boot:run</code></td><td>Compiles and runs the app directly from your source folder.</td><td>During development.</td></tr>
+    <tr><td><code>mvn clean package</code></td><td>Compiles, runs tests and builds <code>target/boot-intro-0.0.1-SNAPSHOT.jar</code>.</td><td>Before shipping.</td></tr>
+    <tr><td><code>java -jar target/boot-intro-0.0.1-SNAPSHOT.jar</code></td><td>Runs the packaged app. Only Java is needed — no Maven, no Tomcat.</td><td>On servers, in Docker.</td></tr>
+  </table></div>
+  <p>The jar is a <strong>"fat jar"</strong> (also called "uber jar"): the <code>spring-boot-maven-plugin</code> puts your classes <em>and</em> all
+    dependency jars inside it, plus a small launcher that knows how to load jars-inside-a-jar. That is why it is ~20 MB, and why it "just runs".</p>
+
+  <h3>3.14 DevTools — automatic restart</h3>
+  <p>With <code>spring-boot-devtools</code> on the classpath, the app <strong>restarts automatically</strong> whenever compiled classes change.
+    In VS Code, Java files are compiled when you save, so: edit → <strong>Ctrl + S</strong> → the app restarts in ~1 second.</p>
+  <ul>
+    <li>The restart is fast because DevTools uses two class loaders: one for libraries (never reloaded) and one for your code (reloaded).</li>
+    <li>DevTools is <strong>disabled automatically</strong> when you run a packaged jar with <code>java -jar</code> — it is a development-only tool.</li>
+    <li>It also turns off template caching (useful for Thymeleaf in topic 36).</li>
+  </ul>
+  <div class="callout tip"><strong>💡 Tip</strong> If you run the app with <code>mvn spring-boot:run</code> in a terminal, run <code>mvn compile</code> in a <em>second</em> terminal to trigger the restart (or simply rely on VS Code's auto-build).</div>
+
+  <h3>3.15 The banner</h3>
+  <p>The big ASCII "Spring" logo at startup is the <strong>banner</strong>. Put a file called <code>banner.txt</code> in <code>src/main/resources</code> and
+    Spring Boot prints it instead. Placeholders like <code>${spring-boot.version}</code> are replaced. Turn it off with
+    <code>spring.main.banner-mode=off</code>. Fun, but it also helps you see at a glance which app is starting in a busy terminal.</p>
+
+  <h3>3.16 How auto-configuration works (the "magic" explained)</h3>
+  <p>In <a href="../26-Spring-Configuration-Profiles-And-Environment/lesson.html">topic 26</a> you wrote a <code>@Conditional</code> bean: a bean that is created
+    <em>only if</em> a condition is true. Auto-configuration is simply <strong>hundreds of ready-made <code>@Configuration</code> classes with conditions</strong>,
+    shipped inside the <code>spring-boot-autoconfigure</code> jar.</p>
+  <ol>
+    <li><code>@EnableAutoConfiguration</code> reads a list of auto-configuration classes from the file
+      <code>META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports</code> inside the jar.</li>
+    <li>For each class, Spring checks its conditions.</li>
+    <li>If all conditions match, its beans are created. If not, the class is skipped.</li>
+  </ol>
+  <p>A simplified version of a real one looks like this:</p>
+  <pre><code class="lang-java">@AutoConfiguration
+@ConditionalOnClass(ObjectMapper.class)          // only if Jackson is on the classpath
+public class JacksonAutoConfiguration {
+
+    @Bean
+    @ConditionalOnMissingBean                    // only if YOU did not define your own ObjectMapper
+    public ObjectMapper jacksonObjectMapper() {
+        return new ObjectMapper();
+    }
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Condition</th><th>Meaning</th></tr>
+    <tr><td><code>@ConditionalOnClass</code></td><td>A certain class is on the classpath (a library was added).</td></tr>
+    <tr><td><code>@ConditionalOnMissingClass</code></td><td>A class is NOT on the classpath.</td></tr>
+    <tr><td><code>@ConditionalOnBean</code> / <code>@ConditionalOnMissingBean</code></td><td>A bean of some type exists / does not exist yet.</td></tr>
+    <tr><td><code>@ConditionalOnProperty</code></td><td>A property has a certain value (e.g. a feature switch).</td></tr>
+    <tr><td><code>@ConditionalOnWebApplication</code></td><td>The app is a web application.</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 The key idea: "back off"</strong> Thanks to <code>@ConditionalOnMissingBean</code>, if you define your own bean, Spring Boot's default <strong>steps aside</strong>. That is how you customise anything: just declare your own bean.</div>
+  <p><strong>Seeing the decisions:</strong> start the app with <code>--debug</code> (or set <code>debug=true</code> in <code>application.properties</code>).
+    Spring Boot prints a <strong>CONDITIONS EVALUATION REPORT</strong>:</p>
+  <pre class="terminal"><code>============================
+CONDITIONS EVALUATION REPORT
+============================
+
+Positive matches:
+-----------------
+   DispatcherServletAutoConfiguration matched:
+      - @ConditionalOnClass found required class 'org.springframework.web.servlet.DispatcherServlet'
+
+Negative matches:
+-----------------
+   DataSourceAutoConfiguration:
+      Did not match:
+         - @ConditionalOnClass did not find required class 'org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType'</code></pre>
+  <p>Read it like this: "a web server was configured because Spring MVC is present; no database was configured because no JDBC library is present". When something is
+    (or is not) auto-configured and you don't know why, this report is your first stop. To switch off one auto-configuration on purpose:
+    <code>@SpringBootApplication(exclude = DataSourceAutoConfiguration.class)</code>.</p>
+
+  <h3>3.17 Actuator in one minute</h3>
+  <p>Adding <code>spring-boot-starter-actuator</code> gives ready-made management endpoints. By default only <code>/actuator/health</code> is exposed over HTTP.
+    We also exposed <code>info</code>:</p>
+  <pre><code class="lang-properties">management.endpoints.web.exposure.include=health,info</code></pre>
+  <p><code>GET /actuator/health</code> returns <code>{"status":"UP"}</code>. Load balancers, Docker and Kubernetes call this to check your app is alive. Topic 53 covers Actuator fully.</p>
+
+  <!-- ============================================================ 4. CODE -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>Spring Boot parent 3.5.6, starters (web, actuator, devtools, test), Spring Boot Maven plugin</td></tr>
+    <tr><td><code>BootIntroApplication.java</code></td><td>Main class with <code>@SpringBootApplication</code></td></tr>
+    <tr><td><code>HelloController.java</code></td><td><code>/hello</code> (text) and <code>/info</code> (JSON) endpoints</td></tr>
+    <tr><td><code>GreetingService.java</code></td><td>A normal <code>@Service</code>, injected via constructor</td></tr>
+    <tr><td><code>StartupRunner.java</code></td><td>A <code>CommandLineRunner</code> printing startup info</td></tr>
+    <tr><td><code>application.properties</code></td><td>App name, port, Actuator exposure, <code>debug</code> switch</td></tr>
+    <tr><td><code>banner.txt</code></td><td>Custom banner</td></tr>
+    <tr><td><code>BootIntroApplicationTests.java</code></td><td><code>@SpringBootTest</code> smoke test</td></tr>
+    <tr><td><code>requests.http</code></td><td>Requests for the VS Code REST Client</td></tr>
+  </table></div>
+
+  <h3>4.1 pom.xml</h3>
+  <pre><span class="file">pom.xml (key parts)</span><code class="lang-xml">&lt;parent&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-parent&lt;/artifactId&gt;
+    &lt;version&gt;3.5.6&lt;/version&gt;
+&lt;/parent&gt;
+&lt;properties&gt;
+    &lt;java.version&gt;17&lt;/java.version&gt;
+&lt;/properties&gt;
+&lt;dependencies&gt;
+    &lt;dependency&gt;   &lt;!-- web: MVC + Jackson + Tomcat --&gt;
+        &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+        &lt;artifactId&gt;spring-boot-starter-web&lt;/artifactId&gt;
+    &lt;/dependency&gt;
+    &lt;dependency&gt;   &lt;!-- /actuator/health --&gt;
+        &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+        &lt;artifactId&gt;spring-boot-starter-actuator&lt;/artifactId&gt;
+    &lt;/dependency&gt;
+    &lt;dependency&gt;   &lt;!-- auto restart, development only --&gt;
+        &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+        &lt;artifactId&gt;spring-boot-devtools&lt;/artifactId&gt;
+        &lt;scope&gt;runtime&lt;/scope&gt;
+        &lt;optional&gt;true&lt;/optional&gt;
+    &lt;/dependency&gt;
+    ...
+&lt;/dependencies&gt;
+&lt;build&gt;
+    &lt;plugins&gt;
+        &lt;plugin&gt;   &lt;!-- mvn spring-boot:run + executable fat jar --&gt;
+            &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+            &lt;artifactId&gt;spring-boot-maven-plugin&lt;/artifactId&gt;
+        &lt;/plugin&gt;
+    &lt;/plugins&gt;
+&lt;/build&gt;</code></pre>
+  <p>Compare with topic 22: no Spring version numbers, no exec plugin. <code>&lt;optional&gt;true&lt;/optional&gt;</code> on DevTools means "do not pass this on to
+    other projects that depend on me", and the Boot plugin leaves it out of the final jar.</p>
+
+  <h3>4.2 HelloController and GreetingService</h3>
+  <pre><span class="file">src/main/java/com/course/bootintro/HelloController.java</span><code class="lang-java">@RestController
+public class HelloController {
+
+    private final GreetingService greetingService;
+
+    public HelloController(GreetingService greetingService) {   // constructor injection
+        this.greetingService = greetingService;
+    }
+
+    @GetMapping("/hello")
+    public String hello(@RequestParam(defaultValue = "World") String name) {
+        return greetingService.greet(name);
+    }
+
+    @GetMapping("/info")
+    public Map&lt;String, Object&gt; info() {
+        return Map.of(
+                "app", "boot-intro",
+                "framework", "Spring Boot 3.5.6",
+                "javaVersion", System.getProperty("java.version"),
+                "serverTime", LocalDateTime.now().toString());
+    }
+}</code></pre>
+  <p>Notice that the controller uses constructor injection exactly like topic 24 — no <code>@Autowired</code> needed with a single constructor. The <code>/info</code>
+    method returns a <code>Map&lt;String, Object&gt;</code>, and Spring Boot's auto-configured Jackson turns it into JSON. We did not configure Jackson anywhere — auto-configuration did.</p>
+
+  <h3>4.3 StartupRunner</h3>
+  <pre><span class="file">src/main/java/com/course/bootintro/StartupRunner.java</span><code class="lang-java">@Component
+public class StartupRunner implements CommandLineRunner {
+
+    private final ApplicationContext context;
+    private final GreetingService greetingService;
+
+    public StartupRunner(ApplicationContext context, GreetingService greetingService) {
+        this.context = context;
+        this.greetingService = greetingService;
+    }
+
+    @Override
+    public void run(String... args) {
+        System.out.println(" Command-line args : " + Arrays.toString(args));
+        System.out.println(" Beans in container: " + context.getBeanDefinitionCount());
+        System.out.println(" Quick self-test   : " + greetingService.greet("Startup"));
+    }
+}</code></pre>
+  <p>The bean count is an eye-opener: our project has only 4 classes, but the container holds about <strong>280 beans</strong>. Almost all of them were created by
+    auto-configuration (Tomcat, DispatcherServlet, Jackson, Actuator…). We can even inject the <code>ApplicationContext</code> itself.</p>
+
+  <h3>4.4 application.properties and banner.txt</h3>
+  <pre><span class="file">src/main/resources/application.properties</span><code class="lang-properties">spring.application.name=boot-intro
+server.port=8080
+management.endpoints.web.exposure.include=health,info
+#debug=true</code></pre>
+  <p>Topic 29 covers this file in depth. The banner file prints our ASCII art and replaces <code>${spring-boot.version}</code> with <code>3.5.6</code>.</p>
+
+  <h3>4.5 The test</h3>
+  <pre><span class="file">src/test/java/com/course/bootintro/BootIntroApplicationTests.java</span><code class="lang-java">@SpringBootTest
+class BootIntroApplicationTests {
+
+    @Autowired
+    private GreetingService greetingService;
+
+    @Test
+    void contextLoads() { }      // passes if the whole app can start
+
+    @Test
+    void greetingServiceSaysHello() {
+        assertThat(greetingService.greet("Ravi")).isEqualTo("Hello, Ravi! Welcome to Spring Boot.");
+    }
+}</code></pre>
+  <p><code>contextLoads()</code> looks empty, but it is useful: <code>@SpringBootTest</code> starts the full application, so a broken configuration makes it fail.</p>
+
+  <!-- ============================================================ 5. RUN -->
+  <h2 id="run">5. How to run</h2>
+  <h3>In VS Code</h3>
+  <ol>
+    <li>Open the folder <code>D:\Java-SpringBoot\28-Spring-Boot-Introduction</code> (<em>File → Open Folder</em>). Wait until the Java extension finishes "Importing Maven project".</li>
+    <li>Open <code>BootIntroApplication.java</code> and click <strong>Run</strong> above <code>main</code> — or use the <strong>Spring Boot Dashboard</strong> in the sidebar and click ▶.</li>
+    <li>Open <code>requests.http</code> and click <strong>Send Request</strong> above each request.</li>
+  </ol>
+
+  <h3>From the terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\28-Spring-Boot-Introduction"
+mvn spring-boot:run</code></pre>
+  <p>Expected console output (shortened):</p>
+  <pre class="terminal"><code>  ____              _     ___       _
+ | __ )  ___   ___ | |_  |_ _|_ __ | |_ _ __ ___
+ ...
+ Java + Spring Boot Course - Topic 28   (Spring Boot 3.5.6)
+
+INFO ... Starting BootIntroApplication using Java 17.0.19 ...
+INFO ... No active profile set, falling back to 1 default profile: "default"
+INFO ... Tomcat initialized with port 8080 (http)
+INFO ... Exposing 2 endpoints beneath base path '/actuator'
+INFO ... Tomcat started on port 8080 (http) with context path '/'
+INFO ... Started BootIntroApplication in 3.1 seconds (process running for 3.6)
+==================================================
+ StartupRunner: the application is up and running!
+ Command-line args : []
+ Beans in container: 280
+ Quick self-test   : Hello, Startup! Welcome to Spring Boot.
+ Try it            : http://localhost:8080/hello?name=YourName
+==================================================</code></pre>
+  <p>Now try the endpoints (browser or a second terminal). On Windows 10/11, <code>curl</code> is built in — in PowerShell type <code>curl.exe</code> to be sure you get the real curl:</p>
+  <pre class="terminal"><code>curl.exe http://localhost:8080/hello
+Hello, World! Welcome to Spring Boot.
+
+curl.exe "http://localhost:8080/hello?name=Asha"
+Hello, Asha! Welcome to Spring Boot.
+
+curl.exe http://localhost:8080/info
+{"javaVersion":"17.0.19","serverTime":"2026-10-09T09:58:09.79","app":"boot-intro","framework":"Spring Boot 3.5.6"}
+
+curl.exe http://localhost:8080/actuator/health
+{"status":"UP"}</code></pre>
+  <p>Stop the app with <strong>Ctrl + C</strong> in the terminal (or the ■ button in VS Code).</p>
+
+  <h3>Build a jar and run it</h3>
+  <pre class="terminal"><code>mvn clean package
+java -jar target\boot-intro-0.0.1-SNAPSHOT.jar
+
+# pass arguments - they reach CommandLineRunner AND override properties:
+java -jar target\boot-intro-0.0.1-SNAPSHOT.jar --server.port=9090 hello-arg</code></pre>
+  <p>With the last command the app starts on port 9090 and the runner prints <code>Command-line args : [--server.port=9090, hello-arg]</code>.</p>
+
+  <h3>See the auto-configuration report</h3>
+  <pre class="terminal"><code>mvn spring-boot:run -Dspring-boot.run.arguments=--debug
+# or
+java -jar target\boot-intro-0.0.1-SNAPSHOT.jar --debug</code></pre>
+
+  <h3>Run the tests</h3>
+  <pre class="terminal"><code>mvn test
+...
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS</code></pre>
+
+  <!-- ============================================================ 6. MISTAKES -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>❌ Mistake: "Web server failed to start. Port 8080 was already in use."</strong>
+    Another program (often <em>your own app started earlier</em> and still running) is using port 8080.<br>
+    <strong>Fix:</strong> stop the old app (Ctrl + C, or the ■ button). Or start on another port: <code>--server.port=8081</code>. To find who uses the port in PowerShell:
+    <code>netstat -ano | findstr :8080</code>, then <code>Stop-Process -Id &lt;PID&gt;</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: controller in the wrong package → 404 Not Found</strong>
+    You put <code>HelloController</code> in <code>com.course.controllers</code> but the main class is in <code>com.course.bootintro</code>. Component scan does not find it, so <code>/hello</code> returns
+    a 404 "Whitelabel Error Page".<br><strong>Fix:</strong> move classes into the main class's package or its sub-packages.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: the app starts and immediately stops</strong>
+    You forgot <code>spring-boot-starter-web</code> (or added only <code>spring-boot-starter</code>). Without a web library there is no server, so after the runners finish, the app exits.<br>
+    <strong>Fix:</strong> add the web starter if you want an HTTP server.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: writing versions for Spring Boot-managed dependencies</strong>
+    Adding <code>&lt;version&gt;6.1.0&lt;/version&gt;</code> to a Spring dependency can mix incompatible versions and cause strange <code>NoSuchMethodError</code>s.<br>
+    <strong>Fix:</strong> remove the version and let the parent manage it.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "no main manifest attribute" when running java -jar</strong>
+    The <code>spring-boot-maven-plugin</code> is missing from <code>&lt;build&gt;</code>, so a normal (non-executable) jar was built.<br><strong>Fix:</strong> add the plugin and run <code>mvn clean package</code> again.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "Whitelabel Error Page" at http://localhost:8080/</strong>
+    This is not a crash! There is simply no endpoint mapped to <code>/</code>. Use <code>/hello</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: thinking auto-configuration is "magic you can't control"</strong>
+    Every decision is visible in the <code>--debug</code> report and can be overridden by defining your own bean or setting a property.</div>
+
+  <!-- ============================================================ 7. BEST -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Always start from Spring Initializr</strong> (website or VS Code). It gives a correct, current structure.</li>
+    <li><strong>Keep the main class in the root package</strong> and organise code in sub-packages.</li>
+    <li><strong>Prefer starters</strong> over picking individual libraries; let the parent POM manage versions.</li>
+    <li><strong>Keep the main class tiny.</strong> Business code belongs in services, not in <code>main</code> or runners.</li>
+    <li><strong>Override, don't fight.</strong> To customise auto-configuration, set a property first; only if that is not enough, define your own bean.</li>
+    <li><strong>Use constructor injection</strong> everywhere (as in topic 24).</li>
+    <li><strong>Upgrade Spring Boot regularly</strong> (patch versions like 3.5.5 → 3.5.6 contain security fixes) — one line in the pom.</li>
+    <li><strong>DevTools only in development</strong> — keep it <code>optional</code> with <code>runtime</code> scope.</li>
+    <li><strong>Expose Actuator endpoints carefully.</strong> <code>health</code> is safe; things like <code>env</code> or <code>beans</code> must not be public in production.</li>
+    <li><strong>Ship one jar</strong> and configure it from outside (next topic) instead of building different jars for each environment.</li>
+  </ul>
+
+  <!-- ============================================================ 8. SUMMARY -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Spring Boot = Spring Framework + auto-configuration + starters + embedded server + sensible defaults.</li>
+    <li>Starters are dependency bundles; the parent POM manages all versions.</li>
+    <li><code>@SpringBootApplication</code> = <code>@Configuration</code> + <code>@EnableAutoConfiguration</code> + <code>@ComponentScan</code>.</li>
+    <li><code>SpringApplication.run</code> prepares the environment, creates the container, auto-configures, creates beans, starts Tomcat and calls runners.</li>
+    <li>Auto-configuration = conditional <code>@Configuration</code> classes; they back off when you define your own beans. See them with <code>--debug</code>.</li>
+    <li><code>CommandLineRunner</code> runs code once after startup.</li>
+    <li>Run with <code>mvn spring-boot:run</code>; ship with <code>mvn package</code> + <code>java -jar</code> (fat jar).</li>
+    <li>DevTools restarts the app on code changes during development.</li>
+  </ul></div>
+
+  <!-- ============================================================ 9. EXERCISES -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Your own project.</strong> Generate a new project <code>com.course:my-shop</code> with start.spring.io (Spring Web only), unzip it, run it and add a
+      <code>GET /welcome</code> endpoint that returns <code>"Welcome to My Shop"</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">package com.course.myshop;
+
+@RestController
+public class WelcomeController {
+    @GetMapping("/welcome")
+    public String welcome() {
+        return "Welcome to My Shop";
+    }
+}
+// Make sure this class is in com.course.myshop (or a sub-package)!</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Change the port and the banner.</strong> Make the app from this topic run on port <code>9000</code> and switch the banner off — without touching Java code.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-properties"># application.properties
+server.port=9000
+spring.main.banner-mode=off</code></pre>
+    <p>Or without changing the file: <code>java -jar target\boot-intro-0.0.1-SNAPSHOT.jar --server.port=9000 --spring.main.banner-mode=off</code></p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. A JSON endpoint.</strong> Add <code>GET /time</code> that returns JSON like <code>{"date":"2026-10-09","time":"10:15:30","dayOfWeek":"FRIDAY"}</code>. Use a <code>record</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public record TimeInfo(String date, String time, String dayOfWeek) { }
+
+@GetMapping("/time")
+public TimeInfo time() {
+    LocalDateTime now = LocalDateTime.now();
+    return new TimeInfo(now.toLocalDate().toString(),
+                        now.toLocalTime().withNano(0).toString(),
+                        now.getDayOfWeek().toString());
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Two runners in order.</strong> Add two <code>CommandLineRunner</code> beans. Make "Loading sample data..." always print before "Ready to serve!".</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Component @Order(1)
+class DataLoader implements CommandLineRunner {
+    public void run(String... args) { System.out.println("Loading sample data..."); }
+}
+
+@Component @Order(2)
+class ReadyMessage implements CommandLineRunner {
+    public void run(String... args) { System.out.println("Ready to serve!"); }
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Detective work with --debug.</strong> Start the app with <code>--debug</code>. Find (a) the auto-configuration that created the <code>DispatcherServlet</code>, (b) why <code>DataSourceAutoConfiguration</code>
+      did NOT match. Then add the dependency <code>com.h2database:h2</code> plus <code>spring-boot-starter-jdbc</code> and look again — what changed?</p>
+    <details><summary>Hint / solution</summary><p>(a) <code>DispatcherServletAutoConfiguration</code> matched because <code>@ConditionalOnClass</code> found <code>DispatcherServlet</code>.
+      (b) It did not find the required JDBC class. After adding H2 + JDBC starter, <code>DataSourceAutoConfiguration</code> moves to <em>Positive matches</em>, and the log shows
+      <code>HikariPool-1 - Start completed</code>: Spring Boot created an in-memory database connection pool for you without a single line of config. (Topic 37 uses exactly this.)</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Override a default bean.</strong> Prove that auto-configuration "backs off": define your own <code>ObjectMapper</code> bean that pretty-prints JSON
+      (<code>SerializationFeature.INDENT_OUTPUT</code>) and check <code>/info</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Bean
+ObjectMapper objectMapper() {
+    return new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
+}
+// /info is now pretty-printed. Spring Boot's own ObjectMapper was NOT created
+// (@ConditionalOnMissingBean). Easier way: spring.jackson.serialization.indent-output=true</code></pre></details>
+  </div>
+
+  <!-- ============================================================ 10. INTERVIEW -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is Spring Boot and how is it different from the Spring Framework?</summary>
+    <p>Spring Boot is a project built on top of the Spring Framework that makes it quick to create production-ready apps. It adds auto-configuration, starter dependencies,
+      an embedded server, externalised configuration and Actuator. The Spring Framework provides the core features (IoC/DI, MVC, AOP…); Spring Boot configures them for you with sensible defaults.</p></details>
+  <details><summary>Q2. What does @SpringBootApplication do?</summary>
+    <p>It combines <code>@SpringBootConfiguration</code> (a <code>@Configuration</code>), <code>@EnableAutoConfiguration</code> and <code>@ComponentScan</code> (scanning the package of the annotated class and its sub-packages).</p></details>
+  <details><summary>Q3. How does auto-configuration work internally?</summary>
+    <p><code>@EnableAutoConfiguration</code> loads auto-configuration classes listed in <code>META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports</code>.
+      Each is a <code>@Configuration</code> guarded by conditions such as <code>@ConditionalOnClass</code>, <code>@ConditionalOnMissingBean</code>, <code>@ConditionalOnProperty</code>. Only matching ones contribute beans.
+      Run with <code>--debug</code> to see the conditions evaluation report.</p></details>
+  <details><summary>Q4. What is a starter? Give examples.</summary>
+    <p>A starter is a dependency descriptor that brings a consistent set of libraries for a feature: <code>spring-boot-starter-web</code>, <code>-data-jpa</code>, <code>-security</code>, <code>-test</code>, <code>-actuator</code>. Versions come from the Spring Boot BOM/parent.</p></details>
+  <details><summary>Q5. How do you disable a specific auto-configuration?</summary>
+    <p><code>@SpringBootApplication(exclude = DataSourceAutoConfiguration.class)</code> or the property <code>spring.autoconfigure.exclude=...</code>. Often you don't need to exclude: just define your own bean and the default backs off.</p></details>
+  <details><summary>Q6. Which embedded servers does Spring Boot support, and how do you change the port?</summary>
+    <p>Tomcat (default), Jetty and Undertow for servlet apps; Netty for reactive apps. Change the port with <code>server.port=9090</code> (properties, env var <code>SERVER_PORT</code> or <code>--server.port=9090</code>). <code>server.port=0</code> picks a random free port.</p></details>
+  <details><summary>Q7. What is CommandLineRunner? How is it different from ApplicationRunner?</summary>
+    <p>Both are callbacks that run once after the context has started. <code>CommandLineRunner.run(String... args)</code> gets raw arguments; <code>ApplicationRunner.run(ApplicationArguments)</code> gets parsed option/non-option arguments. Order multiple runners with <code>@Order</code>.</p></details>
+  <details><summary>Q8. What is a fat jar? How does java -jar run a Spring Boot app?</summary>
+    <p>The Spring Boot Maven plugin repackages the jar to include all dependency jars (in <code>BOOT-INF/lib</code>) and your classes (in <code>BOOT-INF/classes</code>). The manifest's <code>Main-Class</code> is Spring Boot's <code>JarLauncher</code>, which sets up a class loader for nested jars and then calls your main class (<code>Start-Class</code>).</p></details>
+  <details><summary>Q9. What is spring-boot-devtools used for? Is it active in production?</summary>
+    <p>It speeds up development with automatic restarts, LiveReload and dev-friendly defaults (e.g., no template caching). It is automatically disabled when running a fully packaged application with <code>java -jar</code>, and it is usually marked optional/runtime so it is not shipped.</p></details>
+  <details><summary>Q10. What happens when you call SpringApplication.run()?</summary>
+    <p>It determines the application type, prepares the <code>Environment</code> (properties, profiles, args), prints the banner, creates the <code>ApplicationContext</code>, performs component scanning and auto-configuration, instantiates singleton beans, starts the embedded web server, publishes startup events and calls <code>CommandLineRunner</code>/<code>ApplicationRunner</code> beans.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../27-Spring-AOP/lesson.html"><small>← Previous</small>27. Spring AOP</a>
+    <a class="next" href="../29-Configuration-Properties-And-Profiles/lesson.html"><small>Next →</small>29. Configuration Properties &amp; Profiles</a>
+  </nav>
+</main>
+</body>
+</html>

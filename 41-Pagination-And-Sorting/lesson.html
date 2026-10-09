@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>41 · Pagination &amp; Sorting</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 41</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~2 hours</span>
+  <h1>41. Pagination &amp; Sorting</h1>
+  <p class="subtitle">Return data one page at a time, in the order the user wants, with filters — fast, safe and in a clean JSON shape.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="41-Pagination-And-Sorting"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Why APIs must never return "everything".</li>
+      <li><code>Pageable</code>, <code>PageRequest</code> and <code>Sort</code>.</li>
+      <li><code>Page</code> vs <code>Slice</code> — and the hidden COUNT query.</li>
+      <li>A controller that reads <code>page</code>, <code>size</code> and <code>sort</code> from the URL automatically.</li>
+      <li>A clean response shape: <code>content</code>, <code>totalElements</code>, <code>totalPages</code>...; Spring's <code>PagedModel</code>.</li>
+      <li><code>spring.data.web.pageable.*</code> settings, default and maximum page sizes.</li>
+      <li>Combining search filters with paging and sorting.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../38-Spring-Data-JPA-Fundamentals/lesson.html">Topic 38</a> and <a href="../39-JPA-Queries-Derived-JPQL-Native/lesson.html">Topic 39</a> (derived queries, Specifications).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>So far our <code>GET /api/products</code> returned <code>findAll()</code> — every row. That's fine for 3 products. Now imagine an online shop with <strong>1 million</strong> products:</p>
+  <ul>
+    <li>The database reads 1 million rows.</li>
+    <li>Hibernate creates 1 million Java objects → the server runs out of memory (<code>OutOfMemoryError</code>).</li>
+    <li>Jackson writes hundreds of megabytes of JSON; the phone app downloads them over mobile data.</li>
+    <li>And the user only looks at the first 20 anyway!</li>
+  </ul>
+  <p><strong>Pagination</strong> means returning a small piece ("page") at a time: products 1–20, then 21–40... <strong>Sorting</strong> decides the order: cheapest first, newest first, A–Z. Every serious list endpoint at work — search results, order history, admin tables, feeds — uses both.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>📖 A book and its table of contents</strong>
+    A 600-page book isn't printed on one giant sheet. You read <strong>page by page</strong>. The page number tells you where you are, and the cover says "600 pages" so you know how much is left — that's <code>Page</code> with <code>totalPages</code>.<br>
+    A social-media feed is different: you just keep scrolling and the app asks "is there more?". It never tells you "you are on page 37 of 52,881". That's <code>Slice</code> — it only knows whether a next page exists, which is cheaper.<br>
+    And <strong>sorting</strong> is the book's index: by name, by date, by price.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 What pagination does in SQL</h3>
+  <p>A page is defined by two numbers: the <strong>page index</strong> (starting at 0) and the <strong>page size</strong>. From them the database computes how many rows to skip:</p>
+  <div class="flow">
+    <span class="box">page = 2, size = 10</span><span class="arrow">→</span>
+    <span class="box info">skip 2 × 10 = 20 rows</span><span class="arrow">→</span>
+    <span class="box alt">return rows 21–30</span>
+  </div>
+  <p>Hibernate generates the right SQL for your database (H2 version below, copied from the console). MySQL would get <code>LIMIT ?, ?</code>.</p>
+  <pre class="terminal"><code>select p1_0.id, p1_0.category, ... from products p1_0
+order by p1_0.price desc
+offset ? rows
+fetch first ? rows only</code></pre>
+
+  <h3>3.2 <code>Pageable</code>, <code>PageRequest</code> and <code>Sort</code></h3>
+  <div class="table-wrap"><table>
+    <tr><th>Type</th><th>What it is</th><th>Example</th></tr>
+    <tr><td><code>Pageable</code></td><td>An interface: "which page, how big, which order". Passed to repository methods.</td><td>parameter type</td></tr>
+    <tr><td><code>PageRequest</code></td><td>The usual implementation of <code>Pageable</code>.</td><td><code>PageRequest.of(0, 20)</code></td></tr>
+    <tr><td><code>Sort</code></td><td>One or more "property + direction" orders.</td><td><code>Sort.by("price").descending()</code></td></tr>
+  </table></div>
+  <pre><code class="lang-java">Pageable first20      = PageRequest.of(0, 20);                                  // page 0, 20 rows
+Pageable cheapFirst   = PageRequest.of(0, 20, Sort.by("price"));                // ascending by default
+Pageable newestFirst  = PageRequest.of(0, 20, Sort.Direction.DESC, "createdAt");
+Sort twoOrders        = Sort.by("category").ascending().and(Sort.by("price").descending());
+Pageable next         = first20.next();                                         // page 1
+Pageable unpaged      = Pageable.unpaged();                                     // everything (careful!)</code></pre>
+  <p>Note: <code>Sort.by("price")</code> uses the <strong>Java field name</strong> (like JPQL), not the column name.</p>
+
+  <h3>3.3 Repository methods with paging</h3>
+  <p>You get <code>findAll(Pageable)</code> and <code>findAll(Sort)</code> for free (from <code>JpaRepository</code>, which includes <code>PagingAndSortingRepository</code>). And <strong>any</strong> query method can take a <code>Pageable</code> or <code>Sort</code> as its last parameter:</p>
+  <pre><code class="lang-java">Page&lt;Product&gt;  findByCategoryIgnoreCase(String category, Pageable pageable);
+Slice&lt;Product&gt; findSliceByCategoryIgnoreCase(String category, Pageable pageable);
+List&lt;Product&gt;  findTop5ByCategoryIgnoreCase(String category, Sort sort);
+
+@Query(value = "SELECT p FROM Product p WHERE p.stock &lt; :threshold",
+       countQuery = "SELECT COUNT(p) FROM Product p WHERE p.stock &lt; :threshold")
+Page&lt;Product&gt; findLowStock(@Param("threshold") int threshold, Pageable pageable);</code></pre>
+
+  <h3>3.4 <code>Page</code> vs <code>Slice</code> vs <code>List</code></h3>
+  <p>A <code>Page</code> needs to know the total number of matching rows. So Spring runs <strong>two</strong> queries: the page itself and a <code>COUNT</code>:</p>
+  <pre class="terminal"><code>select ... from products p1_0 order by p1_0.price desc offset ? rows fetch first ? rows only
+select count(p1_0.id) from products p1_0</code></pre>
+  <p>On a huge table with complex filters, the COUNT can be slower than the page query itself! A <code>Slice</code> skips the count. It asks for <code>size + 1</code> rows: if the extra row exists, <code>hasNext()</code> is true.</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th><code>Page&lt;T&gt;</code></th><th><code>Slice&lt;T&gt;</code></th><th><code>List&lt;T&gt;</code> + Pageable</th></tr>
+    <tr><td>Content of the page</td><td>✅</td><td>✅</td><td>✅</td></tr>
+    <tr><td><code>hasNext()</code>, <code>isFirst()</code>, <code>isLast()</code></td><td>✅</td><td>✅</td><td>❌</td></tr>
+    <tr><td><code>getTotalElements()</code>, <code>getTotalPages()</code></td><td>✅</td><td>❌</td><td>❌</td></tr>
+    <tr><td>Extra COUNT query</td><td>Yes</td><td>No</td><td>No</td></tr>
+    <tr><td>Typical UI</td><td>Numbered pages "1 2 3 … 12"</td><td>"Load more" / infinite scroll</td><td>Fixed "top N"</td></tr>
+  </table></div>
+  <p>Useful methods on <code>Page</code>/<code>Slice</code>: <code>getContent()</code>, <code>getNumber()</code> (current index), <code>getSize()</code>, <code>getNumberOfElements()</code> (rows on <em>this</em> page), <code>hasNext()</code>, <code>nextPageable()</code>, and <code>map(...)</code> to convert entities to DTOs while keeping the paging info:</p>
+  <pre><code class="lang-java">Page&lt;ProductResponse&gt; dtoPage = productPage.map(ProductResponse::from);</code></pre>
+
+  <h3>3.5 <code>Pageable</code> straight from the URL</h3>
+  <p>Spring MVC can build the <code>Pageable</code> for you. Just declare it as a controller parameter:</p>
+  <pre><code class="lang-java">@GetMapping
+public PageResponse&lt;ProductResponse&gt; list(@PageableDefault(size = 10, sort = "id") Pageable pageable) {
+    return service.list(pageable);
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Request</th><th>Resulting Pageable</th></tr>
+    <tr><td><code>/api/products</code></td><td>page 0, size 10, sort id ASC (from <code>@PageableDefault</code>)</td></tr>
+    <tr><td><code>?page=2&amp;size=5</code></td><td>page 2, size 5</td></tr>
+    <tr><td><code>?sort=price,desc</code></td><td>sorted by price descending</td></tr>
+    <tr><td><code>?sort=category&amp;sort=price,desc</code></td><td>category ASC, then price DESC</td></tr>
+    <tr><td><code>?size=100000</code></td><td>size <strong>50</strong> (capped by <code>max-page-size</code>)</td></tr>
+  </table></div>
+
+  <h3>3.6 <code>spring.data.web.pageable.*</code> settings</h3>
+  <pre><span class="file">application.properties</span><code class="lang-properties">spring.data.web.pageable.default-page-size=10      # when the client sends no size (default 20)
+spring.data.web.pageable.max-page-size=50          # hard limit (default 2000!)
+spring.data.web.pageable.page-parameter=page
+spring.data.web.pageable.size-parameter=size
+spring.data.web.sort.sort-parameter=sort
+spring.data.web.pageable.one-indexed-parameters=false   # true =&gt; first page is ?page=1
+spring.data.web.pageable.serialization-mode=via-dto     # how a returned Page&lt;T&gt; becomes JSON</code></pre>
+  <div class="callout warn"><strong>⚠️ The default maximum is 2000</strong>
+    Without <code>max-page-size</code>, anyone can request <code>?size=2000</code> on every call. Lower it to what your UI really needs (20–100). This is a simple protection against accidental or malicious heavy requests.</div>
+
+  <h3>3.7 The response shape</h3>
+  <p>A front-end developer needs the items <em>and</em> enough information to draw the page buttons. Our own record gives a clear, stable contract:</p>
+  <pre><code class="lang-java">public record PageResponse&lt;T&gt;(List&lt;T&gt; content, int page, int size, long totalElements,
+                              int totalPages, boolean first, boolean last, String sort) {
+    public static &lt;T&gt; PageResponse&lt;T&gt; from(Page&lt;T&gt; page) { ... }
+}</code></pre>
+  <pre class="terminal"><code>{
+  "content": [ {"id":28,"name":"Scarf","price":204.99,...}, ... ],
+  "page": 0, "size": 3, "totalElements": 60, "totalPages": 20,
+  "first": true, "last": false, "sort": "price: DESC"
+}</code></pre>
+  <h4>What about returning <code>Page&lt;T&gt;</code> directly?</h4>
+  <p>Returning Spring's <code>PageImpl</code> as JSON used to produce a big, unstable structure (with <code>pageable</code>, <code>sort</code>, <code>empty</code>...), and Spring Data 3.3+ logs a warning about it. With <code>spring.data.web.pageable.serialization-mode=via-dto</code> (or <code>@EnableSpringDataWebSupport(pageSerializationMode = VIA_DTO)</code>), Spring converts it to a stable <strong><code>PagedModel</code></strong>:</p>
+  <pre class="terminal"><code>{
+  "content": [ ... ],
+  "page": { "size": 2, "number": 1, "totalElements": 60, "totalPages": 30 }
+}</code></pre>
+  <p>Both are fine. A custom record gives you full control (e.g. add <code>first</code>/<code>last</code>); <code>PagedModel</code> is zero code. Pick one style for your whole API and stick to it.</p>
+
+  <h3>3.8 Sorting safely</h3>
+  <p>With <code>?sort=...</code> the <em>client</em> chooses the property. Two problems:</p>
+  <ol>
+    <li>A non-existent property (<code>?sort=foo</code>) throws <code>PropertyReferenceException</code> → 500 if unhandled.</li>
+    <li>Sorting by an un-indexed or internal column (e.g. a password hash, or a huge text column) can be slow or leak information.</li>
+  </ol>
+  <p>Solution: a <strong>whitelist</strong> of allowed sort fields, checked in the service, plus a handler that returns 400:</p>
+  <pre><code class="lang-java">public static final Set&lt;String&gt; SORTABLE_FIELDS = Set.of("id", "name", "category", "price", "stock", "createdAt");
+
+private void validateSort(Sort sort) {
+    for (Sort.Order order : sort) {
+        if (!SORTABLE_FIELDS.contains(order.getProperty())) {
+            throw new IllegalArgumentException("Cannot sort by '" + order.getProperty() + "'. Allowed: " + SORTABLE_FIELDS);
+        }
+    }
+}</code></pre>
+  <div class="callout tip"><strong>💡 Always have a unique tie-breaker</strong>
+    If 30 products cost 9.99 and you sort only by price, the database may return them in a different order on each request — the same product can appear on page 1 <em>and</em> page 2, another never. Add a unique field as the last sort order: <code>Sort.by("price").and(Sort.by("id"))</code>.</div>
+
+  <h3>3.9 Search filters + paging</h3>
+  <p>Filtering and paging go together: "Electronics between 50 and 150, most expensive first, page 0 of size 3". With Specifications (topic 39) it is one call:</p>
+  <pre><code class="lang-java">Page&lt;Product&gt; page = repository.findAll(Specification.allOf(specs), pageable);</code></pre>
+  <p>Spring applies the WHERE clause to both the page query and the COUNT query, so <code>totalElements</code> is the number of <em>matching</em> products (5), not of all products (60).</p>
+
+  <h3>3.10 Offset paging vs keyset (cursor) paging — good to know</h3>
+  <p>Offset paging (<code>OFFSET 100000 ROWS</code>) gets slower on deep pages, because the database still walks through the skipped rows. And if rows are inserted while the user is paging, items can shift between pages. Very large feeds use <strong>keyset/cursor paging</strong> instead: "give me 20 items with <code>id &gt; lastSeenId</code>". Spring Data 3.1+ supports it with <code>ScrollPosition</code> / <code>Window&lt;T&gt;</code>. For admin tables and normal search pages, offset paging is perfectly fine.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Java files are under <code>src/main/java/com/course/pagination/</code>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>application.properties</code></td><td>Paging defaults, max size, parameter names, <code>serialization-mode</code>.</td></tr>
+    <tr><td><code>entity/Product.java</code></td><td>Entity with <code>@Table(indexes = ...)</code> on sorted/filtered columns.</td></tr>
+    <tr><td><code>repository/ProductRepository.java</code></td><td><code>Page</code>, <code>Slice</code>, <code>Sort</code>, <code>@Query</code> + <code>countQuery</code>.</td></tr>
+    <tr><td><code>repository/ProductSpecifications.java</code></td><td>Category / text / price filters.</td></tr>
+    <tr><td><code>dto/PageResponse.java</code></td><td>Generic page record + <code>from(Page)</code>.</td></tr>
+    <tr><td><code>dto/SliceResponse.java</code></td><td>Slice record with <code>hasNext</code>.</td></tr>
+    <tr><td><code>service/ProductService.java</code></td><td>8 variants: Pageable from URL, manual <code>PageRequest</code>, derived, Slice, search, Sort-only, @Query, PagedModel; sort whitelist.</td></tr>
+    <tr><td><code>controller/ProductController.java</code></td><td><code>Pageable</code> parameters with <code>@PageableDefault</code>.</td></tr>
+    <tr><td><code>exception/GlobalExceptionHandler.java</code></td><td><code>IllegalArgumentException</code> and <code>PropertyReferenceException</code> → 400.</td></tr>
+    <tr><td><code>config/DataSeeder.java</code></td><td>60 predictable products in 5 categories.</td></tr>
+    <tr><td><code>ProductRepositoryPagingTest.java</code></td><td>5 <code>@DataJpaTest</code> tests: totals, last page, sorting, derived paging, Slice.</td></tr>
+    <tr><td><code>ProductControllerPagingTest.java</code></td><td>6 MockMvc tests: URL parameters, defaults, max size, 400 for bad sort, search, PagedModel.</td></tr>
+  </table></div>
+
+  <h3>4.1 Service: Pageable from the URL</h3>
+  <pre><span class="file">service/ProductService.java</span><code class="lang-java">public PageResponse&lt;ProductResponse&gt; list(Pageable pageable) {
+    validateSort(pageable.getSort());
+    Page&lt;Product&gt; page = repository.findAll(pageable);
+    return PageResponse.from(page.map(ProductResponse::from));
+}</code></pre>
+
+  <h3>4.2 Service: building the <code>PageRequest</code> yourself</h3>
+  <p>Sometimes you prefer plain parameters (<code>sortBy</code>, <code>direction</code>), e.g. to document them clearly in OpenAPI (topic 44) or when paging isn't coming from HTTP:</p>
+  <pre><span class="file">service/ProductService.java</span><code class="lang-java">public PageResponse&lt;ProductResponse&gt; listManual(int page, int size, String sortBy, String direction) {
+    if (page &lt; 0) throw new IllegalArgumentException("page must be 0 or greater");
+    if (size &lt; 1 || size &gt; MAX_PAGE_SIZE) throw new IllegalArgumentException("size must be between 1 and " + MAX_PAGE_SIZE);
+
+    Sort sort = Sort.by(Sort.Direction.fromString(direction), sortBy)   // "asc"/"desc"
+            .and(Sort.by("id"));                                         // tie-breaker
+    validateSort(sort);
+
+    Pageable pageable = PageRequest.of(page, size, sort);
+    return PageResponse.from(repository.findAll(pageable).map(ProductResponse::from));
+}</code></pre>
+  <p>Notice: here <em>we</em> must enforce the max size — the <code>max-page-size</code> property only applies to <code>Pageable</code> parameters resolved by Spring MVC.</p>
+
+  <h3>4.3 Service: Slice and search</h3>
+  <pre><span class="file">service/ProductService.java</span><code class="lang-java">public SliceResponse&lt;ProductResponse&gt; slice(String category, Pageable pageable) {
+    var slice = (category == null)
+            ? repository.findAllBy(pageable)
+            : repository.findSliceByCategoryIgnoreCase(category, pageable);
+    return SliceResponse.from(slice.map(ProductResponse::from));
+}
+
+public PageResponse&lt;ProductResponse&gt; search(String category, String q, BigDecimal minPrice,
+                                            BigDecimal maxPrice, Pageable pageable) {
+    List&lt;Specification&lt;Product&gt;&gt; specs = new ArrayList&lt;&gt;();
+    if (category != null &amp;&amp; !category.isBlank()) specs.add(ProductSpecifications.categoryIs(category));
+    if (q != null &amp;&amp; !q.isBlank()) specs.add(ProductSpecifications.nameContains(q));
+    if (minPrice != null) specs.add(ProductSpecifications.priceAtLeast(minPrice));
+    if (maxPrice != null) specs.add(ProductSpecifications.priceAtMost(maxPrice));
+    return PageResponse.from(repository.findAll(Specification.allOf(specs), pageable).map(ProductResponse::from));
+}</code></pre>
+
+  <h3>4.4 Controller</h3>
+  <pre><span class="file">controller/ProductController.java</span><code class="lang-java">@GetMapping("/search")
+public PageResponse&lt;ProductResponse&gt; search(@RequestParam(required = false) String category,
+                                            @RequestParam(required = false) String q,
+                                            @RequestParam(required = false) BigDecimal minPrice,
+                                            @RequestParam(required = false) BigDecimal maxPrice,
+                                            @PageableDefault(size = 10, sort = "price", direction = Sort.Direction.ASC)
+                                            Pageable pageable) {
+    return service.search(category, q, minPrice, maxPrice, pageable);
+}
+
+@GetMapping("/paged-model")
+public Page&lt;ProductResponse&gt; pagedModel(@PageableDefault(size = 10, sort = "id") Pageable pageable) {
+    return service.pageForPagedModel(pageable);   // serialized as PagedModel (via-dto)
+}</code></pre>
+
+  <h3>4.5 Tests</h3>
+  <pre><span class="file">src/test/java/com/course/pagination/ProductControllerPagingTest.java</span><code class="lang-java">@Test
+void hugePageSizeIsCappedByMaxPageSize() throws Exception {
+    mvc.perform(get("/api/products").param("size", "100000"))
+            .andExpect(jsonPath("$.size").value(50));
+}
+
+@Test
+void unknownSortFieldGives400() throws Exception {
+    mvc.perform(get("/api/products").param("sort", "password,asc"))
+            .andExpect(status().isBadRequest());
+}</code></pre>
+  <p>MockMvc sends fake HTTP requests through the whole Spring MVC stack (you'll learn it properly in topic 46). It proves that the URL parameters become the right <code>Pageable</code>.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <h3>VS Code</h3>
+  <ol>
+    <li>Open <code>D:\Java-SpringBoot\41-Pagination-And-Sorting</code>, run <code>PaginationApplication</code>.</li>
+    <li>Open <code>requests.http</code> and send requests. Watch the console: each <code>Page</code> request prints <em>two</em> SQL statements (page + count), each <code>Slice</code> request only one.</li>
+  </ol>
+  <h3>Terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\41-Pagination-And-Sorting"
+mvn spring-boot:run</code></pre>
+  <pre class="terminal"><code>curl.exe "http://localhost:8080/api/products?page=0&amp;size=3&amp;sort=price,desc"
+curl.exe "http://localhost:8080/api/products?size=1000"
+curl.exe "http://localhost:8080/api/products/slice?category=Sports&amp;page=1&amp;size=5"
+curl.exe "http://localhost:8080/api/products/search?category=Electronics&amp;minPrice=50&amp;maxPrice=150&amp;size=3&amp;sort=price,desc"
+curl.exe "http://localhost:8080/api/products/paged-model?page=1&amp;size=2"
+curl.exe "http://localhost:8080/api/products?sort=password"</code></pre>
+  <p>Expected output (shortened):</p>
+  <pre class="terminal"><code>// ?page=0&amp;size=3&amp;sort=price,desc
+{"content":[{"id":28,"name":"Scarf","category":"Fashion","price":204.99,...},
+            {"id":55,"name":"Basketball","category":"Sports","price":203.99,...},
+            {"id":17,"name":"Smartwatch","category":"Electronics","price":197.99,...}],
+ "page":0,"size":3,"totalElements":60,"totalPages":20,"first":true,"last":false,"sort":"price: DESC"}
+
+// ?size=1000  -&gt; "size":50 (capped)
+
+// slice
+{"content":[{"id":30,"name":"Running Shoes",...}, ...],"page":1,"size":5,"hasNext":true}
+
+// search
+{"content":[{"name":"Keyboard","price":137.99,...},{"name":"Mouse","price":122.99,...},{"name":"Monitor","price":107.99,...}],
+ "page":0,"size":3,"totalElements":5,"totalPages":2,"first":true,"last":false,"sort":"price: DESC"}
+
+// paged-model
+{"content":[{"id":3,"name":"T-Shirt",...},{"id":4,"name":"Lamp",...}],
+ "page":{"size":2,"number":1,"totalElements":60,"totalPages":30}}
+
+// ?sort=password
+{"title":"Bad Request","status":400,
+ "detail":"Cannot sort by 'password'. Allowed: [stock, name, category, id, createdAt, price]",...}</code></pre>
+  <h3>Tests</h3>
+  <pre class="terminal"><code>mvn test
+[INFO] Tests run: 11, Failures: 0, Errors: 0, Skipped: 0</code></pre>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Thinking the first page is 1</strong>
+    <code>?page=1</code> returns the <em>second</em> page. Pages start at <strong>0</strong>.<br>
+    <strong>Fix:</strong> tell your front-end team, or set <code>spring.data.web.pageable.one-indexed-parameters=true</code>.</div>
+  <div class="callout warn"><strong>⚠️ Loading everything and paging in Java</strong>
+    <code>findAll().stream().skip(page*size).limit(size)</code> — still reads every row.<br>
+    <strong>Fix:</strong> pass a <code>Pageable</code> to the repository so the <em>database</em> pages.</div>
+  <div class="callout warn"><strong>⚠️ Using the column name in sort</strong>
+    <code>?sort=created_at</code> → <code>PropertyReferenceException: No property 'created' found</code>.<br>
+    <strong>Fix:</strong> use the Java field: <code>?sort=createdAt</code>.</div>
+  <div class="callout warn"><strong>⚠️ No tie-breaker in the sort</strong>
+    Items jump between pages or appear twice.<br>
+    <strong>Fix:</strong> add <code>id</code> as the last sort order.</div>
+  <div class="callout warn"><strong>⚠️ No max page size</strong>
+    The default limit is 2000 rows per request.<br>
+    <strong>Fix:</strong> <code>spring.data.web.pageable.max-page-size=50</code> (and validate manual parameters yourself).</div>
+  <div class="callout warn"><strong>⚠️ JOIN FETCH of a collection with paging</strong>
+    Hibernate warns <em>"HHH90003004: firstResult/maxResults specified with collection fetch; applying in memory"</em> — it loads <strong>everything</strong> and pages in memory.<br>
+    <strong>Fix:</strong> page the parent entities only, then load children separately (second query with <code>WHERE parent.id IN :ids</code> or batch fetching).</div>
+  <div class="callout warn"><strong>⚠️ Slow COUNT queries</strong>
+    Complex <code>@Query</code> with joins → the auto-derived count query is slow or even invalid.<br>
+    <strong>Fix:</strong> provide <code>countQuery = "..."</code>, or use <code>Slice</code> when totals aren't needed.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Every list endpoint is paged.</strong> No exceptions for "small" tables — they grow.</li>
+    <li><strong>Sensible defaults and a hard maximum</strong> (<code>default-page-size</code>, <code>max-page-size</code>).</li>
+    <li><strong>Whitelist sortable fields</strong> and always add a unique tie-breaker.</li>
+    <li><strong>Index the columns</strong> you filter and sort on most (<code>@Table(indexes = ...)</code> or Flyway).</li>
+    <li><strong>Return a stable response shape</strong> — your own record or <code>PagedModel</code> (via-dto) — never raw <code>PageImpl</code>.</li>
+    <li><strong>Map to DTOs with <code>page.map(...)</code></strong>, inside the transaction.</li>
+    <li><strong>Use <code>Slice</code></strong> for infinite scroll or when COUNT is expensive; consider keyset paging (<code>Window</code>/<code>ScrollPosition</code>) for very deep feeds.</li>
+    <li><strong>Be consistent across the API</strong>: same parameter names (<code>page</code>, <code>size</code>, <code>sort</code>) and same response format everywhere (more in topic 44).</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Never return whole tables: page with <code>Pageable</code> (page index from 0 + size + sort).</li>
+    <li><code>PageRequest.of(page, size, sort)</code> builds one; <code>Sort.by("field").descending().and(...)</code> builds orders.</li>
+    <li>Any repository method can take <code>Pageable</code>/<code>Sort</code> as its last parameter.</li>
+    <li><code>Page</code> = content + totals (extra COUNT query); <code>Slice</code> = content + <code>hasNext</code> (no count).</li>
+    <li>A <code>Pageable</code> controller parameter is filled from <code>?page=&amp;size=&amp;sort=</code>; <code>@PageableDefault</code> sets defaults.</li>
+    <li>Configure <code>spring.data.web.pageable.default-page-size</code>, <code>max-page-size</code>, <code>serialization-mode=via-dto</code>.</li>
+    <li>Return a clean shape: <code>content</code>, <code>page</code>, <code>size</code>, <code>totalElements</code>, <code>totalPages</code>.</li>
+    <li>Filters + paging: <code>findAll(spec, pageable)</code> — totals reflect the filtered rows.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Explore the parameters.</strong> Using <code>requests.http</code>, find: (a) the 3 newest products, (b) page 2 of Home products sorted by name, (c) what happens with <code>?page=99</code>.</p>
+    <details><summary>Hint / solution</summary><pre class="terminal"><code>GET /api/products?size=3&amp;sort=createdAt,desc        -&gt; Skateboard, Plant Pot, Sunglasses
+GET /api/products/category/Home?page=2&amp;size=5&amp;sort=name
+GET /api/products?page=99&amp;size=5                     -&gt; "content":[] but totalElements 60, totalPages 12</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. One-indexed pages.</strong> Switch on <code>one-indexed-parameters</code>. What does <code>?page=1</code> return now? What does the <code>page</code> field in our <code>PageResponse</code> show, and how would you fix that?</p>
+    <details><summary>Hint / solution</summary><p><code>?page=1</code> now returns the first page. But <code>Page.getNumber()</code> is still 0-based internally, so our response says <code>"page": 0</code>. To be consistent, return <code>page.getNumber() + 1</code> in <code>PageResponse.from</code> when you use one-indexed parameters (or keep everything 0-based — most APIs do).</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. In-stock filter.</strong> Add an optional <code>inStock=true</code> parameter to <code>/search</code> that only returns products with <code>stock &gt; 0</code>. Add a test.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// ProductSpecifications
+public static Specification&lt;Product&gt; inStock() {
+    return (root, query, cb) -&gt; cb.greaterThan(root.get("stock"), 0);
+}
+// controller: @RequestParam(required = false) Boolean inStock
+// service:    if (Boolean.TRUE.equals(inStock)) specs.add(ProductSpecifications.inStock());
+
+// test
+mvc.perform(get("/api/products/search").param("inStock", "true").param("size", "50"))
+   .andExpect(jsonPath("$.totalElements").value(58));   // 2 products have stock 0</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Navigation links.</strong> Extend <code>PageResponse</code> with <code>nextPage</code> and <code>previousPage</code> (Integer, <code>null</code> when there is none).</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public record PageResponse&lt;T&gt;(List&lt;T&gt; content, int page, int size, long totalElements, int totalPages,
+                              boolean first, boolean last, String sort,
+                              Integer nextPage, Integer previousPage) {
+    public static &lt;T&gt; PageResponse&lt;T&gt; from(Page&lt;T&gt; p) {
+        return new PageResponse&lt;&gt;(p.getContent(), p.getNumber(), p.getSize(), p.getTotalElements(),
+                p.getTotalPages(), p.isFirst(), p.isLast(), p.getSort().toString(),
+                p.hasNext() ? p.getNumber() + 1 : null,
+                p.hasPrevious() ? p.getNumber() - 1 : null);
+    }
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Projections + paging.</strong> Create an interface projection <code>ProductCard</code> (name, price) and a repository method returning <code>Page&lt;ProductCard&gt;</code> for a category. Check in the console that only two columns are selected.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public interface ProductCard { String getName(); BigDecimal getPrice(); }
+
+Page&lt;ProductCard&gt; findCardsByCategoryIgnoreCase(String category, Pageable pageable);
+
+// SQL: select p1_0.name, p1_0.price from products p1_0 where lower(p1_0.category)=lower(?) ... offset ? rows fetch first ? rows only</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Keyset scrolling.</strong> Use Spring Data's <code>Window</code> API to scroll through products by id, 10 at a time, without OFFSET.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// repository
+Window&lt;Product&gt; findFirst10ByOrderByIdAsc(ScrollPosition position);
+
+// usage
+Window&lt;Product&gt; window = repository.findFirst10ByOrderByIdAsc(ScrollPosition.keyset());
+while (!window.isEmpty()) {
+    window.forEach(p -&gt; System.out.println(p.getName()));
+    if (!window.hasNext()) break;
+    window = repository.findFirst10ByOrderByIdAsc(window.positionAt(window.size() - 1));
+}
+// SQL uses "WHERE id &gt; ?" instead of OFFSET - fast even for deep positions.</code></pre></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. How do you implement pagination in Spring Data JPA?</summary>
+    <p>Pass a <code>Pageable</code> (usually <code>PageRequest.of(page, size, sort)</code>) as the last parameter of a repository method returning <code>Page&lt;T&gt;</code>, <code>Slice&lt;T&gt;</code> or <code>List&lt;T&gt;</code>. In controllers, declare a <code>Pageable</code> parameter and Spring MVC resolves it from <code>page</code>, <code>size</code> and <code>sort</code> query parameters.</p></details>
+  <details><summary>Q2. What is the difference between <code>Page</code> and <code>Slice</code>?</summary>
+    <p><code>Page</code> extends <code>Slice</code> and additionally knows the total number of elements and pages, which requires an extra count query. <code>Slice</code> only knows whether there's a next slice (it fetches size + 1 rows), so it's cheaper — good for infinite scrolling.</p></details>
+  <details><summary>Q3. How do you sort by multiple fields?</summary>
+    <p><code>Sort.by("category").ascending().and(Sort.by("price").descending())</code>, or <code>Sort.by(Order.asc("category"), Order.desc("price"))</code>; via HTTP: <code>?sort=category,asc&amp;sort=price,desc</code>.</p></details>
+  <details><summary>Q4. How do you limit the page size a client can request?</summary>
+    <p>Set <code>spring.data.web.pageable.max-page-size</code> (default 2000) for resolved <code>Pageable</code> parameters, and validate manually for custom parameters. Also set a sensible <code>default-page-size</code> and <code>@PageableDefault</code>.</p></details>
+  <details><summary>Q5. Why add a unique field as a tie-breaker in sorting?</summary>
+    <p>Without a deterministic order, rows with equal sort values may be returned in different orders between queries, causing duplicates or missing items across pages. Adding a unique column (e.g. id) makes the order total and stable.</p></details>
+  <details><summary>Q6. What is the problem with deep offset pagination and how can you solve it?</summary>
+    <p><code>OFFSET n</code> forces the database to scan and discard n rows, so deep pages get slower, and concurrent inserts can shift items between pages. Keyset (seek/cursor) pagination filters by the last seen sort key (<code>WHERE id &gt; :lastId</code>), which uses indexes efficiently. Spring Data supports it with <code>ScrollPosition.keyset()</code> and <code>Window&lt;T&gt;</code>.</p></details>
+  <details><summary>Q7. Why shouldn't you return <code>PageImpl</code> directly as JSON?</summary>
+    <p>Its JSON structure is an implementation detail and not guaranteed to be stable across Spring Data versions (Spring warns about it). Use your own DTO, or enable <code>VIA_DTO</code> serialization so Spring renders a stable <code>PagedModel</code>.</p></details>
+  <details><summary>Q8. What happens if you combine <code>JOIN FETCH</code> on a collection with paging?</summary>
+    <p>Hibernate can't apply LIMIT/OFFSET in SQL because rows are multiplied by the join, so it fetches all rows and paginates in memory (warning HHH90003004) — a performance and memory risk. Page the root entities first and load collections in a second query or with batch fetching.</p></details>
+  <details><summary>Q9. When do you need a custom <code>countQuery</code>?</summary>
+    <p>When a paged <code>@Query</code> is complex (joins, group by, native SQL) and Spring can't derive an efficient or valid count query automatically. You provide <code>countQuery</code> (or <code>countProjection</code>) explicitly.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../40-JPA-Relationships/lesson.html"><small>← Previous</small>40. JPA Relationships</a>
+    <a class="next" href="../42-Transactions/lesson.html"><small>Next →</small>42. Transactions</a>
+  </nav>
+</main>
+</body>
+</html>

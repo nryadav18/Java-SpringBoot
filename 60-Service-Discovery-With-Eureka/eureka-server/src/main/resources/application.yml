@@ -1,0 +1,30 @@
+# ------------------------------------------------------------------
+# eureka-server configuration (Topic 60)
+# ------------------------------------------------------------------
+spring:
+  application:
+    name: eureka-server
+
+server:
+  port: 8761            # the traditional Eureka port (dashboard: http://localhost:8761)
+
+eureka:
+  instance:
+    hostname: localhost
+  client:
+    # This app IS the registry. It should not register with itself
+    # and it does not need to download the registry from anyone.
+    register-with-eureka: false
+    fetch-registry: false
+  server:
+    # --- DEV-ONLY settings to make the demo feel fast ---
+    # Self-preservation: when many heartbeats are missing, Eureka assumes a NETWORK problem
+    # and keeps old entries. Great in production, confusing on a laptop where you stop
+    # services often. So we switch it off here (keep it ON in production!).
+    enable-self-preservation: false
+    # Remove dead instances every 5 s instead of every 60 s.
+    eviction-interval-timer-in-ms: 5000
+    # Refresh the registry answer cache every 3 s instead of 30 s.
+    response-cache-update-interval-ms: 3000
+    # Don't wait 5 minutes at startup for peer replicas (we have only one server).
+    wait-time-in-ms-when-sync-empty: 0

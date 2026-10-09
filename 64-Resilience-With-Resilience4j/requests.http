@@ -1,0 +1,66 @@
+### Topic 64 - Resilience4j demo (VS Code "REST Client": click "Send Request" above each block)
+### Start inventory-service (8083) and store-service (8084). Run the requests IN ORDER.
+
+@store = http://localhost:8084
+@inv = http://localhost:8083
+
+### 1. Normal call - real data, source "inventory-service"
+GET {{store}}/api/store/stock/LAPTOP-1
+
+### 2. Look at the circuit breaker: state CLOSED
+GET {{store}}/actuator/circuitbreakers
+
+### 3. Break the downstream - every call now returns HTTP 500
+POST {{inv}}/api/inventory/chaos?mode=FAIL
+
+### 4. Call again: Retry tries 3 times (see store-service log), then the fallback answers
+###    with the LAST KNOWN value (source "fallback-last-known"). The circuit OPENS.
+GET {{store}}/api/store/stock/LAPTOP-1
+
+### 5. Call again: instant answer (~10 ms), note "Circuit breaker is OPEN"
+###    inventory-service does NOT even receive the call any more.
+GET {{store}}/api/store/stock/LAPTOP-1
+
+### 6. State is now OPEN
+GET {{store}}/actuator/circuitbreakers
+
+### 7. Event history (SUCCESS, ERROR, STATE_TRANSITION, NOT_PERMITTED ...)
+GET {{store}}/actuator/circuitbreakerevents
+
+### 8. How many calls really reached inventory-service?
+GET {{inv}}/api/inventory/chaos
+
+### 9. Heal the downstream ...
+POST {{inv}}/api/inventory/chaos?mode=OK
+
+### 10. ... wait 10 seconds (wait-duration-in-open-state). State becomes HALF_OPEN.
+###     Then send this 2 times: 2 successful trial calls -> CLOSED again.
+GET {{store}}/api/store/stock/LAPTOP-1
+
+### 11. TIME LIMITER: make inventory slow (4 s) ...
+POST {{inv}}/api/inventory/chaos?mode=SLOW&delayMs=4000
+
+### 12. ... the store gives up after 2 s and answers with a fallback
+GET {{store}}/api/store/stock-fast/PHONE-7
+
+### 13. back to normal
+POST {{inv}}/api/inventory/chaos?mode=OK
+
+### 14. RATE LIMITER: send this 4 times quickly - the 4th answer is the fallback text
+GET {{store}}/api/store/deals
+
+### 15. BULKHEAD: each report takes 3 s, only 2 at a time.
+###     Run this 3 times very quickly (or use the curl loop from the lesson)
+GET {{store}}/api/store/report/LAPTOP-1
+
+### 16. Health shows circuit breaker details (app stays UP even if a breaker is OPEN)
+GET {{store}}/actuator/health
+
+### 17. Other actuator views
+GET {{store}}/actuator/retries
+
+###
+GET {{store}}/actuator/ratelimiters
+
+###
+GET {{store}}/actuator/bulkheads

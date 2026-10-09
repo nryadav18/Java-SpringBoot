@@ -1,0 +1,88 @@
+### Topic 34 - Validation
+### Use with the VS Code "REST Client" extension.
+
+@base = http://localhost:8080/api
+
+### 1. VALID registration -> 201 Created
+POST {{base}}/users
+Content-Type: application/json
+
+{
+  "name": "Asha Rao",
+  "email": "asha@example.com",
+  "password": "Secret@123",
+  "phone": "+91 98765 43210",
+  "age": 25,
+  "dateOfBirth": "2000-05-21",
+  "address": { "street": "MG Road 1", "city": "Bengaluru", "pinCode": "560001" },
+  "interests": ["java", "music"]
+}
+
+### 2. INVALID registration -> 400 Bad Request with 9 errors
+POST {{base}}/users
+Content-Type: application/json
+
+{
+  "name": "A",
+  "email": "not-an-email",
+  "password": "weak",
+  "phone": "12345",
+  "age": 15,
+  "dateOfBirth": "2090-01-01",
+  "address": { "street": "", "city": "Pune", "pinCode": "12" },
+  "interests": ["", "x"]
+}
+
+### 3. Missing fields completely -> @NotBlank / @NotNull errors
+POST {{base}}/users
+Content-Type: application/json
+
+{}
+
+### 4. Path variable validation: @Min(1) -> 400
+GET {{base}}/users/0
+
+### 5. Path variable OK -> 200 (after request 1) or 404
+GET {{base}}/users/1
+
+### 6. Query parameter validation: @Size(min = 2) -> 400
+GET {{base}}/users/search?name=a
+
+### 7. Query parameter OK
+GET {{base}}/users/search?name=as
+
+### 8. VALID booking -> 201
+POST {{base}}/bookings
+Content-Type: application/json
+
+{ "eventName": "Spring Conf", "eventDate": "2030-01-15", "seats": 2, "discountPercent": 10, "pricePerSeat": 499.00 }
+
+### 9. INVALID booking: past date, 0 seats, 80% discount, price 0 -> 400
+POST {{base}}/bookings
+Content-Type: application/json
+
+{ "eventName": "", "eventDate": "2020-01-15", "seats": 0, "discountPercent": 80, "pricePerSeat": 0 }
+
+### 10. Validation GROUP OnCreate: sending an id is NOT allowed -> 400
+POST {{base}}/products
+Content-Type: application/json
+
+{ "id": 5, "name": "Pen", "price": 10 }
+
+### 11. Group OnCreate OK -> 201
+POST {{base}}/products
+Content-Type: application/json
+
+{ "name": "Pen", "price": 10 }
+
+### 12. Group OnUpdate: id is REQUIRED (and Default rules still run: name blank) -> 400
+PUT {{base}}/products
+Content-Type: application/json
+
+{ "name": "", "price": 10 }
+
+### 13. Group OnUpdate OK -> 200
+PUT {{base}}/products
+Content-Type: application/json
+
+{ "id": 5, "name": "Blue Pen", "price": 12 }

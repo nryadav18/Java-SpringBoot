@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>49 · JWT Authentication</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part D · Security › Topic 49</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part D · Security</span>
+  <span class="tag">⏱ ~4 hours</span>
+  <h1>49. JWT Authentication</h1>
+  <p class="subtitle">Build stateless login for a REST API: log in once, get a signed token, and send it with every request – the way modern web and mobile apps work.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="49-JWT-Authentication"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Sessions vs tokens – what "stateless" really means and why APIs love it.</li>
+      <li>The structure of a JWT (<code>header.payload.signature</code>) – decoded piece by piece – and how the signature stops tampering.</li>
+      <li>The full flow: <b>login → token → <code>Authorization: Bearer</code> header</b>, with diagrams and request traces.</li>
+      <li>Implementing it with <b>JJWT 0.12.6</b>: <code>JwtService</code>, <code>JwtAuthenticationFilter</code> (<code>OncePerRequestFilter</code>), a stateless <code>SecurityFilterChain</code>, and an <code>AuthController</code> with register and login.</li>
+      <li>Secret keys (Base64, 256-bit), token expiry, the refresh-token idea, and the security rules every JWT system must follow.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../47-Spring-Security-Fundamentals/lesson.html">Topic 47 · Filter chain</a>,
+    <a href="../48-Spring-Security-With-Database-Users-And-Roles/lesson.html">Topic 48 · Database users</a> and
+    <a href="../29-Configuration-Properties-And-Profiles/lesson.html">Topic 29 · Configuration properties</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>In topic 48 the client sent the <b>password with every request</b> (HTTP Basic). That works, but it is not how the apps on your phone behave.
+     When you open a food-delivery app, you log in <b>once</b>; for weeks the app talks to the server without asking for your password again.
+     The secret behind that is usually a <b>token</b> – and the most popular token format is the <b>JWT</b> (JSON Web Token, pronounced "jot").</p>
+  <p>JWTs are everywhere in enterprise Java jobs:</p>
+  <ul>
+    <li><b>Single-page apps</b> (React, Angular, Vue) and <b>mobile apps</b> calling a Spring Boot REST API.</li>
+    <li><b>Microservices</b> (Part F): one service checks the token without asking a central session store.</li>
+    <li><b>OAuth2 / OpenID Connect</b> (topic 50): access tokens and ID tokens from Google, Keycloak, Auth0 are JWTs.</li>
+  </ul>
+  <p>It is also one of the most common interview topics for Spring developers. In this lesson you build the whole thing yourself, so nothing feels like magic.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🎟️ The music festival wristband</strong>
+    <p>At the <b>entrance</b> you show your ticket and ID card once (<b>login</b> with username + password).
+       Staff put a <b>wristband</b> on your arm (the <b>token</b>). Printed on it: your name, <i>VIP</i> (your <b>role</b>), and <i>valid Saturday only</i> (the <b>expiry</b>).</p>
+    <p>At every <b>stage and bar</b> (every API endpoint), staff simply look at the wristband. They do not phone the ticket office to ask "is this person allowed?".
+       The wristband itself carries the proof. That is <b>stateless</b>: the server keeps no list of who is inside.</p>
+    <p>The wristband has a <b>tamper-proof seal</b> (the <b>signature</b>). If you scratch out "Standard" and write "VIP", the seal is broken and staff reject it immediately.</p>
+    <p>But: if you <b>lose</b> the wristband, whoever finds it can use it until Saturday ends – staff cannot tell the difference. That is why tokens should be
+       <b>short-lived</b>, and why apps use a <b>refresh token</b> – like going back to the entrance desk to swap an expiring wristband for a fresh one.</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Sessions vs tokens</h3>
+  <p><b>Session-based (topic 47 form login):</b> after login the server creates a <i>session</i> – a little record in its memory – and gives the browser a cookie
+     with the session id (<code>JSESSIONID</code>). On each request the server looks the id up: <i>"ah, session 7F3A… is alice"</i>.</p>
+  <p><b>Token-based (this topic):</b> after login the server creates a <b>signed token</b> that <i>contains</i> "this is alice, role USER, valid until 10:15" and gives it to the client.
+     The server stores <b>nothing</b>. On each request it checks the signature and reads the content.</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 860 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Session versus token">
+      <defs>
+        <marker id="ar49a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g font-family="Segoe UI, sans-serif" font-size="12" fill="currentColor">
+        <text x="200" y="20" text-anchor="middle" font-weight="bold" font-size="14">Session (stateful)</text>
+        <rect x="20" y="40" width="110" height="50" rx="8" fill="none" stroke="currentColor" stroke-width="2"/>
+        <text x="75" y="70" text-anchor="middle">Browser</text>
+        <line x1="130" y1="65" x2="255" y2="65" stroke="currentColor" stroke-width="2" marker-end="url(#ar49a)"/>
+        <text x="192" y="58" text-anchor="middle" font-size="11">Cookie: JSESSIONID=7F3A</text>
+        <rect x="260" y="40" width="130" height="50" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="325" y="70" text-anchor="middle">Server</text>
+        <line x1="325" y1="90" x2="325" y2="135" stroke="currentColor" stroke-width="2" marker-end="url(#ar49a)"/>
+        <text x="335" y="118" font-size="11">look up</text>
+        <rect x="240" y="140" width="170" height="80" rx="8" fill="none" stroke="var(--java)" stroke-width="2"/>
+        <text x="325" y="160" text-anchor="middle" font-weight="bold">Session store</text>
+        <text x="325" y="180" text-anchor="middle" font-family="Consolas, monospace" font-size="11">7F3A → alice, USER</text>
+        <text x="325" y="198" text-anchor="middle" font-family="Consolas, monospace" font-size="11">9B21 → bob, ADMIN</text>
+        <text x="325" y="240" text-anchor="middle" font-size="11">server must REMEMBER every user</text>
+
+        <line x1="440" y1="20" x2="440" y2="250" stroke="currentColor" stroke-dasharray="4 4"/>
+
+        <text x="650" y="20" text-anchor="middle" font-weight="bold" font-size="14">Token (stateless)</text>
+        <rect x="460" y="40" width="110" height="50" rx="8" fill="none" stroke="currentColor" stroke-width="2"/>
+        <text x="515" y="70" text-anchor="middle">App / SPA</text>
+        <line x1="570" y1="65" x2="705" y2="65" stroke="currentColor" stroke-width="2" marker-end="url(#ar49a)"/>
+        <text x="637" y="58" text-anchor="middle" font-size="11">Authorization: Bearer eyJ…</text>
+        <rect x="710" y="40" width="130" height="50" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="775" y="70" text-anchor="middle">Server</text>
+        <rect x="690" y="130" width="170" height="80" rx="8" fill="none" stroke="var(--info)" stroke-width="2"/>
+        <text x="775" y="152" text-anchor="middle" font-weight="bold">Inside the token</text>
+        <text x="775" y="172" text-anchor="middle" font-family="Consolas, monospace" font-size="11">sub: alice</text>
+        <text x="775" y="190" text-anchor="middle" font-family="Consolas, monospace" font-size="11">roles: [ROLE_USER]</text>
+        <line x1="775" y1="90" x2="775" y2="125" stroke="currentColor" stroke-width="2" marker-end="url(#ar49a)"/>
+        <text x="785" y="113" font-size="11">verify signature</text>
+        <text x="650" y="240" text-anchor="middle" font-size="11">server remembers NOTHING – any server instance can check it</text>
+      </g>
+    </svg>
+    <figcaption>Session: the server keeps a list. Token: the client carries the (signed) proof.</figcaption>
+  </figure>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Session + cookie</th><th>JWT (Bearer token)</th></tr>
+    <tr><td>Server state</td><td>Stores every session (memory, Redis…)</td><td>None – <b>stateless</b></td></tr>
+    <tr><td>Scaling to many servers</td><td>Needs sticky sessions or a shared session store</td><td>Easy – any instance can verify the signature</td></tr>
+    <tr><td>Sent how</td><td>Cookie, automatically by the browser</td><td><code>Authorization</code> header, added by the app's code</td></tr>
+    <tr><td>Clients</td><td>Mainly browsers</td><td>Browsers, mobile apps, other services, curl</td></tr>
+    <tr><td>CSRF risk</td><td>Yes (cookies auto-sent) → CSRF protection needed</td><td>No (header not auto-sent) → CSRF can be disabled</td></tr>
+    <tr><td>Logout / revoke</td><td>Easy: delete the session</td><td><b>Hard</b>: the token stays valid until it expires (see 3.11)</td></tr>
+    <tr><td>Size</td><td>Tiny id</td><td>Bigger (hundreds of bytes) on every request</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Neither is "better"</strong>
+    Classic server-rendered websites (Thymeleaf, topic 36) are perfectly served by sessions. JWTs shine for APIs consumed by many kinds of clients and for distributed systems.</div>
+
+  <h3>3.2 Anatomy of a JWT</h3>
+  <p>Here is a <b>real token</b> our project produced when alice logged in (colours added):</p>
+  <pre><code class="no-hl"><span style="color:#ff7b72">eyJhbGciOiJIUzI1NiJ9</span>.<span style="color:#d2a8ff">eyJzdWIiOiJhbGljZSIsInJvbGVzIjpbIlJPTEVfVVNFUiJdLCJpc3MiOiJmb29kLWRlbGl2ZXJ5LWFwaSIsImlhdCI6MTc5MTUyMDkxMCwiZXhwIjoxNzkxNTIxODEwfQ</span>.<span style="color:#7ee787">ZyVYy5_bqki9XHJEsCorErXbFaHLpNQ34Q6RH0Fhhx4</span></code></pre>
+  <p>Three parts separated by dots. Each part is <b>Base64URL</b>-encoded (Base64 with URL-safe characters and no <code>=</code> padding). Decode them and you get:</p>
+  <div class="grid">
+    <div class="card"><strong style="color:var(--danger)">① Header</strong>
+      <pre><code class="lang-json">{"alg":"HS256"}</code></pre>
+      <p>Which algorithm signed it. HS256 = HMAC with SHA-256.</p></div>
+    <div class="card"><strong style="color:var(--info)">② Payload (claims)</strong>
+      <pre><code class="lang-json">{
+  "sub": "alice",
+  "roles": ["ROLE_USER"],
+  "iss": "food-delivery-api",
+  "iat": 1791520910,
+  "exp": 1791521810
+}</code></pre>
+      <p>Facts ("claims") about the user. <code>iat</code>/<code>exp</code> are seconds since 1970 (exp = iat + 900 s = 15 min).</p></div>
+    <div class="card"><strong style="color:var(--accent)">③ Signature</strong>
+      <pre><code>HMACSHA256(
+  base64url(header) + "." +
+  base64url(payload),
+  SECRET_KEY)</code></pre>
+      <p>A fingerprint of ① + ② made with our secret key.</p></div>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th>Claim</th><th>Name</th><th>Meaning</th></tr>
+    <tr><td><code>sub</code></td><td>Subject</td><td>Who the token is about (username or user id)</td></tr>
+    <tr><td><code>iss</code></td><td>Issuer</td><td>Who created the token</td></tr>
+    <tr><td><code>aud</code></td><td>Audience</td><td>Who the token is meant for (which API)</td></tr>
+    <tr><td><code>iat</code></td><td>Issued at</td><td>Creation time</td></tr>
+    <tr><td><code>exp</code></td><td>Expiration</td><td>After this moment the token is invalid</td></tr>
+    <tr><td><code>nbf</code></td><td>Not before</td><td>Not valid before this moment</td></tr>
+    <tr><td><code>jti</code></td><td>JWT id</td><td>Unique id (useful for blacklisting)</td></tr>
+    <tr><td><code>roles</code></td><td>(custom)</td><td>Anything you like – keep it small and non-secret</td></tr>
+  </table></div>
+  <div class="callout danger"><strong>🔓 A JWT is signed, NOT encrypted</strong>
+    Anybody holding the token can decode the payload – try pasting one into <code>https://jwt.io</code> (only with test tokens!), or in PowerShell:
+    <code>[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("eyJhbGciOiJIUzI1NiJ9"))</code> → <code>{"alg":"HS256"}</code>.
+    <b>Never put passwords, card numbers or other secrets in the payload.</b> (Encrypted JWTs exist – "JWE" – but are rarely needed.)</div>
+
+  <h3>3.3 How the signature stops tampering</h3>
+  <p>Suppose alice decodes her token, changes <code>"roles":["ROLE_USER"]</code> to <code>["ROLE_ADMIN"]</code>, encodes it again and sends it.</p>
+  <ol>
+    <li>Our server takes header + <i>modified</i> payload and computes HMAC-SHA256 with <b>its</b> secret key.</li>
+    <li>The result is completely different from the signature alice sent (she does not know the key, so she could not recompute it).</li>
+    <li>JJWT throws <code>SignatureException</code> → our filter ignores the token → <b>401</b>.</li>
+  </ol>
+  <p>So: <b>reading</b> a token needs nothing; <b>creating or changing</b> a valid token needs the secret key. Protect that key like a master password.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Algorithm</th><th>Type</th><th>Keys</th><th>Used when</th></tr>
+    <tr><td>HS256 (this project)</td><td>Symmetric (HMAC)</td><td>One shared secret signs <i>and</i> verifies</td><td>The same application issues and checks tokens</td></tr>
+    <tr><td>RS256 / ES256</td><td>Asymmetric (RSA / elliptic curve)</td><td>Private key signs, public key verifies</td><td>A separate auth server issues tokens, many APIs verify with the public key (topic 50)</td></tr>
+  </table></div>
+
+  <h3>3.4 The complete flow</h3>
+  <figure class="diagram">
+    <svg viewBox="0 0 860 430" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="JWT login and request flow">
+      <defs>
+        <marker id="ar49b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g font-family="Segoe UI, sans-serif" font-size="12" fill="currentColor">
+        <rect x="40" y="10" width="140" height="36" rx="8" fill="none" stroke="currentColor" stroke-width="2"/>
+        <text x="110" y="33" text-anchor="middle" font-weight="bold">Client (app)</text>
+        <rect x="360" y="10" width="160" height="36" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="440" y="33" text-anchor="middle" font-weight="bold">Spring Boot API</text>
+        <rect x="680" y="10" width="140" height="36" rx="8" fill="none" stroke="var(--java)" stroke-width="2"/>
+        <text x="750" y="33" text-anchor="middle" font-weight="bold">Database</text>
+        <line x1="110" y1="46" x2="110" y2="420" stroke="currentColor" stroke-dasharray="4 4"/>
+        <line x1="440" y1="46" x2="440" y2="420" stroke="currentColor" stroke-dasharray="4 4"/>
+        <line x1="750" y1="46" x2="750" y2="420" stroke="currentColor" stroke-dasharray="4 4"/>
+
+        <line x1="110" y1="80" x2="435" y2="80" stroke="currentColor" stroke-width="2" marker-end="url(#ar49b)"/>
+        <text x="272" y="72" text-anchor="middle">① POST /api/auth/login {"username":"alice","password":"alice123"}</text>
+        <line x1="440" y1="105" x2="745" y2="105" stroke="currentColor" stroke-width="2" marker-end="url(#ar49b)"/>
+        <text x="595" y="98" text-anchor="middle">② find user alice</text>
+        <line x1="750" y1="125" x2="445" y2="125" stroke="currentColor" stroke-width="2" marker-end="url(#ar49b)"/>
+        <text x="595" y="140" text-anchor="middle">hash + role</text>
+        <text x="455" y="165">③ BCrypt matches ✓  → JwtService.generateToken()</text>
+        <line x1="440" y1="190" x2="115" y2="190" stroke="currentColor" stroke-width="2" marker-end="url(#ar49b)"/>
+        <text x="272" y="183" text-anchor="middle">④ 200 {"accessToken":"eyJ…","expiresIn":900}</text>
+        <text x="20" y="215" font-size="11">⑤ app stores the token</text>
+
+        <line x1="110" y1="250" x2="435" y2="250" stroke="var(--info)" stroke-width="2" marker-end="url(#ar49b)"/>
+        <text x="272" y="242" text-anchor="middle">⑥ GET /api/orders   Authorization: Bearer eyJ…</text>
+        <text x="455" y="275">⑦ JwtAuthenticationFilter: verify signature + exp</text>
+        <line x1="440" y1="290" x2="745" y2="290" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#ar49b)"/>
+        <text x="595" y="284" text-anchor="middle" font-size="11">(load user – optional)</text>
+        <text x="455" y="315">⑧ SecurityContext = alice, ROLE_USER → AuthorizationFilter ✓</text>
+        <line x1="440" y1="340" x2="115" y2="340" stroke="var(--info)" stroke-width="2" marker-end="url(#ar49b)"/>
+        <text x="272" y="333" text-anchor="middle">⑨ 200 {"customer":"alice","orders":[…]}</text>
+
+        <line x1="110" y1="375" x2="435" y2="375" stroke="var(--danger)" stroke-width="2" marker-end="url(#ar49b)"/>
+        <text x="272" y="368" text-anchor="middle">⑩ 16 minutes later: same token (expired)</text>
+        <line x1="440" y1="405" x2="115" y2="405" stroke="var(--danger)" stroke-width="2" marker-end="url(#ar49b)"/>
+        <text x="272" y="398" text-anchor="middle">401 → app logs in again (or uses a refresh token)</text>
+      </g>
+    </svg>
+    <figcaption>Log in once (①–④), then send the token with every request (⑥–⑨) until it expires (⑩).</figcaption>
+  </figure>
+
+  <h3>3.5 JJWT 0.12.6 – the library</h3>
+  <p>Java has no built-in JWT support. <b>JJWT</b> (Java JWT) is the most popular library. It comes as three artifacts:</p>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;io.jsonwebtoken&lt;/groupId&gt;
+    &lt;artifactId&gt;jjwt-api&lt;/artifactId&gt;           &lt;!-- what we code against --&gt;
+    &lt;version&gt;0.12.6&lt;/version&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;io.jsonwebtoken&lt;/groupId&gt;
+    &lt;artifactId&gt;jjwt-impl&lt;/artifactId&gt;          &lt;!-- the implementation --&gt;
+    &lt;version&gt;0.12.6&lt;/version&gt;
+    &lt;scope&gt;runtime&lt;/scope&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;io.jsonwebtoken&lt;/groupId&gt;
+    &lt;artifactId&gt;jjwt-jackson&lt;/artifactId&gt;       &lt;!-- JSON via Jackson --&gt;
+    &lt;version&gt;0.12.6&lt;/version&gt;
+    &lt;scope&gt;runtime&lt;/scope&gt;
+&lt;/dependency&gt;</code></pre>
+  <p>The <code>runtime</code> scope (topic 20) means: available when the app runs, but your code cannot accidentally import internal classes.</p>
+  <div class="callout warn"><strong>⚠️ Old tutorials use the 0.11 API</strong>
+    JJWT 0.12 renamed many methods. If you copy code from older blogs it will not compile or will show deprecation warnings:
+    <div class="table-wrap"><table>
+      <tr><th>Old (0.11)</th><th>New (0.12)</th></tr>
+      <tr><td><code>Jwts.builder().setSubject(..)</code></td><td><code>Jwts.builder().subject(..)</code></td></tr>
+      <tr><td><code>.setIssuedAt(..)</code>, <code>.setExpiration(..)</code></td><td><code>.issuedAt(..)</code>, <code>.expiration(..)</code></td></tr>
+      <tr><td><code>.signWith(key, SignatureAlgorithm.HS256)</code></td><td><code>.signWith(key)</code> (algorithm chosen from the key)</td></tr>
+      <tr><td><code>Jwts.parserBuilder().setSigningKey(key)</code></td><td><code>Jwts.parser().verifyWith(key)</code></td></tr>
+      <tr><td><code>.parseClaimsJws(token).getBody()</code></td><td><code>.parseSignedClaims(token).getPayload()</code></td></tr>
+    </table></div></div>
+
+  <h3>3.6 The secret key</h3>
+  <p>For HS256 the key must be <b>at least 256 bits = 32 bytes</b> of <b>random</b> data. Random bytes are not printable text, so we store them as <b>Base64</b> in the properties:</p>
+  <pre><span class="file">application.properties</span><code class="lang-properties">app.jwt.secret=${JWT_SECRET:VPRUfjavGU03Le4EyEe/zdh5sHYm5ZtiWXxqhb3pf0o=}
+app.jwt.expiration=15m
+app.jwt.issuer=food-delivery-api</code></pre>
+  <p><code>${JWT_SECRET:...}</code> means "use the environment variable <code>JWT_SECRET</code> if it exists, otherwise this development default" (topic 29).
+     Generate your own secret:</p>
+  <pre class="terminal"><code>PS&gt; [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
+Q2xrKp9...=                        (44 characters = 32 bytes)
+
+$ openssl rand -base64 32          (Git Bash / Linux / macOS)</code></pre>
+  <p>In Java the Base64 text becomes a key object:</p>
+  <pre><code class="lang-java">SecretKey key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(properties.secret()));</code></pre>
+  <p>If the key is shorter than 256 bits, JJWT refuses with <code>WeakKeyException</code> – a good thing. A key like <code>"mysecret"</code> could be brute-forced.</p>
+  <p>The three settings are bound to a <b>record</b> with <code>@ConfigurationProperties</code> (topic 29):</p>
+  <pre><span class="file">security/JwtProperties.java</span><code class="lang-java">@ConfigurationProperties(prefix = "app.jwt")
+public record JwtProperties(String secret, Duration expiration, String issuer) { }</code></pre>
+
+  <h3>3.7 <code>JwtService</code> – create, read, verify</h3>
+  <pre><span class="file">security/JwtService.java (key parts)</span><code class="lang-java">public String generateToken(UserDetails user) {
+    Instant now = Instant.now();
+    List&lt;String&gt; roles = user.getAuthorities().stream().map(GrantedAuthority::getAuthority).toList();
+
+    return Jwts.builder()
+            .subject(user.getUsername())                               // "sub"
+            .claim("roles", roles)                                     // custom claim
+            .issuer(properties.issuer())                               // "iss"
+            .issuedAt(Date.from(now))                                  // "iat"
+            .expiration(Date.from(now.plus(properties.expiration())))  // "exp"
+            .signWith(signingKey)                                      // HS256
+            .compact();                                                // "xxx.yyy.zzz"
+}
+
+public String extractUsername(String token) {
+    return parseClaims(token).getSubject();
+}
+
+public boolean isTokenValid(String token, UserDetails user) {
+    try {
+        Claims claims = parseClaims(token);
+        return user.getUsername().equals(claims.getSubject())
+                &amp;&amp; properties.issuer().equals(claims.getIssuer());
+    } catch (JwtException | IllegalArgumentException e) {
+        return false;
+    }
+}
+
+private Claims parseClaims(String token) {
+    return Jwts.parser()
+            .verifyWith(signingKey)       // check the signature with OUR key
+            .build()
+            .parseSignedClaims(token)     // also rejects EXPIRED tokens and unsigned ("alg":"none") tokens
+            .getPayload();
+}</code></pre>
+  <p>What can go wrong while parsing – each is a subclass of <code>JwtException</code>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Exception</th><th>Cause</th></tr>
+    <tr><td><code>ExpiredJwtException</code></td><td><code>exp</code> is in the past</td></tr>
+    <tr><td><code>SignatureException</code></td><td>Payload changed, or signed with another key</td></tr>
+    <tr><td><code>MalformedJwtException</code></td><td>Not a valid JWT at all (e.g. <code>abc.def.ghi</code>)</td></tr>
+    <tr><td><code>UnsupportedJwtException</code></td><td>Wrong kind of token, e.g. unsigned</td></tr>
+  </table></div>
+
+  <h3>3.8 <code>JwtAuthenticationFilter</code> – our own security filter</h3>
+  <p>Spring Security has a filter for Basic and one for form login – but none for "our" JWTs. So we write one. It extends <code>OncePerRequestFilter</code>, a Spring base class
+     that guarantees the filter runs exactly <b>once per request</b> (even on internal forwards like <code>/error</code>).</p>
+  <pre><span class="file">security/JwtAuthenticationFilter.java (core)</span><code class="lang-java">@Override
+protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
+                                FilterChain filterChain) throws ServletException, IOException {
+
+    String header = request.getHeader(HttpHeaders.AUTHORIZATION);
+    if (header == null || !header.startsWith("Bearer ")) {     // (1) no token
+        filterChain.doFilter(request, response);               //     continue as anonymous
+        return;
+    }
+    String token = header.substring(7);                        // (2) cut "Bearer "
+
+    try {
+        String username = jwtService.extractUsername(token);   // (3) throws if fake/expired
+        if (username != null &amp;&amp; SecurityContextHolder.getContext().getAuthentication() == null) {
+            UserDetails user = userDetailsService.loadUserByUsername(username);   // (4)
+            if (jwtService.isTokenValid(token, user)) {
+                UsernamePasswordAuthenticationToken authentication =
+                        new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
+                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContext context = SecurityContextHolder.createEmptyContext();
+                context.setAuthentication(authentication);       // (5) "this request = alice"
+                SecurityContextHolder.setContext(context);
+            }
+        }
+    } catch (JwtException | IllegalArgumentException | UsernameNotFoundException e) {
+        log.debug("Rejected JWT: {}", e.getMessage());          // (6) stay anonymous, never log the token
+    }
+    filterChain.doFilter(request, response);                    // (7) ALWAYS continue
+}</code></pre>
+  <ul>
+    <li><b>(1)</b> No header is not an error here. Public URLs like <code>/api/auth/login</code> must work without a token. The <i>decision</i> is made later by <code>AuthorizationFilter</code>.</li>
+    <li><b>(4)</b> We load the user from the database. That costs one query per request, but a deleted user's token stops working immediately.
+        A fully stateless alternative builds the authorities from the <code>roles</code> claim instead (exercise 4).</li>
+    <li><b>(5)</b> The credentials are <code>null</code>: we never need the password again after login.</li>
+    <li><b>(6)</b> An invalid token just leaves the request anonymous → protected URLs answer 401 through the entry point.</li>
+  </ul>
+  <div class="callout warn"><strong>⚠️ Why the filter is NOT a <code>@Component</code></strong>
+    Spring Boot automatically registers <b>every</b> <code>Filter</code> bean as a normal servlet filter for all URLs. A <code>@Component</code> JWT filter would then run twice:
+    once in the security chain and once outside it. We avoid that by creating it with <code>new</code> inside <code>SecurityConfig</code>.
+    (Alternative: keep it a bean and disable the extra registration with a <code>FilterRegistrationBean</code> whose <code>setEnabled(false)</code>.)</div>
+
+  <h3>3.9 The stateless <code>SecurityFilterChain</code></h3>
+  <pre><span class="file">security/SecurityConfig.java (core)</span><code class="lang-java">http
+    .csrf(AbstractHttpConfigurer::disable)            // no cookies -&gt; no CSRF risk
+    .httpBasic(AbstractHttpConfigurer::disable)       // the only way in is a token
+    .formLogin(AbstractHttpConfigurer::disable)
+    .sessionManagement(sm -&gt; sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+    .authorizeHttpRequests(auth -&gt; auth
+        .requestMatchers("/api/auth/**", "/error").permitAll()
+        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+        .anyRequest().authenticated()
+    )
+    .exceptionHandling(ex -&gt; ex.authenticationEntryPoint(jsonUnauthorizedEntryPoint()))
+    .addFilterBefore(new JwtAuthenticationFilter(jwtService, userDetailsService),
+                     UsernamePasswordAuthenticationFilter.class);</code></pre>
+  <p>Our filter slots into the chain from topic 47:</p>
+  <div class="flow">
+    <span class="box">SecurityContextHolderFilter</span><span class="arrow">→</span>
+    <span class="box">HeaderWriterFilter</span><span class="arrow">→</span>
+    <span class="box">LogoutFilter</span><span class="arrow">→</span>
+    <span class="box alt"><b>JwtAuthenticationFilter</b> (ours)</span><span class="arrow">→</span>
+    <span class="box">AnonymousAuthenticationFilter</span><span class="arrow">→</span>
+    <span class="box">ExceptionTranslationFilter</span><span class="arrow">→</span>
+    <span class="box info">AuthorizationFilter</span><span class="arrow">→</span>
+    <span class="box">Controller</span>
+  </div>
+  <div class="callout info"><strong>ℹ️ Why a custom <code>AuthenticationEntryPoint</code>?</strong>
+    The <i>entry point</i> decides what an anonymous user gets for a protected URL. Basic auth's entry point sends 401; form login's redirects to <code>/login</code>.
+    We disabled both, so Spring falls back to <code>Http403ForbiddenEntryPoint</code> – anonymous users would get a confusing <b>403</b>.
+    Our lambda returns a proper <b>401</b> with <code>WWW-Authenticate: Bearer</code> and a small JSON body.</div>
+
+  <h3>3.10 <code>AuthController</code>: register and login</h3>
+  <p>For login we re-use Spring Security's own password checking via the <code>AuthenticationManager</code> (made injectable with a small bean):</p>
+  <pre><span class="file">security/SecurityConfig.java</span><code class="lang-java">@Bean
+public AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception {
+    return configuration.getAuthenticationManager();   // built from our UserDetailsService + PasswordEncoder
+}</code></pre>
+  <pre><span class="file">auth/AuthService.java (login)</span><code class="lang-java">public AuthResponse login(LoginRequest request) {
+    Authentication authentication = authenticationManager.authenticate(
+            new UsernamePasswordAuthenticationToken(request.username(), request.password()));
+    // wrong password? -&gt; BadCredentialsException -&gt; ApiExceptionHandler -&gt; 401
+    UserDetails user = (UserDetails) authentication.getPrincipal();
+    return toResponse(user);   // generate token + build {"accessToken":..,"tokenType":"Bearer",..}
+}</code></pre>
+  <p><code>register</code> works like topic 48 (validate, check duplicates, BCrypt, role USER) and then returns a token straight away, so the new user is logged in.</p>
+
+  <h3>3.11 Request traces</h3>
+  <p><b>Trace 1 – valid token, <code>GET /api/orders</code></b></p>
+  <div class="flow">
+    <span class="box">Bearer eyJ…</span><span class="arrow">→</span>
+    <span class="box alt">JwtFilter: signature ✓ exp ✓ → user alice</span><span class="arrow">→</span>
+    <span class="box">SecurityContext: alice / ROLE_USER</span><span class="arrow">→</span>
+    <span class="box info">AuthorizationFilter: authenticated ✓</span><span class="arrow">→</span>
+    <span class="box"><b>200</b></span>
+  </div>
+  <p><b>Trace 2 – tampered or expired token</b></p>
+  <div class="flow">
+    <span class="box">Bearer eyJ…(changed)</span><span class="arrow">→</span>
+    <span class="box alt">JwtFilter: SignatureException → log, stay anonymous</span><span class="arrow">→</span>
+    <span class="box info">AuthorizationFilter: authenticated ✗</span><span class="arrow">→</span>
+    <span class="box">EntryPoint → <b>401</b> JSON</span>
+  </div>
+  <p><b>Trace 3 – valid USER token on <code>/api/admin/dashboard</code></b></p>
+  <div class="flow">
+    <span class="box">Bearer eyJ… (alice)</span><span class="arrow">→</span>
+    <span class="box alt">JwtFilter ✓ alice / ROLE_USER</span><span class="arrow">→</span>
+    <span class="box info">AuthorizationFilter: hasRole ADMIN ✗</span><span class="arrow">→</span>
+    <span class="box">AccessDeniedHandler → <b>403</b></span>
+  </div>
+  <p><b>Trace 4 – <code>POST /api/auth/login</code> (no token)</b></p>
+  <div class="flow">
+    <span class="box">no header</span><span class="arrow">→</span>
+    <span class="box alt">JwtFilter: nothing to do</span><span class="arrow">→</span>
+    <span class="box info">AuthorizationFilter: permitAll ✓</span><span class="arrow">→</span>
+    <span class="box">AuthController → AuthenticationManager → token</span>
+  </div>
+
+  <h3>3.12 Token expiry and the refresh-token idea</h3>
+  <p>Because the server stores nothing, it <b>cannot "cancel"</b> a JWT before <code>exp</code>. If a token is stolen, the thief can use it until it expires.
+     Hence the golden rule: <b>access tokens must be short-lived</b> (5–15 minutes). But nobody wants to type their password every 15 minutes. The solution is a second token:</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Access token</th><th>Refresh token</th></tr>
+    <tr><td>Purpose</td><td>Call the API</td><td>Get a <b>new</b> access token</td></tr>
+    <tr><td>Lifetime</td><td>Short (e.g. 15 min)</td><td>Long (e.g. 7–30 days)</td></tr>
+    <tr><td>Sent to</td><td>Every API request</td><td>Only <code>POST /api/auth/refresh</code></td></tr>
+    <tr><td>Server stores it?</td><td>No</td><td><b>Yes</b> (database) – so it can be revoked</td></tr>
+  </table></div>
+  <div class="flow">
+    <span class="box">Login</span><span class="arrow">→</span>
+    <span class="box info">access (15 min) + refresh (7 days)</span><span class="arrow">→</span>
+    <span class="box">API calls with access token</span><span class="arrow">→</span>
+    <span class="box alt">401 expired</span><span class="arrow">→</span>
+    <span class="box">POST /refresh with refresh token</span><span class="arrow">→</span>
+    <span class="box info">new access (+ new refresh, "rotation")</span>
+  </div>
+  <p>Logout = delete the refresh token in the database; the access token dies on its own within minutes. Other revocation tricks: a blacklist of token ids (<code>jti</code>) until
+     they expire, or a <code>tokenVersion</code> column on the user that is put into the token and increased on "log out everywhere". Our project keeps it simple
+     (access token only) – exercise 5 adds refresh tokens. In topic 50 you will see that an OAuth2 server (Keycloak) gives you refresh tokens out of the box.</p>
+
+  <h3>3.13 Security best practices for JWTs</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Rule</th><th>Why</th></tr>
+    <tr><td><b>HTTPS only</b></td><td>A token is as good as a password while it lives. On plain HTTP anyone on the network can copy it.</td></tr>
+    <tr><td><b>Short expiry</b> for access tokens</td><td>Limits the damage of a stolen token.</td></tr>
+    <tr><td><b>Nothing sensitive in the payload</b></td><td>It is only Base64 – readable by anyone.</td></tr>
+    <tr><td><b>Strong random secret</b>, ≥ 256 bits, from env/secret manager, never in Git</td><td>Whoever has the key can mint admin tokens.</td></tr>
+    <tr><td><b>Verify signature, exp, iss (and aud)</b></td><td>JJWT checks signature + exp; we also check the issuer.</td></tr>
+    <tr><td><b>Never accept <code>"alg":"none"</code></b></td><td>A classic attack. <code>parseSignedClaims</code> rejects unsigned tokens.</td></tr>
+    <tr><td><b>Do not log tokens</b></td><td>Logs are read by many people and tools.</td></tr>
+    <tr><td><b>Rotate keys</b> occasionally (use a <code>kid</code> header to support old + new keys)</td><td>Limits damage of a leaked key.</td></tr>
+  </table></div>
+  <p><b>Where should a browser app keep the token?</b> There is no perfect answer:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Storage</th><th>Risk</th><th>Notes</th></tr>
+    <tr><td>JavaScript memory (a variable)</td><td>Lost on page reload</td><td>Safest against XSS theft; combine with a refresh token in an HttpOnly cookie</td></tr>
+    <tr><td><code>localStorage</code> / <code>sessionStorage</code></td><td><b>XSS</b>: any injected script can read it</td><td>Simple and common, but only with strict XSS protection</td></tr>
+    <tr><td><b>HttpOnly + Secure + SameSite</b> cookie</td><td>JavaScript cannot read it; but cookies are auto-sent → think about <b>CSRF</b> again</td><td>Often recommended for browser apps ("Backend for Frontend" pattern)</td></tr>
+    <tr><td>Mobile apps</td><td>–</td><td>Use the OS secure storage (Android Keystore, iOS Keychain)</td></tr>
+  </table></div>
+
+  <!-- ============================================================ -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>A "Food Delivery" API in package <code>com.course.jwtauth</code>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>web, security, data-jpa, validation, h2, <b>jjwt-api/impl/jackson 0.12.6</b>, spring-security-test</td></tr>
+    <tr><td><code>JwtAuthApplication.java</code></td><td>Main class with <code>@ConfigurationPropertiesScan</code></td></tr>
+    <tr><td><code>user/AppUser.java</code>, <code>Role.java</code>, <code>AppUserRepository.java</code></td><td>User entity with one role, repository</td></tr>
+    <tr><td><code>security/AppUserDetailsService.java</code></td><td>Loads users, uses Spring's <code>User.withUsername</code> builder</td></tr>
+    <tr><td><code>security/JwtProperties.java</code></td><td><code>app.jwt.*</code> settings as a record</td></tr>
+    <tr><td><code>security/JwtService.java</code></td><td>Generate / parse / validate tokens</td></tr>
+    <tr><td><code>security/JwtAuthenticationFilter.java</code></td><td>Reads the Bearer header, fills the <code>SecurityContext</code></td></tr>
+    <tr><td><code>security/SecurityConfig.java</code></td><td>Stateless chain, custom 401, filter placement, <code>AuthenticationManager</code>, BCrypt</td></tr>
+    <tr><td><code>auth/AuthDtos.java</code></td><td><code>RegisterRequest</code>, <code>LoginRequest</code>, <code>AuthResponse</code> records</td></tr>
+    <tr><td><code>auth/AuthService.java</code>, <code>AuthController.java</code></td><td><code>POST /api/auth/register</code>, <code>POST /api/auth/login</code></td></tr>
+    <tr><td><code>auth/UsernameTakenException.java</code></td><td>→ 409</td></tr>
+    <tr><td><code>web/OrderController.java</code></td><td><code>/api/hello</code>, <code>/api/orders</code> (<code>@AuthenticationPrincipal</code>), <code>/api/admin/dashboard</code> (+ <code>@PreAuthorize</code>)</td></tr>
+    <tr><td><code>web/ApiExceptionHandler.java</code></td><td>Bad login → 401 ProblemDetail ("Invalid username or password")</td></tr>
+    <tr><td><code>config/DataSeeder.java</code></td><td><code>admin/admin123</code> (ADMIN), <code>alice/alice123</code> (USER)</td></tr>
+    <tr><td><code>application.properties</code></td><td>H2 + JWT secret/expiry/issuer</td></tr>
+    <tr><td><code>src/test/.../JwtServiceTest.java</code></td><td>5 plain unit tests: valid, other user, tampered, other key, expired</td></tr>
+    <tr><td><code>src/test/.../AuthFlowTest.java</code></td><td>8 MockMvc tests: login → token → call, 401, 403, <code>@WithMockUser</code></td></tr>
+    <tr><td><code>requests.http</code></td><td>Whole flow; the token is reused automatically with <code># @name login</code></td></tr>
+  </table></div>
+  <h3>4.1 The test that tells the whole story</h3>
+  <pre><span class="file">src/test/java/com/course/jwtauth/AuthFlowTest.java (excerpt)</span><code class="lang-java">@Test
+void loginThenCallProtectedEndpoint() throws Exception {
+    String token = loginAndGetToken("alice", "alice123");
+    assertThat(token).startsWith("eyJ");   // Base64URL of '{"' - every JWT starts like this
+
+    mockMvc.perform(get("/api/hello").header("Authorization", "Bearer " + token))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.roles[0]").value("ROLE_USER"));
+}
+
+@Test
+void garbageTokenGives401() throws Exception {
+    mockMvc.perform(get("/api/hello").header("Authorization", "Bearer not.a.realtoken"))
+           .andExpect(status().isUnauthorized());
+}</code></pre>
+  <p>And a unit test for expiry – no Spring needed, we just build a service whose tokens expire in the past:</p>
+  <pre><span class="file">src/test/java/com/course/jwtauth/JwtServiceTest.java (excerpt)</span><code class="lang-java">@Test
+void expiredTokenIsRejected() {
+    JwtService shortLived = new JwtService(new JwtProperties(SECRET, Duration.ofSeconds(-5), "test"));
+    String expired = shortLived.generateToken(alice);
+
+    assertThatThrownBy(() -&gt; jwtService.extractUsername(expired)).isInstanceOf(ExpiredJwtException.class);
+    assertThat(jwtService.isTokenValid(expired, alice)).isFalse();
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 Start</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\49-JWT-Authentication"
+mvn spring-boot:run</code></pre>
+  <p>Or in VS Code: open the folder, run <code>JwtAuthApplication</code>.</p>
+  <h3>5.2 The easiest way: <code>requests.http</code></h3>
+  <p>Open <code>requests.http</code> and click <b>Send Request</b> on request 1 (login). Then send request 2 – it automatically uses
+     <code>{{login.response.body.accessToken}}</code> from the login response. No copy-paste needed.</p>
+  <h3>5.3 PowerShell (login → token → protected call)</h3>
+  <pre class="terminal"><code>PS&gt; $login = Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/auth/login `
+        -ContentType "application/json" -Body '{"username":"alice","password":"alice123"}'
+PS&gt; $login
+
+accessToken : eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhbGljZSIsInJvbGVzIjpbIlJPTEVfVVNFUiJdLCJpc3Mi...
+tokenType   : Bearer
+expiresIn   : 900
+username    : alice
+role        : USER
+
+PS&gt; $token = $login.accessToken
+PS&gt; curl.exe http://localhost:8080/api/hello -H "Authorization: Bearer $token"
+{"message":"Hello alice, your token is valid!","roles":["ROLE_USER"]}
+
+PS&gt; curl.exe http://localhost:8080/api/orders -H "Authorization: Bearer $token"
+{"customer":"alice","orders":[{"orderId":101,"restaurant":"Pizza Palace","total":18.5,"status":"DELIVERED"},{"orderId":102,"restaurant":"Curry House","total":12.0,"status":"ON_THE_WAY"}]}
+
+PS&gt; curl.exe -i http://localhost:8080/api/hello
+HTTP/1.1 401
+WWW-Authenticate: Bearer
+{"status":401,"error":"Unauthorized","message":"Missing, invalid or expired token"}
+
+PS&gt; curl.exe http://localhost:8080/api/admin/dashboard -H "Authorization: Bearer $token"
+{"timestamp":"...","status":403,"error":"Forbidden","path":"/api/admin/dashboard"}</code></pre>
+  <h3>5.4 Git Bash / Linux / macOS</h3>
+  <pre class="terminal"><code>TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123"}' | sed -E 's/.*"accessToken":"([^"]+)".*/\1/')
+
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/admin/dashboard
+{"activeRiders":57,"ordersToday":342,"revenueToday":8123.75}
+
+curl -X POST http://localhost:8080/api/auth/login -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"nope"}'
+{"type":"about:blank","title":"Unauthorized","status":401,"detail":"Invalid username or password","instance":"/api/auth/login"}</code></pre>
+  <h3>5.5 Decode your token</h3>
+  <pre class="terminal"><code>$ echo "eyJzdWIiOiJhbGljZSIsInJvbGVzIjpbIlJPTEVfVVNFUiJdLCJpc3MiOiJmb29kLWRlbGl2ZXJ5LWFwaSIsImlhdCI6MTc5MTUyMDkxMCwiZXhwIjoxNzkxNTIxODEwfQ==" | base64 -d
+{"sub":"alice","roles":["ROLE_USER"],"iss":"food-delivery-api","iat":1791520910,"exp":1791521810}</code></pre>
+  <p>(We added <code>==</code> padding because Base64URL drops it.) Notice: no session cookie is ever set – check with <code>curl -i</code>, there is no <code>Set-Cookie</code> header.</p>
+  <h3>5.6 Tests</h3>
+  <pre class="terminal"><code>mvn test
+[INFO] Tests run: 13, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS</code></pre>
+
+  <!-- ============================================================ -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: header without <code>Bearer </code> (or without the space)</strong>
+    <code>Authorization: eyJ...</code> or <code>Authorization: Bearer:eyJ...</code> → the filter ignores it → 401.<br>
+    <strong>Fix:</strong> exactly <code>Authorization: Bearer &lt;token&gt;</code> – the word Bearer, one space, the token.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: anonymous users get 403 instead of 401</strong>
+    With Basic and form login disabled, Spring uses <code>Http403ForbiddenEntryPoint</code>.<br>
+    <strong>Fix:</strong> configure an <code>authenticationEntryPoint</code> that returns 401 (as in our <code>SecurityConfig</code>), or use <code>new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>WeakKeyException: ... is not secure enough for any JWT HMAC-SHA algorithm</code></strong>
+    Your secret is shorter than 256 bits, or you passed a plain string like <code>"mysecret"</code>.<br>
+    <strong>Fix:</strong> 32+ random bytes, Base64-encoded, decoded with <code>Decoders.BASE64</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>Unable to find an implementation for interface io.jsonwebtoken...</code></strong>
+    Only <code>jjwt-api</code> was added.<br>
+    <strong>Fix:</strong> also add <code>jjwt-impl</code> and <code>jjwt-jackson</code> (runtime scope), same version.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: the JWT filter as <code>@Component</code></strong>
+    It is auto-registered for every URL as well, runs outside the security chain, and you get confusing double processing.<br>
+    <strong>Fix:</strong> create it with <code>new</code> in the config, or disable the auto-registration with a <code>FilterRegistrationBean</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: expecting "logout" to kill the token</strong>
+    The server stores nothing, so a JWT stays valid until <code>exp</code>, even after the user "logged out".<br>
+    <strong>Fix:</strong> short-lived access tokens + server-side refresh tokens (or a blacklist) – section 3.12.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: tutorials with <code>setSubject</code>, <code>parserBuilder</code>, <code>parseClaimsJws</code></strong>
+    That is the JJWT 0.11 API.<br>
+    <strong>Fix:</strong> use the 0.12 names (table in 3.5).</div>
+  <div class="callout danger"><strong>🔥 Mistake: secrets in the token or in Git</strong>
+    Passwords/personal data in claims are readable by anyone; a committed signing key lets anyone forge admin tokens.<br>
+    <strong>Fix:</strong> minimal claims; secret via <code>JWT_SECRET</code> environment variable or a secret manager.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: browser app gets CORS errors</strong>
+    A React app on another port sends a preflight <code>OPTIONS</code> without a token.<br>
+    <strong>Fix:</strong> add <code>.cors(Customizer.withDefaults())</code> and a <code>CorsConfigurationSource</code> bean allowing the <code>Authorization</code> header (topic 47, 3.10).</div>
+
+  <!-- ============================================================ -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li>Prefer a <b>proven authorization server</b> (Keycloak, Auth0, Okta, Spring Authorization Server) for big systems – topic 50. Self-made JWT, like here, is fine for one app, and great for understanding.</li>
+    <li>Access tokens: <b>5–15 minutes</b>. Refresh tokens: stored server-side, rotated on each use, revocable.</li>
+    <li>Keep claims <b>small</b>: id/username, roles, issuer, expiry. Load the rest from the database when needed.</li>
+    <li>Validate <b>signature, expiry, issuer, audience</b>. Allow a small clock skew (<code>Jwts.parser().clockSkewSeconds(30)</code>) between servers.</li>
+    <li>Return the <b>same 401 message</b> for wrong username and wrong password.</li>
+    <li>Use <b>HTTPS</b>, strict <b>CORS</b>, and protect browser apps against XSS if tokens live in JavaScript.</li>
+    <li>Rate-limit <code>/api/auth/login</code> to slow down password guessing.</li>
+    <li>Write tests for: valid token, missing token, tampered token, expired token, wrong role.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Token auth is <b>stateless</b>: the server keeps no session; the client sends <code>Authorization: Bearer &lt;jwt&gt;</code> on every request.</li>
+    <li>A JWT = <code>header.payload.signature</code>, Base64URL-encoded. Signed, <b>not encrypted</b> – anyone can read the payload.</li>
+    <li>The signature (HS256 + secret key) makes any change detectable; only the key holder can create valid tokens.</li>
+    <li>JJWT 0.12.6: <code>Jwts.builder()...signWith(key).compact()</code> to create; <code>Jwts.parser().verifyWith(key).build().parseSignedClaims(t)</code> to verify (incl. expiry).</li>
+    <li>A <code>OncePerRequestFilter</code> reads the header, validates the token and fills the <code>SecurityContext</code>; it is added with <code>addFilterBefore</code>.</li>
+    <li>Stateless chain: CSRF off, no session, no Basic/form, custom 401 entry point, <code>/api/auth/**</code> public.</li>
+    <li>Login uses the <code>AuthenticationManager</code> (UserDetailsService + BCrypt), then returns a token.</li>
+    <li>Short expiry + refresh tokens solve the "cannot revoke" problem; HTTPS and a strong, secret key are mandatory.</li>
+  </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Watch a token expire.</b> Start the app with <code>mvn spring-boot:run "-Dspring-boot.run.arguments=--app.jwt.expiration=30s"</code>, log in, call <code>/api/hello</code>
+       immediately and again after 40 seconds. What do you see in the console?</p>
+    <details><summary>Hint / solution</summary><p>First call: 200. After 40 s: 401 with our JSON body. The DEBUG log of <code>JwtAuthenticationFilter</code> prints
+       <code>Rejected JWT: JWT expired ... milliseconds ago at ...</code>. The expiry check is done by JJWT inside <code>parseSignedClaims</code>.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Add a claim.</b> Put the user's database id into the token as a claim <code>uid</code>, and return it from <code>/api/hello</code> by reading it from the token.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// JwtService - overload with extra claims
+public String generateToken(UserDetails user, Map&lt;String, Object&gt; extraClaims) {
+    ...
+    return Jwts.builder()
+            .claims(extraClaims)               // e.g. Map.of("uid", 2L)
+            .subject(user.getUsername())
+            ...
+            .compact();
+}
+public Long extractUserId(String token) {
+    return parseClaims(token).get("uid", Long.class);
+}
+// AuthService: look up AppUser to get the id, then
+// jwtService.generateToken(user, Map.of("uid", appUser.getId()));
+// OrderController.hello: take the header with @RequestHeader("Authorization") and call extractUserId(..)</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>"Who am I" from the token.</b> Add <code>GET /api/auth/me</code> (authenticated) that returns all claims of the caller's token: <code>sub</code>, <code>roles</code>,
+       <code>iat</code>, <code>exp</code> and the seconds left until expiry.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// JwtService
+public Claims claims(String token) { return parseClaims(token); }
+
+// AuthController - note: /api/auth/** is permitAll, so check the user yourself,
+// or better: move this endpoint to /api/me/token so the URL rule protects it.
+@GetMapping("/api/me/token")
+public Map&lt;String, Object&gt; tokenInfo(@RequestHeader(HttpHeaders.AUTHORIZATION) String header) {
+    Claims c = jwtService.claims(header.substring(7));
+    long secondsLeft = Duration.between(Instant.now(), c.getExpiration().toInstant()).toSeconds();
+    return Map.of("sub", c.getSubject(), "roles", c.get("roles"),
+                  "iat", c.getIssuedAt(), "exp", c.getExpiration(), "secondsLeft", secondsLeft);
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Fully stateless filter.</b> Change <code>JwtAuthenticationFilter</code> so it does <b>not</b> hit the database: build the authorities from the <code>roles</code> claim.
+       What do you gain, and what do you lose?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// JwtService
+public List&lt;String&gt; extractRoles(String token) {
+    List&lt;?&gt; raw = parseClaims(token).get("roles", List.class);
+    return raw.stream().map(Object::toString).toList();
+}
+
+// Filter (inside try)
+String username = jwtService.extractUsername(token);          // also validates
+List&lt;SimpleGrantedAuthority&gt; authorities = jwtService.extractRoles(token).stream()
+        .map(SimpleGrantedAuthority::new).toList();
+var authentication = new UsernamePasswordAuthenticationToken(username, null, authorities);
+// principal is now a String, so @AuthenticationPrincipal UserDetails no longer works -
+// use Authentication.getName() in controllers instead.
+
+// Gain: no DB query per request, works across microservices.
+// Lose: role changes / deleted users only take effect when the token expires.</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>Refresh tokens.</b> Implement <code>POST /api/auth/refresh</code>. On login also return a random <code>refreshToken</code> (UUID) stored in a <code>RefreshToken</code> entity
+       (token, username, expiresAt = now + 7 days). <code>/refresh</code> checks it, deletes it (rotation), and returns a new access + refresh token.
+       Add <code>POST /api/auth/logout</code> that deletes the user's refresh tokens.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Entity
+public class RefreshToken {
+    @Id private String token;                // UUID.randomUUID().toString()
+    private String username;
+    private Instant expiresAt;
+    ...
+}
+public interface RefreshTokenRepository extends JpaRepository&lt;RefreshToken, String&gt; {
+    void deleteByUsername(String username);
+}
+
+// AuthService
+@Transactional
+public AuthResponse refresh(String refreshToken) {
+    RefreshToken stored = refreshRepo.findById(refreshToken)
+            .orElseThrow(() -&gt; new BadCredentialsException("Invalid refresh token"));
+    refreshRepo.delete(stored);                                  // rotation: one-time use
+    if (stored.getExpiresAt().isBefore(Instant.now())) {
+        throw new BadCredentialsException("Refresh token expired");
+    }
+    UserDetails user = userDetailsService.loadUserByUsername(stored.getUsername());
+    return toResponseWithNewRefreshToken(user);                  // new access + new refresh
+}
+// Add refreshToken to AuthResponse; keep /api/auth/** permitAll.
+// Logout: refreshRepo.deleteByUsername(authentication.getName()) - must be an authenticated URL.</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>Revoke all tokens of a user.</b> Add an <code>int tokenVersion</code> column to <code>AppUser</code>, put it into the token as claim <code>ver</code>, and reject tokens whose
+       <code>ver</code> differs from the database. An admin endpoint increases the version → all existing tokens of that user die immediately.</p>
+    <details><summary>Hint / solution</summary><p>In <code>generateToken</code> add <code>.claim("ver", appUser.getTokenVersion())</code>. In the filter, after loading the user, compare
+       <code>claims.get("ver", Integer.class)</code> with the database value; if different, do not authenticate. The admin endpoint does
+       <code>user.setTokenVersion(user.getTokenVersion() + 1)</code>. This trades a little statelessness for real revocation.</p></details>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is a JWT and what are its parts?</summary>
+    <p>A compact, URL-safe token format (RFC 7519): <code>header.payload.signature</code>. The header names the algorithm, the payload holds claims (sub, exp, iss, custom ones),
+       and the signature is computed over header + payload with a key. Parts are Base64URL-encoded.</p></details>
+  <details><summary>Q2. Is a JWT encrypted? Can the client change it?</summary>
+    <p>A normal (JWS) token is only signed, so anyone can read it – never put secrets in it. The client cannot change it without invalidating the signature, because it does not know the signing key.</p></details>
+  <details><summary>Q3. Sessions vs JWT – advantages and disadvantages?</summary>
+    <p>JWT: stateless, scales horizontally, works for non-browser clients, no CSRF when sent in a header. Downsides: hard to revoke, larger requests, payload readable, key management.
+       Sessions: easy revocation and small cookies, but server state and CSRF protection are needed.</p></details>
+  <details><summary>Q4. How do you implement JWT authentication in Spring Security?</summary>
+    <p>Public login endpoint that authenticates via <code>AuthenticationManager</code> and returns a signed token; a <code>OncePerRequestFilter</code> that extracts the Bearer token, validates it and sets an
+       <code>Authentication</code> in the <code>SecurityContextHolder</code>; a stateless <code>SecurityFilterChain</code> (CSRF off, STATELESS sessions, custom 401 entry point) with
+       <code>addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)</code>.</p></details>
+  <details><summary>Q5. How do you log out / revoke a JWT?</summary>
+    <p>You cannot change a token already issued. Options: short-lived access tokens + server-stored refresh tokens that you delete; a denylist of <code>jti</code> values until expiry;
+       a per-user token version checked on each request; or rotating the signing key (revokes everyone).</p></details>
+  <details><summary>Q6. What is a refresh token?</summary>
+    <p>A long-lived credential used only at a token endpoint to obtain new short-lived access tokens without re-entering the password. It is stored server-side so it can be revoked,
+       and is usually rotated (single use).</p></details>
+  <details><summary>Q7. HS256 vs RS256?</summary>
+    <p>HS256 uses one shared secret for signing and verifying (symmetric) – fine when one application does both. RS256 uses a private key to sign and a public key to verify (asymmetric) –
+       needed when many services verify tokens issued by a central authorization server, which publishes its public keys via JWKS.</p></details>
+  <details><summary>Q8. Why can CSRF be disabled for a JWT API?</summary>
+    <p>CSRF exploits credentials that the browser sends automatically (cookies). A token in the <code>Authorization</code> header is added by application code; a malicious site cannot make the browser add it.
+       If you put the JWT in a cookie, CSRF protection is needed again.</p></details>
+  <details><summary>Q9. Where should a SPA store the JWT?</summary>
+    <p>Trade-offs: memory (safe from XSS persistence, lost on reload), localStorage (XSS can steal it), HttpOnly Secure SameSite cookie (not readable by JS, but needs CSRF consideration).
+       A common robust setup: short access token in memory + refresh token in an HttpOnly cookie, or a Backend-for-Frontend.</p></details>
+  <details><summary>Q10. What does <code>OncePerRequestFilter</code> guarantee and why use it?</summary>
+    <p>That <code>doFilterInternal</code> runs only once per request, even when the request is forwarded/dispatched internally (e.g. to <code>/error</code>). That avoids validating the token twice or overwriting the context.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../48-Spring-Security-With-Database-Users-And-Roles/lesson.html"><small>← Previous</small>48. Security with Database Users &amp; Roles</a>
+    <a class="next" href="../50-OAuth2-And-OpenID-Connect/lesson.html"><small>Next →</small>50. OAuth2 &amp; OpenID Connect</a>
+  </nav>
+</main>
+</body>
+</html>

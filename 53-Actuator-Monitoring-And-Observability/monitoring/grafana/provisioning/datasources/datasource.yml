@@ -1,0 +1,11 @@
+# Grafana "provisioning": creates the Prometheus data source automatically at startup,
+# so you do not have to click through the UI. Inside the Docker network the
+# Prometheus container is reachable by its service name "prometheus".
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true

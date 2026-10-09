@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>9 · Packages, Access Modifiers, static &amp; final</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 9</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>9. Packages, Access Modifiers, static &amp; final</h1>
+  <p class="subtitle">Organise your code into folders (packages), decide who is allowed to see what, share data with <code>static</code>, lock things with <code>final</code>, and write your first design pattern: the Singleton.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="9-Packages-Access-Modifiers-Static-Final"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What a <strong>package</strong> is, how it maps to folders, and how to use <code>import</code> and <code>import static</code>.</li>
+      <li>How to compile a multi-folder project with <code>javac -d out</code> and run it with <code>java -cp out</code>.</li>
+      <li>The 4 <strong>access modifiers</strong>: <code>public</code>, <code>protected</code>, default (package-private), <code>private</code>.</li>
+      <li><code>static</code> fields, methods, blocks and nested classes — and when to use them.</li>
+      <li><code>final</code> variables, methods and classes (and the "final reference" trap).</li>
+      <li>Inner classes, static nested classes, local classes and anonymous classes.</li>
+      <li>The <strong>Singleton</strong> pattern — and how Spring uses the same idea.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../8-OOP-Polymorphism-Abstraction-Interfaces/lesson.html">Topic 8 · Polymorphism, Abstraction &amp; Interfaces</a> (classes, inheritance, interfaces).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Until now, every program you wrote lived in <strong>one file</strong>. Real software is different. A normal company project
+    has <strong>hundreds or thousands</strong> of classes written by many people. Without rules, it becomes a mess:</p>
+  <ul>
+    <li>Two people create a class called <code>Product</code> — which one is which?</li>
+    <li>Someone sets <code>account.balance = -50000</code> directly, skipping all checks.</li>
+    <li>Every object keeps its own copy of a value that should be shared (like a tax rate).</li>
+    <li>Someone overrides an important method in a child class and breaks the security rule inside it.</li>
+  </ul>
+  <p>This topic gives you the tools to prevent all of that:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Tool</th><th>Problem it solves</th><th>Where you'll see it at work</th></tr>
+    <tr><td><strong>Packages</strong></td><td>Organise classes, avoid name clashes</td><td>Every Spring Boot project: <code>com.company.shop.controller</code>, <code>...service</code>, <code>...repository</code></td></tr>
+    <tr><td><strong>Access modifiers</strong></td><td>Hide internal details, protect data</td><td>Private fields in every entity/DTO, public service methods</td></tr>
+    <tr><td><strong><code>static</code></strong></td><td>Share one value/method across the whole program</td><td>Constants, utility classes, loggers (<code>private static final Logger log</code>)</td></tr>
+    <tr><td><strong><code>final</code></strong></td><td>Stop accidental changes</td><td>Constructor injection in Spring: <code>private final OrderService orderService;</code></td></tr>
+    <tr><td><strong>Nested classes</strong></td><td>Keep a helper class close to the class that uses it</td><td>Builders, <code>Map.Entry</code>, test classes</td></tr>
+    <tr><td><strong>Singleton</strong></td><td>Exactly one shared object</td><td>Spring beans are singletons by default!</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Spring connection</strong>When you reach Spring Boot, you will write code like
+    <code>@SpringBootApplication</code> in package <code>com.course.shop</code>. Spring <strong>only scans packages under that one</strong>.
+    Put a class in the wrong package and Spring simply won't find it. So packages are not "just folders" — they really matter.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏢 Think of a big office building</strong>
+    <ul>
+      <li><strong>Packages</strong> are the <strong>departments / floors</strong>: Accounts on floor 1, HR on floor 2, IT on floor 3.
+        Two people can both be called "Priya" — "Priya from Accounts" and "Priya from IT" are different people.
+        That's <code>com.shop.model.Product</code> vs <code>com.warehouse.Product</code>.</li>
+      <li><strong>Access modifiers</strong> are the <strong>door badges</strong>:
+        <ul>
+          <li><code>public</code> = the reception lobby — anyone can walk in.</li>
+          <li><code>protected</code> = family room — your department, plus your children who work in other departments.</li>
+          <li>default (no word) = department-only room — only people from the same floor.</li>
+          <li><code>private</code> = your personal locker — only you.</li>
+        </ul></li>
+      <li><strong><code>static</code></strong> is the <strong>notice board in the corridor</strong>: there is ONE board, everybody reads the same board.
+        Each employee's <strong>desk</strong> (instance field) is their own.</li>
+      <li><strong><code>final</code></strong> is a <strong>sign written in permanent marker</strong> — once written, it cannot be changed.</li>
+      <li><strong>Singleton</strong> is the <strong>CEO</strong>: the company has exactly one, and everyone goes to the same person.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 What is a package?</h3>
+  <p>A <strong>package</strong> is a named group of related classes. On disk, a package is simply a <strong>folder</strong>.
+    The name uses dots, and each dot means "go into a sub-folder":</p>
+  <div class="table-wrap"><table>
+    <tr><th>Package name</th><th>Folder on disk (under <code>src</code>)</th></tr>
+    <tr><td><code>com.shop</code></td><td><code>src\com\shop\</code></td></tr>
+    <tr><td><code>com.shop.model</code></td><td><code>src\com\shop\model\</code></td></tr>
+    <tr><td><code>com.shop.util</code></td><td><code>src\com\shop\util\</code></td></tr>
+  </table></div>
+  <p>You put a class in a package with a <code>package</code> line. It must be the <strong>very first statement</strong> of the file
+    (only comments may come before it):</p>
+  <pre><span class="file">src/com/shop/util/PriceUtils.java</span><code class="lang-java">package com.shop.util;      // 1st statement: "this class lives in com.shop.util"
+
+public final class PriceUtils {
+    ...
+}</code></pre>
+  <p>The class's <strong>full name</strong> (its "fully qualified name") is now <code>com.shop.util.PriceUtils</code>.
+    The short name <code>PriceUtils</code> is just a nickname.</p>
+
+  <h4>Why packages?</h4>
+  <ol>
+    <li><strong>Organisation</strong> — like folders for your photos: "Holidays", "Family", "Work".</li>
+    <li><strong>No name clashes</strong> — <code>java.util.Date</code> and <code>java.sql.Date</code> both exist happily.</li>
+    <li><strong>Access control</strong> — "package-private" things are visible only inside the same package (see 3.4).</li>
+  </ol>
+
+  <h4>Naming rules (convention)</h4>
+  <ul>
+    <li>All <strong>lowercase</strong>: <code>com.shop.model</code>, not <code>com.Shop.Model</code>.</li>
+    <li>Start with your company's domain <strong>reversed</strong>: the company owns <code>course.com</code> → packages start with <code>com.course</code>.
+      This makes names unique worldwide. In this course every Spring project uses <code>com.course.&lt;shortname&gt;</code>.</li>
+    <li>Then the project and the area: <code>com.course.shop.order</code>, <code>com.course.shop.payment</code>.</li>
+  </ul>
+
+  <h4>The packages you already used</h4>
+  <p>The JDK itself is organised into packages: <code>java.lang</code> (String, Math, System), <code>java.util</code> (Scanner, Arrays),
+    <code>java.time</code> (LocalDate), <code>java.io</code> (files). The package <code>java.lang</code> is <strong>imported automatically</strong>
+    — that's why you never wrote <code>import java.lang.String;</code>.</p>
+
+  <h3>3.2 <code>import</code> — using classes from other packages</h3>
+  <p>A class in package <code>com.shop</code> wants to use <code>Product</code> from <code>com.shop.model</code>. You have two choices:</p>
+  <pre><code class="lang-java">// Choice 1: write the full name every time (works, but long)
+com.shop.model.Product pen = new com.shop.model.Product("Pen", 20.0, "Stationery");
+
+// Choice 2: import once at the top, then use the short name
+import com.shop.model.Product;
+...
+Product pen = new Product("Pen", 20.0, "Stationery");</code></pre>
+  <p>The different kinds of import:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Form</th><th>Example</th><th>Meaning</th></tr>
+    <tr><td>Single-type import</td><td><code>import java.util.Scanner;</code></td><td>Import one class. <strong>Recommended</strong> — you can see exactly what is used.</td></tr>
+    <tr><td>Wildcard (on-demand) import</td><td><code>import java.util.*;</code></td><td>Import all classes of that package (not sub-packages!). Fine for quick tests.</td></tr>
+    <tr><td>Static import</td><td><code>import static java.lang.Math.PI;</code></td><td>Use a <strong>static</strong> member without the class name: <code>PI</code> instead of <code>Math.PI</code>.</td></tr>
+    <tr><td>Static wildcard</td><td><code>import static java.lang.Math.*;</code></td><td>All static members of Math: <code>sqrt(16)</code>, <code>max(a, b)</code>.</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Imports are just shortcuts</strong>An import does <strong>not</strong> copy code and does not make your program bigger or slower.
+    It only tells the compiler: "when I write <code>Product</code>, I mean <code>com.shop.model.Product</code>".</div>
+  <div class="callout tip"><strong>💡 Wildcards do not include sub-packages</strong><code>import com.shop.*;</code> does NOT import
+    <code>com.shop.model.Product</code>. Sub-packages are completely separate packages; the dots only look like a family tree.</div>
+  <p>Order of lines in a Java file is always: <strong>package</strong> → <strong>imports</strong> → <strong>class</strong>.</p>
+
+  <h3>3.3 Compiling and running code that lives in packages</h3>
+  <p>So far you ran single files with <code>java Example01.java</code>. That shortcut only works for <strong>one file</strong>.
+    Our shop project has 5 files in 4 folders, so we use the real two-step process.</p>
+  <p>The folder tree of this topic:</p>
+  <pre class="terminal"><code>9-Packages-Access-Modifiers-Static-Final
+├── src
+│   └── com
+│       └── shop
+│           ├── App.java                    (package com.shop)
+│           ├── model
+│           │   ├── Product.java            (package com.shop.model)
+│           │   └── StockChecker.java       (package com.shop.model)
+│           ├── sale
+│           │   └── FlashSaleProduct.java   (package com.shop.sale)
+│           └── util
+│               └── PriceUtils.java         (package com.shop.util)
+└── out                                    (created by javac -d out)</code></pre>
+  <p><strong>Step 1 — compile:</strong></p>
+  <pre class="terminal"><code>javac -d out -sourcepath src src/com/shop/App.java</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Part</th><th>Meaning</th></tr>
+    <tr><td><code>javac</code></td><td>The Java compiler (turns <code>.java</code> into <code>.class</code> bytecode).</td></tr>
+    <tr><td><code>-d out</code></td><td>"<strong>d</strong>estination": put <code>.class</code> files in folder <code>out</code>. javac automatically creates sub-folders <code>out\com\shop\model\...</code> matching the packages.</td></tr>
+    <tr><td><code>-sourcepath src</code></td><td>"My source code lives under <code>src</code>". When App uses <code>Product</code>, javac finds <code>src/com/shop/model/Product.java</code> and compiles it too.</td></tr>
+    <tr><td><code>src/com/shop/App.java</code></td><td>The file to start from (a <strong>file path</strong>, with slashes).</td></tr>
+  </table></div>
+  <p><strong>Step 2 — run:</strong></p>
+  <pre class="terminal"><code>java -cp out com.shop.App</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Part</th><th>Meaning</th></tr>
+    <tr><td><code>-cp out</code></td><td>"<strong>c</strong>lass<strong>p</strong>ath": the list of places where the JVM searches for <code>.class</code> files.</td></tr>
+    <tr><td><code>com.shop.App</code></td><td>The <strong>fully qualified class name</strong> (with dots, no <code>.java</code>, no <code>.class</code>). The JVM turns it into <code>out\com\shop\App.class</code>.</td></tr>
+  </table></div>
+  <div class="flow">
+    <span class="box alt">src/com/shop/*.java</span><span class="arrow">→ javac -d out →</span>
+    <span class="box info">out/com/shop/*.class</span><span class="arrow">→ java -cp out com.shop.App →</span>
+    <span class="box">Program runs</span>
+  </div>
+  <div class="callout tip"><strong>💡 What is the "classpath"?</strong>Think of it as the JVM's <strong>shopping list of folders (and jar files)</strong> to search.
+    Later, Maven builds the classpath for you automatically, including all the libraries (Spring, Jackson...). That's one big reason we use Maven (Topic 20).</div>
+  <div class="callout info"><strong>ℹ️ Alternative: list every file</strong>Instead of <code>-sourcepath</code> you may list files yourself:
+    <code>javac -d out src/com/shop/App.java src/com/shop/model/*.java src/com/shop/sale/*.java src/com/shop/util/*.java</code>. Same result, more typing.</div>
+
+  <h3>3.4 The 4 access modifiers</h3>
+  <p>An <strong>access modifier</strong> is a word placed before a class, field, method or constructor that says <strong>who can use it</strong>.
+    There are 4 levels, from most open to most closed:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Modifier</th><th>Same class</th><th>Same package</th><th>Child class in another package</th><th>Everyone else</th></tr>
+    <tr><td><code>public</code></td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+    <tr><td><code>protected</code></td><td>✅</td><td>✅</td><td>✅ (through inheritance)</td><td>❌</td></tr>
+    <tr><td><em>default</em> (no keyword) — "package-private"</td><td>✅</td><td>✅</td><td>❌</td><td>❌</td></tr>
+    <tr><td><code>private</code></td><td>✅</td><td>❌</td><td>❌</td><td>❌</td></tr>
+  </table></div>
+  <p>Memory trick: <strong>public &gt; protected &gt; default &gt; private</strong> — each one is "the one above minus something".</p>
+  <p>See all four in our <code>Product</code> class:</p>
+  <pre><span class="file">src/com/shop/model/Product.java (key parts)</span><code class="lang-java">package com.shop.model;
+
+public class Product {                 // public class: usable from any package
+    private double price;              // private: ONLY Product itself
+    protected String category;         // protected: com.shop.model + child classes anywhere
+    String internalCode;               // default: ONLY classes in com.shop.model
+
+    public double getPrice() { return price; }   // public: everyone
+}</code></pre>
+  <p>And this is what the compiler says when <code>App</code> (package <code>com.shop</code>) breaks the rules — these are the <strong>real</strong> messages:</p>
+  <pre class="terminal"><code>error: price has private access in Product
+error: internalCode is not public in Product; cannot be accessed from outside package
+error: category has protected access in Product
+error: PriceUtils() has private access in PriceUtils
+error: StockChecker is not public in com.shop.model; cannot be accessed from outside package</code></pre>
+
+  <h4>Access modifiers on classes</h4>
+  <ul>
+    <li>A <strong>top-level</strong> class (one not inside another class) can only be <code>public</code> or default.</li>
+    <li>A file can contain only <strong>one public top-level class</strong>, and the file <strong>must be named after it</strong>: <code>public class Product</code> → <code>Product.java</code>.</li>
+    <li>A class without <code>public</code> (like <code>class StockChecker</code>) is visible only in its own package. Great for hidden helpers.</li>
+    <li>Nested classes (3.8) may use all four modifiers.</li>
+  </ul>
+
+  <h4>"protected" — the tricky one</h4>
+  <p><code>FlashSaleProduct</code> lives in <code>com.shop.sale</code> but <code>extends Product</code>. It may use <code>category</code> because it
+    <strong>inherited</strong> it:</p>
+  <pre><span class="file">src/com/shop/sale/FlashSaleProduct.java</span><code class="lang-java">public String getBanner() {
+    return "FLASH SALE on " + category + ": " + discountPercent + "% off!";   // OK: protected + child class
+}</code></pre>
+  <p>But <code>App</code> is not a child of <code>Product</code> and not in <code>com.shop.model</code>, so <code>pen.category</code> fails.</p>
+
+  <h4>Which one should I use? (simple rules)</h4>
+  <ol>
+    <li><strong>Fields:</strong> almost always <code>private</code> (encapsulation from Topic 7). Give access through methods.</li>
+    <li><strong>Methods other classes need:</strong> <code>public</code>.</li>
+    <li><strong>Helper methods used only inside the class:</strong> <code>private</code>.</li>
+    <li><strong>protected:</strong> only when you design a class to be extended and a child really needs it.</li>
+    <li><strong>default:</strong> for "internal" classes of a package (also used a lot in tests and in Spring for <code>@Bean</code> methods).</li>
+  </ol>
+  <div class="callout tip"><strong>💡 Golden rule</strong>Start with the <strong>most private</strong> option. Open it up only when needed. It is easy to
+    make something more public later, but very hard to make it private again once other code depends on it.</div>
+
+  <h3>3.5 <code>static</code> — belongs to the class, not to an object</h3>
+  <p>Normally each object has its <strong>own copy</strong> of each field. Two students, two names. That's an <strong>instance field</strong>.
+    A <code>static</code> field is different: there is <strong>only one copy</strong>, stored with the class, shared by all objects.</p>
+  <pre><code class="lang-java">class Student {
+    static String collegeName;          // ONE copy for all students
+    private static int totalStudents;   // ONE shared counter
+
+    private final String name;          // each student has their own
+    private final int rollNumber;
+
+    Student(String name) {
+        this.name = name;
+        totalStudents++;                  // update the shared counter
+        this.rollNumber = totalStudents;
+    }
+
+    static int getTotalStudents() { return totalStudents; }
+}</code></pre>
+  <figure class="diagram">
+    <svg viewBox="0 0 620 230" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="static field shared by objects">
+      <g font-family="Segoe UI, sans-serif" font-size="14" fill="currentColor">
+        <rect x="200" y="10" width="220" height="70" rx="8" fill="none" stroke="var(--java)" stroke-width="2"/>
+        <text x="310" y="32" text-anchor="middle" font-weight="bold">Student class (one)</text>
+        <text x="310" y="52" text-anchor="middle">collegeName = "City College"</text>
+        <text x="310" y="70" text-anchor="middle">totalStudents = 3</text>
+        <rect x="20" y="150" width="160" height="60" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="100" y="175" text-anchor="middle">name = "Asha"</text>
+        <text x="100" y="195" text-anchor="middle">rollNumber = 1</text>
+        <rect x="230" y="150" width="160" height="60" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="310" y="175" text-anchor="middle">name = "Ravi"</text>
+        <text x="310" y="195" text-anchor="middle">rollNumber = 2</text>
+        <rect x="440" y="150" width="160" height="60" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="520" y="175" text-anchor="middle">name = "Meena"</text>
+        <text x="520" y="195" text-anchor="middle">rollNumber = 3</text>
+        <line x1="100" y1="150" x2="260" y2="82" stroke="currentColor" stroke-dasharray="4 3"/>
+        <line x1="310" y1="150" x2="310" y2="82" stroke="currentColor" stroke-dasharray="4 3"/>
+        <line x1="520" y1="150" x2="360" y2="82" stroke="currentColor" stroke-dasharray="4 3"/>
+        <text x="310" y="120" text-anchor="middle" font-size="12" fill="var(--muted)">all 3 objects share the SAME static fields</text>
+      </g>
+    </svg>
+    <figcaption>Static fields live once in the class. Instance fields live in every object.</figcaption>
+  </figure>
+
+  <h4>Static methods</h4>
+  <p>A <strong>static method</strong> is called on the class: <code>Student.getTotalStudents()</code>, <code>Math.max(7, 12)</code>,
+    <code>Integer.parseInt("42")</code>. You don't need an object. And <code>main</code> itself is static — the JVM calls it before any object exists!</p>
+  <div class="callout warn"><strong>⚠️ A static method has no <code>this</code></strong>Inside a static method you <strong>cannot</strong> use instance fields or instance methods directly.
+    Why? A static method belongs to the class, not to a particular student — so "<code>name</code>" would be meaningless (whose name?).
+    The compiler says: <code>non-static variable name cannot be referenced from a static context</code>.
+    <br>The reverse is fine: an <strong>instance</strong> method can use static fields.</div>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Instance (non-static)</th><th>static</th></tr>
+    <tr><td>Belongs to</td><td>Each object</td><td>The class</td></tr>
+    <tr><td>Copies</td><td>One per object</td><td>Exactly one</td></tr>
+    <tr><td>Called like</td><td><code>asha.printInfo()</code></td><td><code>Student.getTotalStudents()</code></td></tr>
+    <tr><td>Can use <code>this</code>?</td><td>Yes</td><td>No</td></tr>
+    <tr><td>Can use instance fields?</td><td>Yes</td><td>No (only through an object reference)</td></tr>
+    <tr><td>Typical use</td><td>Data &amp; behaviour of one thing</td><td>Counters, constants, helper/utility methods, factory methods, <code>main</code></td></tr>
+  </table></div>
+
+  <h4>Static blocks</h4>
+  <p>A <strong>static block</strong> (<code>static { ... }</code>) runs <strong>once</strong>, when the JVM first loads the class.
+    Use it for one-time setup of static fields that needs more than one line.</p>
+  <pre><code class="lang-java">static {
+    collegeName = "City College";
+    System.out.println("[static block] Student class loaded.");
+}</code></pre>
+  <p>There is also an <em>instance initializer block</em> (just <code>{ ... }</code> without <code>static</code>) which runs before the constructor body for every new object.
+    You'll rarely need it — constructors are clearer.</p>
+
+  <h4>Utility classes — a very common static pattern</h4>
+  <pre><span class="file">src/com/shop/util/PriceUtils.java</span><code class="lang-java">public final class PriceUtils {
+    public static final double GST_RATE = 0.18;     // constant
+
+    private PriceUtils() { }                        // no objects allowed
+
+    public static double withGst(double amount) {
+        return amount + amount * GST_RATE;
+    }
+}</code></pre>
+  <p>The JDK has many: <code>Math</code>, <code>Arrays</code>, <code>Collections</code>, <code>Objects</code>. Usage: <code>PriceUtils.withGst(100)</code> → <code>118.0</code>.</p>
+  <div class="callout warn"><strong>⚠️ Don't overuse static</strong>Beginners often make everything static "because the error goes away". That turns your program
+    back into old-style procedural code: hard to test and hard to change. In Spring, almost all your classes will be normal (non-static) beans
+    that Spring creates and connects for you. Use static for constants and small pure helpers.</div>
+
+  <h3>3.6 <code>final</code> — "this cannot change"</h3>
+  <p><code>final</code> can be used in 3 places, with 3 meanings:</p>
+  <div class="table-wrap"><table>
+    <tr><th>On a...</th><th>Means</th><th>Example</th></tr>
+    <tr><td><strong>variable</strong> (local, parameter, field)</td><td>Can be assigned only <strong>once</strong></td><td><code>final double rate = 0.04;</code></td></tr>
+    <tr><td><strong>method</strong></td><td>Child classes cannot <strong>override</strong> it</td><td><code>final String withdrawalRule()</code></td></tr>
+    <tr><td><strong>class</strong></td><td>No class can <strong>extend</strong> it</td><td><code>final class Receipt</code>, <code>String</code></td></tr>
+  </table></div>
+
+  <h4>Final variables and constants</h4>
+  <pre><code class="lang-java">final double interestRate = 0.04;
+interestRate = 0.05;   // ❌ error: cannot assign a value to final variable interestRate
+
+static final String BANK_NAME = "Java Bank";   // a CONSTANT: static + final, UPPER_SNAKE_CASE</code></pre>
+
+  <h4>"Blank final" fields</h4>
+  <p>A final field doesn't need a value on the same line. It can be set <strong>once in the constructor</strong> — and the compiler forces every constructor to set it.
+    This is how you make fields that never change after the object is built:</p>
+  <pre><code class="lang-java">class BankAccount {
+    private final String accountNumber;     // blank final
+
+    BankAccount(String accountNumber) {
+        this.accountNumber = accountNumber; // set exactly once
+    }
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ You will write this a lot in Spring</strong>
+    <pre><code class="lang-java">@Service
+public class OrderService {
+    private final PaymentService paymentService;   // final + set in constructor
+
+    public OrderService(PaymentService paymentService) {
+        this.paymentService = paymentService;
+    }
+}</code></pre>
+    This is "constructor injection" (Topic 24). <code>final</code> guarantees the dependency is always set and never swapped by accident.</div>
+
+  <h4>The "final reference" trap</h4>
+  <p><code>final</code> on a variable that holds an object means the variable can't point to a <strong>different</strong> object.
+    It does <strong>not</strong> freeze the object itself:</p>
+  <pre><code class="lang-java">final StringBuilder notes = new StringBuilder("[Opened online]");
+notes.append(" [KYC done]");      // ✅ allowed: we change the OBJECT
+notes = new StringBuilder();      // ❌ error: we try to change the VARIABLE</code></pre>
+  <div class="callout analogy"><strong>🏠 Analogy</strong>A final reference is like a <strong>permanent address label</strong> on your house.
+    You can't move the label to another house, but you can still paint the walls and change the furniture inside.</div>
+
+  <h4>Final methods and classes</h4>
+  <pre><code class="lang-java">class BankAccount {
+    final String withdrawalRule() { ... }   // child classes can't change this rule
+}
+
+final class Receipt { ... }                // nobody can "extends Receipt"</code></pre>
+  <p>Why? <strong>Safety</strong>. <code>String</code> is final so nobody can create a "fake String" that behaves differently (for example, one that changes its text
+    after a password check). Use <code>final</code> classes for things that must be <strong>immutable</strong> (never change after creation).</p>
+  <div class="callout tip"><strong>💡 final vs finally vs finalize</strong>Three different things! <code>final</code> = keyword from this topic. <code>finally</code> = block
+    in exception handling (next topic). <code>finalize()</code> = an old, deprecated method — never use it. A classic interview question.</div>
+
+  <h3>3.7 static + final together = constants</h3>
+  <pre><code class="lang-java">public static final int MAX_CART_ITEMS = 20;
+public static final String SUPPORT_EMAIL = "help@shop.com";</code></pre>
+  <ul>
+    <li><code>static</code> → one copy (no need to store 20 in every object).</li>
+    <li><code>final</code> → it never changes.</li>
+    <li>Name in <code>UPPER_SNAKE_CASE</code> so readers immediately know it's a constant.</li>
+    <li>Replaces "magic numbers": <code>if (items &gt; MAX_CART_ITEMS)</code> is clearer than <code>if (items &gt; 20)</code>.</li>
+  </ul>
+
+  <h3>3.8 Classes inside classes: nested, inner, local, anonymous</h3>
+  <p>Java lets you declare a class <strong>inside</strong> another class (or even inside a method). Why? To keep a small helper class
+    right next to the only place that uses it. There are 4 kinds:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Kind</th><th>Declared</th><th>Needs an outer object?</th><th>Typical use</th></tr>
+    <tr><td><strong>Static nested class</strong></td><td>Inside a class, with <code>static</code></td><td>No</td><td>Helper types that belong together: <code>Map.Entry</code>, Builders, <code>Order.Address</code></td></tr>
+    <tr><td><strong>Inner class</strong> (non-static)</td><td>Inside a class, no <code>static</code></td><td>Yes — tied to one outer object</td><td>Parts that need the outer object's data: an order's items</td></tr>
+    <tr><td><strong>Local class</strong></td><td>Inside a method</td><td>—</td><td>Rare; a helper used by one method only</td></tr>
+    <tr><td><strong>Anonymous class</strong></td><td>Inline, in an expression, no name</td><td>—</td><td>One-off implementation of an interface (before lambdas)</td></tr>
+  </table></div>
+
+  <h4>Static nested class</h4>
+  <pre><code class="lang-java">class FoodOrder {
+    static class Address { ... }
+}
+
+FoodOrder.Address home = new FoodOrder.Address("12 MG Road", "Bengaluru", "560001");</code></pre>
+  <p>It's basically a normal class whose name is "grouped" under <code>FoodOrder</code>. No <code>FoodOrder</code> object is needed.</p>
+
+  <h4>Inner class</h4>
+  <pre><code class="lang-java">class FoodOrder {
+    private final int orderId;
+
+    class Item {
+        void print() {
+            System.out.println("Order #" + orderId + " ...");   // reads the OUTER object's field
+        }
+    }
+}</code></pre>
+  <p>Every <code>Item</code> object secretly holds a reference to the <code>FoodOrder</code> that created it, so it can read <code>orderId</code>.
+    From outside you'd create one with the unusual syntax <code>order.new Item(...)</code> — but usually the outer class creates them itself.</p>
+  <div class="callout tip"><strong>💡 Prefer static nested</strong>If the nested class does NOT need the outer object's fields, make it <code>static</code>.
+    It's simpler, uses less memory and avoids accidentally keeping the outer object alive.</div>
+
+  <h4>Anonymous class</h4>
+  <p>Sometimes you need an object of an interface just <strong>once</strong>. Writing a whole named class for it is overkill. An anonymous class
+    creates the class and the object in one go:</p>
+  <pre><code class="lang-java">interface Discount {
+    double apply(double amount);
+}
+
+Discount festivalOffer = new Discount() {     // "a new unnamed class that implements Discount"
+    @Override
+    public double apply(double amount) {
+        return amount - amount * 0.10;
+    }
+};                                            // ← note the semicolon: this whole thing is one statement
+
+festivalOffer.apply(220.0);   // 198.0</code></pre>
+  <div class="callout info"><strong>ℹ️ Coming soon: lambdas</strong>In <a href="../13-Lambdas-And-Functional-Interfaces/lesson.html">Topic 13</a> you'll learn that the same thing can be written as
+    <code>Discount festivalOffer = amount -&gt; amount - amount * 0.10;</code>. Lambdas replaced most anonymous classes — but you still need to recognise them in older code.</div>
+
+  <h3>3.9 The Singleton pattern</h3>
+  <p>A <strong>design pattern</strong> is a well-known, named solution to a common problem. <strong>Singleton</strong> answers:
+    "How do I make sure only <strong>one</strong> object of a class ever exists?" Examples: app configuration, an ID generator, a connection pool.</p>
+  <p>It combines everything from this topic:</p>
+  <pre><span class="file">Example04_Singleton.java (eager version)</span><code class="lang-java">final class AppConfig {
+    private static final AppConfig INSTANCE = new AppConfig();   // 2. the one object
+
+    private AppConfig() { }                                      // 1. nobody else can call new
+
+    public static AppConfig getInstance() {                      // 3. global access point
+        return INSTANCE;
+    }
+}</code></pre>
+  <div class="flow">
+    <span class="box alt">Class loads</span><span class="arrow">→</span>
+    <span class="box info">INSTANCE created once</span><span class="arrow">→</span>
+    <span class="box">getInstance() always returns it</span>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th>Style</th><th>When is the object created?</th><th>Thread-safe?</th><th>Notes</th></tr>
+    <tr><td>Eager</td><td>When the class loads</td><td>Yes (JVM guarantees it)</td><td>Simplest. Use this by default.</td></tr>
+    <tr><td>Lazy + <code>synchronized</code></td><td>On first <code>getInstance()</code></td><td>Yes</td><td>Useful if creation is expensive and may never be needed.</td></tr>
+    <tr><td>Lazy without synchronized</td><td>On first call</td><td>❌ No</td><td>Two threads might create two objects. Avoid.</td></tr>
+    <tr><td>Enum (<code>enum X { INSTANCE; }</code>)</td><td>When the enum loads</td><td>Yes</td><td>Shortest and safest; recommended by the book "Effective Java".</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Singleton in Spring</strong>Spring creates <strong>one object per bean by default</strong> ("singleton scope") and hands the same object to everyone who needs it.
+    The difference: Spring manages it, so your class stays a normal class (public constructor, no <code>getInstance()</code>), and it's easy to test.
+    That's why hand-written singletons are rare in Spring apps. More in <a href="../25-Bean-Scopes-And-Lifecycle/lesson.html">Topic 25</a>.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>src/com/shop/App.java</code></td><td>Entry point (<code>main</code>) in package <code>com.shop</code>. Imports, static import, fully qualified name, and commented-out illegal lines.</td></tr>
+    <tr><td><code>src/com/shop/model/Product.java</code></td><td>All 4 access levels on fields and methods; validation in a setter.</td></tr>
+    <tr><td><code>src/com/shop/model/StockChecker.java</code></td><td>A package-private class (no <code>public</code>) — an internal helper.</td></tr>
+    <tr><td><code>src/com/shop/sale/FlashSaleProduct.java</code></td><td>A child class in another package using a <code>protected</code> field.</td></tr>
+    <tr><td><code>src/com/shop/util/PriceUtils.java</code></td><td>Utility class: <code>final</code>, private constructor, <code>static final</code> constant, static methods.</td></tr>
+    <tr><td><code>Example01_StaticMembers.java</code></td><td>Static vs instance fields, static methods, static &amp; instance blocks.</td></tr>
+    <tr><td><code>Example02_FinalKeyword.java</code></td><td>Final variables, parameters, blank finals, final references, final methods &amp; classes.</td></tr>
+    <tr><td><code>Example03_NestedAndInnerClasses.java</code></td><td>Static nested, inner, local and anonymous classes (food delivery order).</td></tr>
+    <tr><td><code>Example04_Singleton.java</code></td><td>Eager, lazy (synchronized) and enum singletons.</td></tr>
+  </table></div>
+
+  <h3>4.1 The shop project (<code>src/</code>)</h3>
+  <p><strong>App.java</strong> — the top of the file shows the order: package, then imports, then the class:</p>
+  <pre><span class="file">src/com/shop/App.java</span><code class="lang-java">package com.shop;
+
+import com.shop.model.Product;           // single-type import (recommended)
+import com.shop.sale.FlashSaleProduct;
+import com.shop.util.PriceUtils;
+import static com.shop.util.PriceUtils.GST_RATE;   // static import of one constant
+
+public class App {
+    public static void main(String[] args) {
+        Product pen = new Product("Pen", 20.0, "Stationery");
+        System.out.println(pen);
+        System.out.println("Pen with GST: " + PriceUtils.formatRupees(PriceUtils.withGst(pen.getPrice())));
+        System.out.println("GST rate used: " + GST_RATE);   // no "PriceUtils." needed
+        ...
+        // A fully qualified name works WITHOUT any import line:
+        java.time.LocalDate openingDay = java.time.LocalDate.of(2025, 1, 15);
+    }
+}</code></pre>
+  <ul>
+    <li><code>PriceUtils.withGst(...)</code> — a static method, called on the class name.</li>
+    <li><code>GST_RATE</code> — usable without the class name thanks to <code>import static</code>.</li>
+    <li><code>java.time.LocalDate</code> — used with its full name, so no import is needed.</li>
+    <li>At the bottom of <code>main</code> you'll find 5 commented-out lines that break access rules. Un-comment one, compile, read the error, comment it back.</li>
+  </ul>
+
+  <p><strong>Product.java</strong> — <code>internalCode</code> is set using the package-private helper <code>StockChecker</code>. This is allowed because both classes are in <code>com.shop.model</code>:</p>
+  <pre><span class="file">src/com/shop/model/Product.java</span><code class="lang-java">public Product(String name, double price, String category) {
+    this.name = name;
+    setPrice(price);                 // reuse validation from the setter
+    this.category = category;
+    this.internalCode = StockChecker.makeCode(name);   // same package -> OK
+}
+
+public boolean isInStock() {
+    return StockChecker.hasStock(internalCode);         // a public method that uses a hidden helper
+}</code></pre>
+  <p>Outside code can ask <code>isInStock()</code> (public) but can never see <em>how</em> stock is checked. If we later replace
+    <code>StockChecker</code> with a real warehouse system, no code outside the package needs to change. That's the power of hiding details.</p>
+
+  <p><strong>FlashSaleProduct.java</strong> — in a different package, but a child of Product:</p>
+  <pre><span class="file">src/com/shop/sale/FlashSaleProduct.java</span><code class="lang-java">package com.shop.sale;
+
+import com.shop.model.Product;
+
+public class FlashSaleProduct extends Product {
+    private final int discountPercent;          // final: set once
+
+    public double getSalePrice() {
+        return getPrice() - (getPrice() * discountPercent / 100.0);   // must use public getter: price is private
+    }
+
+    public String getBanner() {
+        return "FLASH SALE on " + category + ...;  // protected field: OK in a child class
+    }
+}</code></pre>
+
+  <h3>4.2 Example01_StaticMembers.java</h3>
+  <p>Notice the <strong>output order</strong>: the static block's message appears before "Students before anyone joins". The JVM loads
+    <code>Student</code> the first time we use it (calling <code>Student.getTotalStudents()</code>), and loading runs the static block. Then each <code>new Student(...)</code>
+    runs the instance block and the constructor, which increases the shared counter.</p>
+  <pre><code class="lang-java">Student.collegeName = "Sunrise College";
+System.out.println(asha.getCollege() + ", " + ravi.getCollege());   // both changed!</code></pre>
+  <p>We changed it once and <em>every</em> student sees the new name — proof that there's only one copy.</p>
+
+  <h3>4.3 Example02_FinalKeyword.java</h3>
+  <p>Shows final locals, final parameters (<code>calculateInterest(final double amount, final double rate)</code>), blank final fields in
+    <code>BankAccount</code>, a final method <code>withdrawalRule()</code> that <code>SavingsAccount</code> cannot override, and the
+    <code>final class Receipt</code>. Each illegal line is left as a comment with the exact compiler error.</p>
+
+  <h3>4.4 Example03_NestedAndInnerClasses.java</h3>
+  <p>A <code>FoodOrder</code> with a <strong>static nested</strong> <code>Address</code> (an address makes sense alone) and an <strong>inner</strong>
+    <code>Item</code> (an item belongs to one order and prints that order's id). <code>printDeliveryFee()</code> shows a <strong>local class</strong>, and
+    <code>main</code> builds two <strong>anonymous</strong> <code>Discount</code> implementations.</p>
+
+  <h3>4.5 Example04_Singleton.java</h3>
+  <p><code>AppConfig</code> (eager), <code>IdGenerator</code> (lazy, <code>synchronized</code>) and <code>CurrencyFormatter</code> (enum). The test
+    <code>config1 == config2</code> prints <code>true</code>: <code>==</code> on objects compares <em>references</em>, so true means "the very same object".</p>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 The package project</h3>
+  <p>In VS Code: <strong>File → Open Folder</strong> → choose <code>D:\Java-SpringBoot\9-Packages-Access-Modifiers-Static-Final</code>.
+    Open a terminal with <strong>Ctrl + `</strong> (backtick). Then:</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\9-Packages-Access-Modifiers-Static-Final"
+javac -d out -sourcepath src src/com/shop/App.java
+java -cp out com.shop.App</code></pre>
+  <p>Expected output:</p>
+  <pre class="terminal"><code>Pen (Stationery) Rs.20.0
+Pen with GST: Rs.23.60
+GST rate used: 0.18
+Notebook in stock? false
+Headphones (Electronics) Rs.2000.0
+FLASH SALE on Electronics: 25% off!
+Sale price: Rs.1500.00
+Error: Price cannot be negative: -5.0
+Shop opened on: 2025-01-15</code></pre>
+  <p>Look inside the <code>out</code> folder: you'll find <code>out\com\shop\App.class</code>, <code>out\com\shop\model\Product.class</code> and so on —
+    the same folder structure as the packages. You may delete <code>out</code> at any time; it's re-created by <code>javac</code>.</p>
+  <div class="callout tip"><strong>💡 VS Code "Run" button</strong>The Java extension can also run <code>App.java</code> with the ▶ Run link above <code>main</code>.
+    It detects <code>src</code> as the source folder automatically. Still, learn the commands — they show what tools like Maven do for you.</div>
+
+  <h3>5.2 The single-file examples</h3>
+  <pre class="terminal"><code>java Example01_StaticMembers.java
+java Example02_FinalKeyword.java
+java Example03_NestedAndInnerClasses.java
+java Example04_Singleton.java</code></pre>
+  <p>Expected output of <code>Example01_StaticMembers.java</code>:</p>
+  <pre class="terminal"><code>[static block] Student class loaded. College = City College
+Students before anyone joins: 0
+[instance block] creating a Student object...
+[instance block] creating a Student object...
+[instance block] creating a Student object...
+Asha has roll number 1
+Ravi has roll number 2
+Meena has roll number 3
+Total students: 3
+Same value via an object (works, but NOT recommended): 3
+College renamed for everyone -> Asha: Sunrise College, Ravi: Sunrise College
+Max of 7 and 12 using Math.max (a static method): 12
+isValidAge(15)? false   isValidAge(19)? true</code></pre>
+  <p>Expected output of <code>Example02_FinalKeyword.java</code>:</p>
+  <pre class="terminal"><code>Bank: Java Bank, min balance: 1000.0
+Account SB-101 created for Kiran
+Interest for 5000.0 = 200.0
+Notes before: [Opened online]
+Notes after : [Opened online] [KYC done]
+Savings rule: Withdrawals must leave at least 1000.0
+Receipt: Paid 250.0 to Electricity Board</code></pre>
+  <p>Expected output of <code>Example03_NestedAndInnerClasses.java</code>:</p>
+  <pre class="terminal"><code>--- 1. static nested class ---
+Address: 12 MG Road, Bengaluru - 560001
+--- 2. inner class ---
+Order #501 item: Masala Dosa x2 = Rs.180.0
+Order #501 item: Filter Coffee x1 = Rs.40.0
+Order #501 total = Rs.220.0
+--- 3. local class ---
+Bill line: Delivery fee -> Rs.30.0
+--- 4. anonymous class ---
+Festival offer: 220.0 -> 198.0
+No offer: 220.0 -> 220.0</code></pre>
+  <p>Expected output of <code>Example04_Singleton.java</code>:</p>
+  <pre class="terminal"><code>App name: ShopEasy, max cart items: 20
+Same AppConfig object? true
+Order id: ORD-1
+Order id: ORD-2
+Order id: ORD-3
+Same IdGenerator object? true
+Formatted: Rs.1,499.50</code></pre>
+  <div class="callout info"><strong>ℹ️ Number formatting</strong><code>String.format</code> uses your computer's language settings. On some systems you may see
+    <code>1.499,50</code> instead of <code>1,499.50</code>. That's normal.</div>
+
+  <h3>5.3 Try breaking the rules</h3>
+  <p>Open <code>App.java</code>, remove the <code>//</code> before <code>pen.price = 0;</code>, and compile again. You'll see
+    <code>error: price has private access in Product</code>. Put the <code>//</code> back. Do the same for each of the 5 lines — reading compiler
+    errors is a skill, and this is a safe place to practise.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>❌ Mistake: "Could not find or load main class"</strong>
+    You ran <code>java -cp out App</code> or <code>java -cp out com/shop/App.java</code>, or you are in the wrong folder.
+    <br><strong>Fix:</strong> run from the topic folder and use the <strong>fully qualified name with dots</strong>: <code>java -cp out com.shop.App</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: package line doesn't match the folder</strong>
+    The file is in <code>src\com\shop\model</code> but says <code>package com.shop.models;</code>. With <code>-sourcepath</code> javac then can't find it
+    (<code>error: cannot find symbol</code> or <code>file does not contain class ...</code>).
+    <br><strong>Fix:</strong> package name and folder path must match exactly (lowercase).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: public class name ≠ file name</strong>
+    <code>public class Product</code> saved in <code>product.java</code> or <code>Products.java</code> → <code>error: class Product is public, should be declared in a file named Product.java</code>.
+    <br><strong>Fix:</strong> exact same name, same capital letters.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: using an instance field from <code>main</code></strong>
+    <code>non-static variable count cannot be referenced from a static context</code>. Beginners "fix" it by adding <code>static</code> everywhere.
+    <br><strong>Fix:</strong> create an object (<code>Counter c = new Counter(); c.count++;</code>), or think about whether the field truly should be shared.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: thinking <code>final</code> makes an object unchangeable</strong>
+    <code>final StringBuilder sb</code> or <code>final int[] marks</code> — the contents can still change.
+    <br><strong>Fix:</strong> to make an object truly unchangeable, make its <em>class</em> immutable (private final fields, no setters).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting to assign a blank final</strong>
+    <code>error: variable accountNumber not initialized in the default constructor</code>.
+    <br><strong>Fix:</strong> every constructor must assign every final field exactly once.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: making fields public "to make it work"</strong>
+    It compiles, but anyone can now put invalid data in (negative price).
+    <br><strong>Fix:</strong> keep fields private and add a method that validates.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting the semicolon after an anonymous class</strong>
+    <code>Discount d = new Discount() { ... }</code> ← needs a <code>;</code> at the end, because it's one assignment statement.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Package by feature</strong> in real apps: <code>com.course.shop.order</code>, <code>com.course.shop.product</code>, each containing its controller, service, repository.
+      (Topic 33 compares this with package-by-layer.)</li>
+    <li>Use <strong>lowercase, reversed-domain</strong> package names. Never use the default (no-package) package in real projects.</li>
+    <li>Prefer <strong>single-type imports</strong>; let VS Code organise them (<strong>Shift + Alt + O</strong> = Organize Imports).</li>
+    <li><strong>Fields private, always.</strong> Expose behaviour through methods. Start with the most restrictive modifier.</li>
+    <li>Use <code>final</code> generously: for fields that never change, for dependencies, for constants. Immutable objects are thread-safe and easy to reason about.</li>
+    <li>Constants: <code>private static final</code> (or <code>public</code> if shared), <code>UPPER_SNAKE_CASE</code>, no magic numbers.</li>
+    <li>Utility classes: <code>final</code> + private constructor + static methods. Keep them small and "pure" (no hidden state).</li>
+    <li>Avoid <strong>mutable static</strong> state (static fields that change) — it's shared by everyone and causes bugs, especially with threads in web servers.</li>
+    <li>Prefer <strong>static nested</strong> over inner classes unless you really need the outer object.</li>
+    <li>In Spring apps, <strong>let Spring manage singletons</strong> — don't write <code>getInstance()</code> for your services.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>A <strong>package</strong> = a folder of related classes; the <code>package</code> line comes first and must match the folder path.</li>
+    <li><code>import</code> is just a shortcut for long names; <code>java.lang</code> is imported automatically; <code>import static</code> imports static members.</li>
+    <li>Compile with <code>javac -d out -sourcepath src ...</code>, run with <code>java -cp out com.shop.App</code> (fully qualified name).</li>
+    <li>Access levels: <code>public</code> &gt; <code>protected</code> &gt; default (package) &gt; <code>private</code>. Fields should be private.</li>
+    <li><code>static</code> = belongs to the class, one shared copy. Static methods have no <code>this</code>.</li>
+    <li><code>final</code> variable = assign once; final method = no override; final class = no extends. A final reference can still point to a changing object.</li>
+    <li><code>static final</code> = constant (<code>UPPER_SNAKE_CASE</code>).</li>
+    <li>Nested classes: static nested (independent), inner (tied to an outer object), local (inside a method), anonymous (no name, one-off).</li>
+    <li>Singleton = private constructor + private static instance + public static <code>getInstance()</code>. Spring beans are singletons by default.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Object counter.</strong> Write a class <code>Car</code> with a private static field <code>carsMade</code> and a static method <code>getCarsMade()</code>.
+      Each constructor call should increase the counter. Create 3 cars and print the count.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public class CarFactoryDemo {
+    public static void main(String[] args) {
+        new Car("Red");
+        new Car("Blue");
+        new Car("Black");
+        System.out.println("Cars made: " + Car.getCarsMade());   // Cars made: 3
+    }
+}
+
+class Car {
+    private static int carsMade = 0;
+    private final String colour;
+
+    Car(String colour) {
+        this.colour = colour;
+        carsMade++;
+    }
+
+    static int getCarsMade() {
+        return carsMade;
+    }
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Constants &amp; utility class.</strong> Create a final utility class <code>TemperatureUtils</code> with a private constructor, a constant
+      <code>FREEZING_POINT_C = 0.0</code>, and static methods <code>toFahrenheit(double c)</code> and <code>isFreezing(double c)</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public final class TemperatureUtils {
+    public static final double FREEZING_POINT_C = 0.0;
+
+    private TemperatureUtils() { }
+
+    public static double toFahrenheit(double c) {
+        return c * 9 / 5 + 32;
+    }
+
+    public static boolean isFreezing(double c) {
+        return c &lt;= FREEZING_POINT_C;
+    }
+
+    public static void main(String[] args) {
+        System.out.println(toFahrenheit(100));   // 212.0
+        System.out.println(isFreezing(-3));      // true
+    }
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Your own packages.</strong> In a new folder create <code>src/com/library/model/Book.java</code> (private fields title, author; public getters)
+      and <code>src/com/library/LibraryApp.java</code> that imports <code>Book</code> and prints two books. Compile with <code>javac -d out</code> and run with <code>java -cp out</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// src/com/library/model/Book.java
+package com.library.model;
+
+public class Book {
+    private final String title;
+    private final String author;
+
+    public Book(String title, String author) {
+        this.title = title;
+        this.author = author;
+    }
+
+    public String getTitle()  { return title; }
+    public String getAuthor() { return author; }
+}
+
+// src/com/library/LibraryApp.java
+package com.library;
+
+import com.library.model.Book;
+
+public class LibraryApp {
+    public static void main(String[] args) {
+        Book b1 = new Book("Clean Code", "Robert Martin");
+        Book b2 = new Book("Effective Java", "Joshua Bloch");
+        System.out.println(b1.getTitle() + " by " + b1.getAuthor());
+        System.out.println(b2.getTitle() + " by " + b2.getAuthor());
+    }
+}</code></pre>
+    <pre class="terminal"><code>javac -d out -sourcepath src src/com/library/LibraryApp.java
+java -cp out com.library.LibraryApp</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Predict the access.</strong> <code>class A</code> is in package <code>p1</code> with fields <code>public int a; protected int b; int c; private int d;</code>.
+      Which fields can be used from (i) <code>class B</code> in <code>p1</code>, (ii) <code>class C extends A</code> in <code>p2</code>, (iii) <code>class D</code> in <code>p2</code>?</p>
+    <details><summary>Hint / solution</summary>
+      <p>(i) B in same package: <code>a, b, c</code> (not <code>d</code>).<br>
+         (ii) C, child in other package: <code>a, b</code> (b through inheritance).<br>
+         (iii) D, unrelated in other package: only <code>a</code>.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>5. Anonymous class.</strong> Create an interface <code>Greeting { String greet(String name); }</code>. In <code>main</code>, create two anonymous
+      implementations: one formal ("Good morning, Mr. X") and one casual ("Hey X!"). Call both.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public class GreetingDemo {
+    public static void main(String[] args) {
+        Greeting formal = new Greeting() {
+            @Override
+            public String greet(String name) {
+                return "Good morning, Mr. " + name;
+            }
+        };
+        Greeting casual = new Greeting() {
+            @Override
+            public String greet(String name) {
+                return "Hey " + name + "!";
+            }
+        };
+        System.out.println(formal.greet("Rao"));   // Good morning, Mr. Rao
+        System.out.println(casual.greet("Rao"));   // Hey Rao!
+    }
+}
+
+interface Greeting {
+    String greet(String name);
+}</code></pre>
+    <p>Notice <code>public class GreetingDemo</code> comes first in the file: with <code>java GreetingDemo.java</code> the first class in the file must contain <code>main</code>.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Logger singleton.</strong> Build a lazy, thread-safe singleton <code>AppLogger</code> with a method <code>log(String msg)</code> that prints
+      <code>[1] msg</code>, <code>[2] msg</code>... using a counter shared by everyone. Prove that two calls to <code>getInstance()</code> return the same object.
+      Bonus: also write it as an enum.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public class LoggerDemo {
+    public static void main(String[] args) {
+        AppLogger.getInstance().log("App started");
+        AppLogger.getInstance().log("User logged in");
+        System.out.println(AppLogger.getInstance() == AppLogger.getInstance());   // true
+        EnumLogger.INSTANCE.log("From enum");
+    }
+}
+
+final class AppLogger {
+    private static AppLogger instance;
+    private int lineNo = 0;
+
+    private AppLogger() { }
+
+    public static synchronized AppLogger getInstance() {
+        if (instance == null) {
+            instance = new AppLogger();
+        }
+        return instance;
+    }
+
+    public synchronized void log(String msg) {
+        lineNo++;
+        System.out.println("[" + lineNo + "] " + msg);
+    }
+}
+
+enum EnumLogger {
+    INSTANCE;
+    private int lineNo = 0;
+    synchronized void log(String msg) {
+        lineNo++;
+        System.out.println("[enum " + lineNo + "] " + msg);
+    }
+}
+// Output:
+// [1] App started
+// [2] User logged in
+// true
+// [enum 1] From enum</code></pre></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is a package in Java and why do we use it?</summary>
+    <p>A package is a namespace that groups related classes and interfaces, and maps to a folder structure. We use packages to organise code,
+      avoid name conflicts (<code>java.util.Date</code> vs <code>java.sql.Date</code>) and control access (package-private members are visible only within the package).</p></details>
+  <details><summary>Q2. Explain the four access modifiers.</summary>
+    <p><code>public</code>: accessible everywhere. <code>protected</code>: same package plus subclasses in other packages. Default (no modifier): same package only.
+      <code>private</code>: same class only. Top-level classes can only be public or default.</p></details>
+  <details><summary>Q3. What is the difference between a static and an instance variable?</summary>
+    <p>An instance variable belongs to each object — every object has its own copy. A static variable belongs to the class — one copy shared by all objects,
+      created when the class is loaded. Static variables are accessed with the class name.</p></details>
+  <details><summary>Q4. Why can't a static method access instance variables directly? Can we override static methods?</summary>
+    <p>A static method is not called on an object, so there is no <code>this</code> — the JVM wouldn't know which object's variable to use.
+      Static methods cannot be overridden: if a child declares the same static method, it <em>hides</em> the parent's one (method hiding); the call is decided at compile time by the reference type, not by the object.</p></details>
+  <details><summary>Q5. Why is the main method static?</summary>
+    <p>So the JVM can call it without creating an object of the class first. At startup there are no objects yet — <code>main</code> is the entry point.</p></details>
+  <details><summary>Q6. What does <code>final</code> mean for a variable, method and class?</summary>
+    <p>Variable: can be assigned only once (a final reference can't point elsewhere, but the object may still change). Method: cannot be overridden.
+      Class: cannot be extended (e.g. <code>String</code>, <code>Integer</code>). Also: <code>final</code>, <code>finally</code> and <code>finalize</code> are unrelated.</p></details>
+  <details><summary>Q7. What is a static block and when does it run?</summary>
+    <p>A <code>static { }</code> block runs once when the class is loaded/initialised by the JVM, before any object is created and before static methods are used.
+      It's used to initialise static fields that need more than a single expression.</p></details>
+  <details><summary>Q8. Difference between a static nested class and an inner class?</summary>
+    <p>A static nested class doesn't need an outer instance and cannot access outer instance fields directly. An inner (non-static) class is tied to an instance of the outer
+      class (created with <code>outer.new Inner()</code>) and can access its fields, including private ones. Prefer static nested unless you need that link.</p></details>
+  <details><summary>Q9. What is an anonymous class?</summary>
+    <p>A class without a name, declared and instantiated in a single expression, usually to implement an interface or extend a class once:
+      <code>new Runnable() { public void run() { ... } }</code>. For interfaces with one abstract method, lambdas are now usually preferred.</p></details>
+  <details><summary>Q10. How do you implement a Singleton? Is it thread-safe? How does Spring relate?</summary>
+    <p>Private constructor, private static final instance, public static <code>getInstance()</code>. The eager version and the enum version are thread-safe; a lazy version
+      needs <code>synchronized</code> (or double-checked locking with <code>volatile</code>). Spring beans are singletons by default per container, but Spring manages them,
+      so classes stay normal and testable — you don't hand-write <code>getInstance()</code>.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../8-OOP-Polymorphism-Abstraction-Interfaces/lesson.html"><small>← Previous</small>8. Polymorphism, Abstraction &amp; Interfaces</a>
+    <a class="next" href="../10-Exception-Handling/lesson.html"><small>Next →</small>10. Exception Handling</a>
+  </nav>
+</main>
+</body>
+</html>

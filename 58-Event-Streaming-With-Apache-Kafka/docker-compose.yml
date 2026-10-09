@@ -1,0 +1,36 @@
+# Topic 58 - a single Apache Kafka broker for local development.
+#
+# KRaft mode = Kafka manages its own metadata (no ZooKeeper needed any more).
+# This ONE container plays both roles: "broker" (stores data) and "controller" (manages the cluster).
+#
+#   docker compose up -d       start Kafka in the background
+#   docker compose logs -f     watch the logs
+#   docker compose down        stop and remove the container (data is lost - fine for learning)
+#
+# Handy CLI commands (run INSIDE the container):
+#   docker exec -it course-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+#   docker exec -it course-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic orders
+#   docker exec -it course-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic orders --from-beginning --property print.key=true
+#   docker exec -it course-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --all-groups
+services:
+  kafka:
+    image: apache/kafka:3.9.1
+    container_name: course-kafka
+    ports:
+      - "9092:9092"                       # our Spring Boot app connects here
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      # Two listeners: 9092 for clients, 9093 for the internal controller traffic.
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      # The address CLIENTS should use to reach the broker (from your Windows host).
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      # Only one broker, so internal topics can only have 1 copy (replica).
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3

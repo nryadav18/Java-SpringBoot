@@ -1,0 +1,53 @@
+### Topic 41 - Pagination & Sorting (VS Code "REST Client" extension)
+@base = http://localhost:8080/api/products
+
+### Default page (page 0, size 10, sorted by id)
+GET {{base}}
+
+### First page of 5, most expensive first
+GET {{base}}?page=0&size=5&sort=price,desc
+
+### Two sort orders: category A-Z, then price high-low
+GET {{base}}?size=8&sort=category,asc&sort=price,desc
+
+### Last page
+GET {{base}}?page=11&size=5
+
+### Page beyond the end -> empty content, totals still correct
+GET {{base}}?page=99&size=5
+
+### Size too big -> capped at 50 (max-page-size)
+GET {{base}}?size=100000
+
+### Sorting by a field that is not allowed -> 400
+GET {{base}}?sort=password,asc
+
+### PageRequest built manually from plain parameters
+GET {{base}}/manual?page=1&size=3&sortBy=name&direction=desc
+
+### Manual endpoint validates size -> 400
+GET {{base}}/manual?size=500
+
+### Paging a derived query
+GET {{base}}/category/Books?page=0&size=5&sort=price,asc
+
+### Sort only (top 5 cheapest of a category)
+GET {{base}}/category/Books/cheapest
+
+### Slice ("load more") - no COUNT query, only hasNext
+GET {{base}}/slice?page=0&size=20
+
+### Slice of one category
+GET {{base}}/slice?category=Sports&page=1&size=5
+
+### Search filters + paging + sorting
+GET {{base}}/search?category=Electronics&minPrice=50&maxPrice=150&page=0&size=3&sort=price,desc
+
+### Search by text only
+GET {{base}}/search?q=book&size=2
+
+### @Query + Pageable
+GET {{base}}/low-stock?threshold=5&sort=stock,asc
+
+### Spring's PagedModel JSON shape
+GET {{base}}/paged-model?page=1&size=2

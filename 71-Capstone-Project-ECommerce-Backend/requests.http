@@ -1,0 +1,236 @@
+### =====================================================================
+### ShopEasy - the full API flow for the VS Code "REST Client" extension.
+### Start the app first (mvn spring-boot:run), then click "Send Request" above each request,
+### TOP TO BOTTOM. Named requests (# @name) let later requests reuse tokens and ids.
+### =====================================================================
+
+@baseUrl = http://localhost:8080
+@json = application/json
+
+### ---------------------------------------------------------------------
+### 1. AUTH
+### ---------------------------------------------------------------------
+
+### 1a. Register a new customer (change the email if you run it twice -> otherwise 409)
+# @name register
+POST {{baseUrl}}/api/v1/auth/register
+Content-Type: {{json}}
+
+{
+  "fullName": "Asha Verma",
+  "email": "asha@example.com",
+  "password": "Secret@123"
+}
+
+### 1b. Log in as the seeded customer
+# @name customerLogin
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: {{json}}
+
+{
+  "email": "customer@shopeasy.com",
+  "password": "Customer@123"
+}
+
+### 1c. Log in as the seeded admin
+# @name adminLogin
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: {{json}}
+
+{
+  "email": "admin@shopeasy.com",
+  "password": "Admin@123"
+}
+
+### Tokens taken from the responses above
+@customerToken = {{customerLogin.response.body.accessToken}}
+@adminToken = {{adminLogin.response.body.accessToken}}
+
+### 1d. Who am I?
+GET {{baseUrl}}/api/v1/users/me
+Authorization: Bearer {{customerToken}}
+
+### 1e. Wrong password -> 401 ProblemDetail
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: {{json}}
+
+{ "email": "customer@shopeasy.com", "password": "wrong" }
+
+### 1f. Invalid registration -> 400 with field errors
+POST {{baseUrl}}/api/v1/auth/register
+Content-Type: {{json}}
+
+{ "fullName": "", "email": "not-an-email", "password": "short" }
+
+### ---------------------------------------------------------------------
+### 2. BROWSE (public - no token)
+### ---------------------------------------------------------------------
+
+### 2a. All categories (cached)
+GET {{baseUrl}}/api/v1/categories
+
+### 2b. Products: first page, 5 per page, most expensive first
+GET {{baseUrl}}/api/v1/products?page=0&size=5&sort=price,desc
+
+### 2c. Search: text + category + price range + only in stock
+GET {{baseUrl}}/api/v1/products?q=book&categoryId=2&minPrice=100&maxPrice=1000&inStock=true
+
+### 2d. One product (second call is served from the cache - watch the log)
+GET {{baseUrl}}/api/v1/products/2
+
+### 2e. Unknown product -> 404 ProblemDetail
+GET {{baseUrl}}/api/v1/products/9999
+
+### ---------------------------------------------------------------------
+### 3. CART (CUSTOMER)
+### ---------------------------------------------------------------------
+
+### 3a. Add 2 x Wireless Earbuds Pro (id 2)
+POST {{baseUrl}}/api/v1/cart/items
+Authorization: Bearer {{customerToken}}
+Content-Type: {{json}}
+
+{ "productId": 2, "quantity": 2 }
+
+### 3b. Add 1 x Java for Beginners (id 5)
+POST {{baseUrl}}/api/v1/cart/items
+Authorization: Bearer {{customerToken}}
+Content-Type: {{json}}
+
+{ "productId": 5, "quantity": 1 }
+
+### 3c. Change the quantity of product 5 to 3
+PUT {{baseUrl}}/api/v1/cart/items/5
+Authorization: Bearer {{customerToken}}
+Content-Type: {{json}}
+
+{ "quantity": 3 }
+
+### 3d. Show my cart
+GET {{baseUrl}}/api/v1/cart
+Authorization: Bearer {{customerToken}}
+
+### 3e. Too many: Smart Watch Fit (id 4) has only 3 in stock -> 409
+POST {{baseUrl}}/api/v1/cart/items
+Authorization: Bearer {{customerToken}}
+Content-Type: {{json}}
+
+{ "productId": 4, "quantity": 10 }
+
+### 3f. Cart without a token -> 401
+GET {{baseUrl}}/api/v1/cart
+
+### ---------------------------------------------------------------------
+### 4. ORDERS (CUSTOMER)
+### ---------------------------------------------------------------------
+
+### 4a. Place an order from the cart -> 201 + Location header
+# @name placeOrder
+POST {{baseUrl}}/api/v1/orders
+Authorization: Bearer {{customerToken}}
+Content-Type: {{json}}
+
+{ "shippingAddress": "12 MG Road, Bengaluru 560001" }
+
+@orderId = {{placeOrder.response.body.id}}
+
+### 4b. Check that the stock of product 2 went down by 2
+GET {{baseUrl}}/api/v1/products/2
+
+### 4c. My orders (newest first)
+GET {{baseUrl}}/api/v1/orders?page=0&size=10
+Authorization: Bearer {{customerToken}}
+
+### 4d. One order
+GET {{baseUrl}}/api/v1/orders/{{orderId}}
+Authorization: Bearer {{customerToken}}
+
+### 4e. Placing an order with an empty cart -> 422
+POST {{baseUrl}}/api/v1/orders
+Authorization: Bearer {{customerToken}}
+Content-Type: {{json}}
+
+{ "shippingAddress": "Anywhere" }
+
+### ---------------------------------------------------------------------
+### 5. ADMIN
+### ---------------------------------------------------------------------
+
+### 5a. Create a category
+POST {{baseUrl}}/api/v1/categories
+Authorization: Bearer {{adminToken}}
+Content-Type: {{json}}
+
+{ "name": "Sports", "description": "Sports and fitness equipment" }
+
+### 5b. Create a product
+POST {{baseUrl}}/api/v1/products
+Authorization: Bearer {{adminToken}}
+Content-Type: {{json}}
+
+{
+  "sku": "SPORT-001",
+  "name": "Yoga Mat",
+  "description": "6 mm thick, non-slip",
+  "price": 1499.00,
+  "stockQuantity": 25,
+  "categoryId": 1
+}
+
+### 5c. Update a product (PUT = full replacement; the SKU must stay the same)
+PUT {{baseUrl}}/api/v1/products/12
+Authorization: Bearer {{adminToken}}
+Content-Type: {{json}}
+
+{
+  "sku": "FASH-002",
+  "name": "Cotton T-Shirt",
+  "description": "100% organic cotton, regular fit",
+  "price": 449.00,
+  "stockQuantity": 450,
+  "categoryId": 4
+}
+
+### 5d. Soft-delete a product
+DELETE {{baseUrl}}/api/v1/products/10
+Authorization: Bearer {{adminToken}}
+
+### 5e. All orders (filter by status is optional)
+GET {{baseUrl}}/api/v1/admin/orders?status=PENDING
+Authorization: Bearer {{adminToken}}
+
+### 5f. Move the order forward: PENDING -> PAID -> SHIPPED -> DELIVERED
+PATCH {{baseUrl}}/api/v1/admin/orders/{{orderId}}/status
+Authorization: Bearer {{adminToken}}
+Content-Type: {{json}}
+
+{ "status": "PAID" }
+
+### 5g. A customer trying an admin endpoint -> 403
+POST {{baseUrl}}/api/v1/categories
+Authorization: Bearer {{customerToken}}
+Content-Type: {{json}}
+
+{ "name": "Hacked" }
+
+### ---------------------------------------------------------------------
+### 6. CANCEL + OPERATIONS
+### ---------------------------------------------------------------------
+
+### 6a. Customer cancels the order (allowed while PENDING or PAID) - stock is returned
+POST {{baseUrl}}/api/v1/orders/{{orderId}}/cancel
+Authorization: Bearer {{customerToken}}
+
+### 6b. Health (public)
+GET {{baseUrl}}/actuator/health
+
+### 6c. Info (public)
+GET {{baseUrl}}/actuator/info
+
+### 6d. Caches (ADMIN)
+GET {{baseUrl}}/actuator/caches
+Authorization: Bearer {{adminToken}}
+
+### 6e. Metrics: number of HTTP requests (ADMIN)
+GET {{baseUrl}}/actuator/metrics/http.server.requests
+Authorization: Bearer {{adminToken}}

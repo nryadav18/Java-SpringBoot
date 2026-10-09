@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>19 · JDBC Basics</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 19</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>19. JDBC Basics</h1>
+  <p class="subtitle">Learn just enough SQL, then make Java save, read, update and delete data in a real database — safely, with transactions — and see why Spring's database tools exist.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="19-JDBC-Basics"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What a relational database is: tables, rows, columns, primary keys — and the 4 CRUD SQL commands.</li>
+      <li>How JDBC works: application → JDBC API → driver → database.</li>
+      <li><code>DriverManager</code>, <code>Connection</code>, <code>Statement</code>, <code>PreparedStatement</code>, <code>ResultSet</code>.</li>
+      <li><b>SQL injection</b>: what it is, a live demo, and why <code>PreparedStatement</code> prevents it.</li>
+      <li>Writing a complete <b>DAO</b> class (<code>StudentDao</code>) with CRUD methods.</li>
+      <li><b>Transactions</b>: <code>commit</code> and <code>rollback</code> with a bank-transfer demo.</li>
+      <li>Why real apps use a <b>connection pool</b>, and why all this boilerplate led to Spring JdbcTemplate and JPA.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../10-Exception-Handling/lesson.html">Topic 10 · Exceptions (try-with-resources)</a>, <a href="../14-Streams-API-And-Optional/lesson.html">Topic 14 · Optional</a>, <a href="../15-Modern-Java-Features/lesson.html">Topic 15 · Records &amp; text blocks</a>. This is the first Maven project of the course — Maven itself is explained fully in the <a href="../20-Maven-Build-Tool/lesson.html">next topic</a>; here you only need to run one command.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>So far, all your data lived in variables and collections. When the program stopped, everything was <b>gone</b>. In Topic 16 you saved data to files — better, but files are hard to search, hard to share between many users, and easy to corrupt if two programs write at once.</p>
+  <p>Almost every real backend application stores its data in a <b>database</b>: users, products, orders, payments, students. A Spring Boot backend is, most of the time, "a program that receives HTTP requests and reads/writes a database".</p>
+  <p><b>JDBC</b> (Java DataBase Connectivity) is Java's standard way to talk to relational databases. Even when you later use Spring Data JPA (Topic 38) and never write JDBC code yourself, it is <b>JDBC underneath</b>: Hibernate generates SQL and runs it through JDBC; Spring Boot configures a JDBC connection pool (HikariCP). When something goes wrong — a slow query, "connection refused", a deadlock, a constraint violation — the error messages are JDBC errors. Knowing JDBC makes you the person who can fix them.</p>
+  <div class="callout info"><strong>ℹ️ The road ahead</strong>
+    Topic 19: raw JDBC (you feel the pain) → Topic 37: Spring <code>JdbcTemplate</code> (half the code) → Topic 38: Spring Data JPA (almost no code). Learning them in this order means you'll understand what each tool does for you.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>📞 Calling a foreign library with an interpreter</strong>
+    <ul>
+      <li>The <b>database</b> is a huge, well-organised <b>library</b> in another country. It only understands its own language: <b>SQL</b>.</li>
+      <li><b>JDBC</b> is the <b>standard phone system</b> Java uses to call any library. The buttons are always the same: dial, ask, listen, hang up.</li>
+      <li>The <b>JDBC driver</b> is the <b>interpreter</b> on the line who translates for one specific library (MySQL, PostgreSQL, H2, Oracle). Change the library → change the interpreter, but you keep using the same phone.</li>
+      <li>A <b>Connection</b> is <b>one phone call</b>. Opening a call takes time, so you don't want to dial again for every single question — that's why apps keep a <b>connection pool</b> (a bank of always-open phone lines).</li>
+      <li>A <b>PreparedStatement</b> is a <b>printed request form</b> with blank boxes ("Book title: ____"). Whatever someone writes in the box is treated as a title — never as a new instruction to the librarian. That's why it stops SQL injection.</li>
+      <li>A <b>ResultSet</b> is the <b>list of answers</b> the librarian reads to you, one line at a time.</li>
+      <li>A <b>transaction</b> is like a <b>bank transfer form</b>: either the whole form is processed, or none of it.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Databases and SQL in 10 minutes</h3>
+  <p>A <b>relational database</b> (MySQL, PostgreSQL, Oracle, SQL Server, H2...) stores data in <b>tables</b>, like spreadsheets:</p>
+  <div class="table-wrap"><table>
+    <tr><th>id <small>(PRIMARY KEY)</small></th><th>name</th><th>email</th><th>marks</th></tr>
+    <tr><td>1</td><td>Asha</td><td>asha@college.edu</td><td>91</td></tr>
+    <tr><td>2</td><td>Ben</td><td>ben@college.edu</td><td>72</td></tr>
+    <tr><td>3</td><td>Chen</td><td>chen@college.edu</td><td>85</td></tr>
+  </table></div>
+  <ul>
+    <li>A <b>table</b> holds one kind of thing (students). A <b>row</b> (record) is one student. A <b>column</b> is one property (name), with a fixed <b>type</b> (<code>INT</code>, <code>VARCHAR(100)</code>, <code>DECIMAL(10,2)</code>, <code>DATE</code>...).</li>
+    <li>The <b>primary key</b> (<code>id</code>) uniquely identifies each row. <code>AUTO_INCREMENT</code> lets the database pick the next number.</li>
+    <li><b>Constraints</b> are rules the database enforces: <code>NOT NULL</code>, <code>UNIQUE</code>, <code>CHECK (balance &gt;= 0)</code>, <code>FOREIGN KEY</code> (link to another table — Topic 40).</li>
+  </ul>
+  <p><b>SQL</b> (Structured Query Language) is the language to talk to it. Creating a table (this is "DDL" — data definition):</p>
+  <pre><code class="lang-sql">CREATE TABLE students (
+    id     INT AUTO_INCREMENT PRIMARY KEY,
+    name   VARCHAR(100) NOT NULL,
+    email  VARCHAR(150) NOT NULL,
+    marks  INT          NOT NULL,
+    CONSTRAINT uk_students_email UNIQUE (email)
+);</code></pre>
+  <p>The four <b>CRUD</b> operations (this is "DML" — data manipulation):</p>
+  <div class="table-wrap"><table>
+    <tr><th>CRUD</th><th>SQL</th><th>Example</th></tr>
+    <tr><td><b>C</b>reate</td><td><code>INSERT</code></td><td><code>INSERT INTO students (name, email, marks) VALUES ('Asha', 'asha@college.edu', 91);</code></td></tr>
+    <tr><td><b>R</b>ead</td><td><code>SELECT</code></td><td><code>SELECT id, name FROM students WHERE marks &gt;= 85 ORDER BY marks DESC;</code></td></tr>
+    <tr><td><b>U</b>pdate</td><td><code>UPDATE</code></td><td><code>UPDATE students SET marks = 78 WHERE id = 2;</code></td></tr>
+    <tr><td><b>D</b>elete</td><td><code>DELETE</code></td><td><code>DELETE FROM students WHERE id = 3;</code></td></tr>
+  </table></div>
+  <p>A few more SQL words you'll meet: <code>COUNT(*)</code>, <code>AVG(marks)</code>, <code>GROUP BY</code>, <code>JOIN</code> (combine tables), <code>LIKE 'A%'</code> (text pattern), <code>LIMIT 10</code>.</p>
+  <div class="callout danger"><strong>🚫 Never forget WHERE</strong>
+    <code>UPDATE students SET marks = 0;</code> or <code>DELETE FROM students;</code> without a <code>WHERE</code> changes/deletes <b>every row</b>. Experienced developers have done this in production — once.</div>
+  <div class="callout info"><strong>ℹ️ What is H2?</strong>
+    H2 is a small database written in Java. It can run <b>inside your program, in memory</b> — no installation, no server, perfect for learning and tests. Its SQL is very close to MySQL/PostgreSQL. We switch to a real MySQL server in Topic 43.</div>
+
+  <h3>3.2 JDBC architecture</h3>
+  <figure class="diagram">
+    <svg viewBox="0 0 760 170" role="img" aria-label="JDBC architecture" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arr19" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted)"/>
+        </marker>
+      </defs>
+      <g font-family="Segoe UI, Arial, sans-serif" font-size="14" text-anchor="middle">
+        <rect x="10" y="40" width="150" height="70" rx="8" style="fill:var(--surface);stroke:var(--java);stroke-width:2"/>
+        <text x="85" y="70" style="fill:var(--text)" font-weight="700">Your Java code</text>
+        <text x="85" y="92" style="fill:var(--muted)" font-size="12">StudentDao</text>
+        <rect x="200" y="40" width="160" height="70" rx="8" style="fill:var(--surface);stroke:var(--accent);stroke-width:2"/>
+        <text x="280" y="70" style="fill:var(--text)" font-weight="700">JDBC API</text>
+        <text x="280" y="92" style="fill:var(--muted)" font-size="12">java.sql.* interfaces</text>
+        <rect x="400" y="40" width="160" height="70" rx="8" style="fill:var(--surface);stroke:var(--info);stroke-width:2"/>
+        <text x="480" y="70" style="fill:var(--text)" font-weight="700">JDBC Driver</text>
+        <text x="480" y="92" style="fill:var(--muted)" font-size="12">h2.jar / mysql-connector-j</text>
+        <rect x="600" y="40" width="150" height="70" rx="8" style="fill:var(--surface);stroke:var(--danger);stroke-width:2"/>
+        <text x="675" y="70" style="fill:var(--text)" font-weight="700">Database</text>
+        <text x="675" y="92" style="fill:var(--muted)" font-size="12">H2 / MySQL / Postgres</text>
+        <line x1="160" y1="75" x2="196" y2="75" style="stroke:var(--muted);stroke-width:2" marker-end="url(#arr19)"/>
+        <line x1="360" y1="75" x2="396" y2="75" style="stroke:var(--muted);stroke-width:2" marker-end="url(#arr19)"/>
+        <line x1="560" y1="75" x2="596" y2="75" style="stroke:var(--muted);stroke-width:2" marker-end="url(#arr19)"/>
+        <text x="280" y="140" style="fill:var(--muted)" font-size="12">same for every database</text>
+        <text x="480" y="140" style="fill:var(--muted)" font-size="12">one per database vendor</text>
+      </g>
+    </svg>
+    <figcaption>Your code only uses the standard <code>java.sql</code> interfaces; the driver JAR implements them for a specific database.</figcaption>
+  </figure>
+  <p>The <code>java.sql</code> package (part of the JDK) contains mostly <b>interfaces</b>: <code>Connection</code>, <code>PreparedStatement</code>, <code>ResultSet</code>... The <b>driver</b> (a JAR you add as a dependency) contains the real classes that implement them. This is "programming to an interface" from Topic 8: switch from H2 to MySQL by changing the driver and the URL — your DAO code stays the same (as long as the SQL is standard).</p>
+
+  <h3>3.3 Getting a Connection</h3>
+  <pre><code class="lang-java">String url = "jdbc:h2:mem:college;DB_CLOSE_DELAY=-1";   // which database
+try (Connection conn = DriverManager.getConnection(url, "sa", "")) {
+    // talk to the database here
+}   // connection closed automatically</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Database</th><th>Example JDBC URL</th><th>Driver dependency</th></tr>
+    <tr><td>H2 (in memory)</td><td><code>jdbc:h2:mem:college</code></td><td><code>com.h2database:h2</code></td></tr>
+    <tr><td>H2 (file)</td><td><code>jdbc:h2:file:./data/college</code></td><td><code>com.h2database:h2</code></td></tr>
+    <tr><td>MySQL</td><td><code>jdbc:mysql://localhost:3306/college</code></td><td><code>com.mysql:mysql-connector-j</code></td></tr>
+    <tr><td>PostgreSQL</td><td><code>jdbc:postgresql://localhost:5432/college</code></td><td><code>org.postgresql:postgresql</code></td></tr>
+  </table></div>
+  <ul>
+    <li><code>DriverManager</code> looks at the URL prefix (<code>jdbc:h2:</code>) and picks the right driver from the classpath. Since JDBC 4 (Java 6) drivers register themselves — old tutorials with <code>Class.forName("com.mysql.jdbc.Driver")</code> are outdated.</li>
+    <li>A <code>Connection</code> is an expensive, limited resource (a network socket + a session on the database server). <b>Always close it</b> — use try-with-resources.</li>
+  </ul>
+
+  <h3>3.4 Statement vs PreparedStatement</h3>
+  <p>To run SQL you need a statement object from the connection:</p>
+  <pre><code class="lang-java">// Statement: you give it a complete SQL string
+Statement stmt = conn.createStatement();
+ResultSet rs = stmt.executeQuery("SELECT * FROM students WHERE id = " + id);   // ❌ string gluing
+
+// PreparedStatement: SQL with ? placeholders, values set separately
+PreparedStatement ps = conn.prepareStatement("SELECT * FROM students WHERE id = ?");
+ps.setInt(1, id);                     // fill the 1st ? (counting starts at 1!)
+ResultSet rs2 = ps.executeQuery();    // ✅</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Statement</th><th>PreparedStatement</th></tr>
+    <tr><td>SQL injection</td><td>❌ Vulnerable if you concatenate user input</td><td>✅ Safe — values are sent as data</td></tr>
+    <tr><td>Performance</td><td>SQL parsed every time</td><td>Can be pre-compiled and reused with different values</td></tr>
+    <tr><td>Types</td><td>You must format/quote values yourself</td><td><code>setString</code>, <code>setInt</code>, <code>setBigDecimal</code>, <code>setDate</code>... handle quoting</td></tr>
+    <tr><td>Use for</td><td>Fixed SQL with no user values (e.g. <code>CREATE TABLE</code>)</td><td><b>Everything else</b> (practically always)</td></tr>
+  </table></div>
+  <p>Which execute method to call:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>For</th><th>Returns</th></tr>
+    <tr><td><code>executeQuery()</code></td><td><code>SELECT</code></td><td>a <code>ResultSet</code> (the rows)</td></tr>
+    <tr><td><code>executeUpdate()</code></td><td><code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code> (and DDL)</td><td><code>int</code> — number of rows affected</td></tr>
+    <tr><td><code>execute()</code></td><td>anything</td><td><code>boolean</code> — true if a ResultSet is available</td></tr>
+  </table></div>
+
+  <h3>3.5 SQL injection — the most famous security bug</h3>
+  <p>Imagine a login/search feature that builds SQL by gluing in what the user typed:</p>
+  <pre><code class="lang-java">String sql = "SELECT id, name FROM students WHERE email = '" + emailFromUser + "'";</code></pre>
+  <p>A normal user types <code>asha@college.edu</code> → fine. A hacker types: <code>' OR '1'='1</code>. The SQL becomes:</p>
+  <pre><code class="lang-sql">SELECT id, name FROM students WHERE email = '' OR '1'='1'</code></pre>
+  <p><code>'1'='1'</code> is always true, so the database returns <b>every student</b>. With other inputs an attacker could log in without a password, read other tables, or even run <code>'; DROP TABLE students; --</code>. SQL injection is consistently on the <b>OWASP Top 10</b> list of web security risks, and it has caused real data breaches of millions of records.</p>
+  <p>With a <code>PreparedStatement</code>, the SQL text is fixed (<code>WHERE email = ?</code>) and the value travels separately. The database looks for an email that is literally <code>' OR '1'='1</code> and finds nothing:</p>
+  <div class="flow">
+    <span class="box alt">SQL: WHERE email = ?</span><span class="arrow">+</span>
+    <span class="box info">value: "' OR '1'='1"</span><span class="arrow">→</span>
+    <span class="box">DB treats value as plain text → 0 rows</span>
+  </div>
+  <div class="callout danger"><strong>🚫 Golden rule</strong>
+    Never put user input into SQL with <code>+</code>. Always use <code>?</code> placeholders. (Table and column names can't be placeholders — if they must be dynamic, check them against a fixed allow-list.)</div>
+
+  <h3>3.6 Reading results with ResultSet</h3>
+  <p>A <code>ResultSet</code> is like a <b>cursor</b> pointing <i>before</i> the first row. Each call to <code>next()</code> moves it one row down and returns <code>false</code> when there are no more rows.</p>
+  <pre><code class="lang-java">try (ResultSet rs = ps.executeQuery()) {
+    while (rs.next()) {                       // for each row
+        int id      = rs.getInt("id");         // read columns by name...
+        String name = rs.getString("name");
+        int marks   = rs.getInt(4);            // ...or by position (1-based)
+        System.out.println(id + " " + name + " " + marks);
+    }
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>SQL type</th><th>Java getter</th><th>Java setter</th></tr>
+    <tr><td><code>INT</code></td><td><code>getInt</code></td><td><code>setInt</code></td></tr>
+    <tr><td><code>BIGINT</code></td><td><code>getLong</code></td><td><code>setLong</code></td></tr>
+    <tr><td><code>VARCHAR</code></td><td><code>getString</code></td><td><code>setString</code></td></tr>
+    <tr><td><code>DECIMAL</code> (money!)</td><td><code>getBigDecimal</code></td><td><code>setBigDecimal</code></td></tr>
+    <tr><td><code>BOOLEAN</code></td><td><code>getBoolean</code></td><td><code>setBoolean</code></td></tr>
+    <tr><td><code>DATE</code> / <code>TIMESTAMP</code></td><td><code>getObject(col, LocalDate.class)</code> / <code>LocalDateTime.class</code></td><td><code>setObject(i, localDate)</code></td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ NULL trap</strong>
+    <code>rs.getInt("marks")</code> returns <code>0</code> when the column is <code>NULL</code>. Use <code>rs.wasNull()</code> right after, or <code>rs.getObject("marks", Integer.class)</code> which returns <code>null</code>.</div>
+  <p>Turning the current row into an object is called <b>mapping</b>. We put it in one method, <code>mapRow(ResultSet)</code>. Spring calls this a <code>RowMapper</code> (Topic 37), and JPA does it automatically (Topic 38).</p>
+
+  <h3>3.7 The DAO pattern</h3>
+  <p>A <b>DAO</b> (Data Access Object) is one class that holds <b>all SQL for one table</b>. The rest of the application calls clean methods like <code>dao.findById(5)</code> and never sees SQL or JDBC.</p>
+  <div class="flow">
+    <span class="box alt">JdbcDemoApp (business code)</span><span class="arrow">→</span>
+    <span class="box">StudentDao: save / findById / findAll / updateMarks / deleteById</span><span class="arrow">→</span>
+    <span class="box info">JDBC → H2</span>
+  </div>
+  <p>Benefits: SQL is in one place, business code is easier to read and test, and you can later swap the implementation (JDBC → JPA) without touching the callers. In Spring this becomes the <b>Repository</b> layer (Topic 33).</p>
+
+  <h3>3.8 Transactions: all or nothing</h3>
+  <p>A <b>transaction</b> groups several SQL statements into one unit that either <b>fully succeeds</b> or <b>has no effect at all</b>. The classic example is a bank transfer:</p>
+  <div class="flow">
+    <span class="box info">BEGIN</span><span class="arrow">→</span>
+    <span class="box">1. Asha −300</span><span class="arrow">→</span>
+    <span class="box">2. Ben +300</span><span class="arrow">→</span>
+    <span class="box alt">COMMIT ✅</span>
+  </div>
+  <div class="flow">
+    <span class="box info">BEGIN</span><span class="arrow">→</span>
+    <span class="box">1. Asha −300</span><span class="arrow">→</span>
+    <span class="box" style="border-color:var(--danger)">💥 crash</span><span class="arrow">→</span>
+    <span class="box alt">ROLLBACK ↩ (Asha gets her 300 back)</span>
+  </div>
+  <p>By default JDBC is in <b>auto-commit</b> mode: every single statement is its own transaction and is saved immediately. To group statements:</p>
+  <pre><code class="lang-java">try (Connection conn = Database.getConnection()) {
+    conn.setAutoCommit(false);          // 1. start a transaction
+    try {
+        withdraw(conn, fromId, amount);   // all statements use the SAME connection
+        deposit(conn, toId, amount);
+        conn.commit();                  // 2. save everything
+    } catch (SQLException | RuntimeException e) {
+        conn.rollback();                // 3. undo everything
+    }
+}</code></pre>
+  <p>Transactions give the <b>ACID</b> guarantees (Topic 42 goes deeper):</p>
+  <div class="table-wrap"><table>
+    <tr><th>Letter</th><th>Meaning</th><th>Bank example</th></tr>
+    <tr><td><b>A</b>tomicity</td><td>All or nothing</td><td>Never "money left Asha but never reached Ben"</td></tr>
+    <tr><td><b>C</b>onsistency</td><td>Rules (constraints) always hold</td><td><code>CHECK (balance &gt;= 0)</code> is never broken</td></tr>
+    <tr><td><b>I</b>solation</td><td>Parallel transactions don't see each other's half-done work</td><td>Others don't see the moment when money is "in the air"</td></tr>
+    <tr><td><b>D</b>urability</td><td>Once committed, it survives crashes</td><td>After "transfer successful", a power cut won't undo it</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Spring preview</strong>
+    In Spring you write <code>@Transactional</code> on a method and Spring does <code>setAutoCommit(false)</code>, <code>commit()</code> and <code>rollback()</code> for you — using an AOP proxy (Topic 27) around your method. Same idea, zero boilerplate.</div>
+
+  <h3>3.9 SQLException</h3>
+  <p>Almost every JDBC method can throw <code>SQLException</code> — a <b>checked</b> exception. Useful information inside it:</p>
+  <ul>
+    <li><code>getMessage()</code> — human-readable text from the driver.</li>
+    <li><code>getSQLState()</code> — a standard 5-character code. Codes starting with <code>23</code> mean "integrity constraint violation" (e.g. <code>23505</code> = duplicate unique value).</li>
+    <li><code>getErrorCode()</code> — the vendor-specific code (different for MySQL, Oracle, H2).</li>
+  </ul>
+  <p>Because it's checked and vendor-specific, every DAO method needs <code>throws SQLException</code> or try/catch. Spring translates these into a clean hierarchy of <b>unchecked</b> exceptions (<code>DataIntegrityViolationException</code>, <code>DuplicateKeyException</code>...) so your code doesn't have to care which database you use.</p>
+
+  <h3>3.10 Connection pooling — the idea</h3>
+  <p>Opening a database connection is <b>slow</b> (network handshake, login, session setup — often 10–100&nbsp;ms). Our <code>StudentDao</code> opens a new one in every method. For a learning demo that's fine; for a web server handling 1,000 requests per second it would be a disaster.</p>
+  <p>A <b>connection pool</b> opens, say, 10 connections at startup and <b>lends</b> them out. When your code calls <code>close()</code>, the connection is not really closed — it's <b>returned to the pool</b> for the next request. Exactly like the thread pool in Topic 17, but for database connections.</p>
+  <div class="flow">
+    <span class="box alt">Request needs DB</span><span class="arrow">→</span>
+    <span class="box info">Borrow from pool (instant)</span><span class="arrow">→</span>
+    <span class="box">Run SQL</span><span class="arrow">→</span>
+    <span class="box info">close() = give back to pool</span>
+  </div>
+  <p>In Java, pools implement the <code>javax.sql.DataSource</code> interface. The most popular is <b>HikariCP</b>, and Spring Boot configures it <b>automatically</b> when you add a database dependency (Topic 37). A taste of how it looks without Spring:</p>
+  <pre><code class="lang-java">HikariConfig config = new HikariConfig();
+config.setJdbcUrl("jdbc:h2:mem:college");
+config.setMaximumPoolSize(10);
+DataSource dataSource = new HikariDataSource(config);
+
+try (Connection conn = dataSource.getConnection()) {   // borrowed, not created
+    ...
+}                                                      // returned, not closed</code></pre>
+
+  <h3>3.11 The pain of boilerplate → why Spring JDBC and JPA exist</h3>
+  <p>Look at <code>StudentDao</code>: every method repeats the same ceremony — get connection, prepare statement, set parameters, execute, loop the ResultSet, map columns, handle <code>SQLException</code>, close everything. Out of ~15 lines per method, only 2–3 lines are really about <i>this</i> query.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Task</th><th>Raw JDBC (this topic)</th><th>Spring JdbcTemplate (Topic 37)</th><th>Spring Data JPA (Topic 38)</th></tr>
+    <tr><td>Find by id</td><td>~15 lines</td><td>~3 lines</td><td>0 lines — <code>findById</code> is built in</td></tr>
+    <tr><td>Open/close connections</td><td>You</td><td>Spring</td><td>Spring</td></tr>
+    <tr><td>Map rows to objects</td><td>You, column by column</td><td>You, with a <code>RowMapper</code></td><td>Automatic (<code>@Entity</code>)</td></tr>
+    <tr><td>Checked SQLException</td><td>Everywhere</td><td>Translated to unchecked</td><td>Translated to unchecked</td></tr>
+    <tr><td>Transactions</td><td>setAutoCommit / commit / rollback</td><td><code>@Transactional</code></td><td><code>@Transactional</code></td></tr>
+  </table></div>
+  <p>A preview of the same "find by id" with JdbcTemplate:</p>
+  <pre><code class="lang-java">Student s = jdbcTemplate.queryForObject(
+        "SELECT id, name, email, marks FROM students WHERE id = ?",
+        (rs, rowNum) -&gt; new Student(rs.getInt("id"), rs.getString("name"),
+                                    rs.getString("email"), rs.getInt("marks")),
+        id);</code></pre>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>This topic is a small <b>Maven project</b>. Maven is a build tool that downloads libraries (like the H2 database) and compiles/runs your code. You'll learn it properly in Topic 20; for now, know that <code>pom.xml</code> lists what the project needs, and code lives in <code>src/main/java</code>.</p>
+  <pre class="terminal"><code>19-JDBC-Basics
+├── pom.xml
+├── README.md
+├── lesson.html
+└── src/main/java/com/course/jdbcbasics
+    ├── Database.java
+    ├── Student.java
+    ├── StudentDao.java
+    ├── SqlInjectionDemo.java
+    ├── BankTransferService.java
+    └── JdbcDemoApp.java          ← main class</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>H2 <code>2.3.232</code> dependency and <code>exec-maven-plugin</code> 3.5.0 pointing to the main class</td></tr>
+    <tr><td><code>Database.java</code></td><td>URL/user/password, <code>getConnection()</code>, <code>createSchema()</code> (our "schema.sql" in a text block)</td></tr>
+    <tr><td><code>Student.java</code></td><td>Record for one row; <code>Integer id</code> is <code>null</code> before saving</td></tr>
+    <tr><td><code>StudentDao.java</code></td><td>Full CRUD with <code>PreparedStatement</code>, generated keys, <code>Optional</code>, a <code>mapRow</code> helper</td></tr>
+    <tr><td><code>SqlInjectionDemo.java</code></td><td>Unsafe concatenation vs safe placeholder with the same hacker input</td></tr>
+    <tr><td><code>BankTransferService.java</code></td><td>Transfer inside a transaction; commit, rollback on a simulated crash and on a CHECK constraint</td></tr>
+    <tr><td><code>JdbcDemoApp.java</code></td><td>Runs every step and prints what happens</td></tr>
+  </table></div>
+
+  <h3>pom.xml — the important part</h3>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;com.h2database&lt;/groupId&gt;
+    &lt;artifactId&gt;h2&lt;/artifactId&gt;
+    &lt;version&gt;2.3.232&lt;/version&gt;
+&lt;/dependency&gt;
+...
+&lt;plugin&gt;
+    &lt;groupId&gt;org.codehaus.mojo&lt;/groupId&gt;
+    &lt;artifactId&gt;exec-maven-plugin&lt;/artifactId&gt;
+    &lt;version&gt;3.5.0&lt;/version&gt;
+    &lt;configuration&gt;
+        &lt;mainClass&gt;com.course.jdbcbasics.JdbcDemoApp&lt;/mainClass&gt;
+    &lt;/configuration&gt;
+&lt;/plugin&gt;</code></pre>
+  <p>The H2 JAR is both the database engine <i>and</i> its JDBC driver. The exec plugin lets <code>mvn exec:java</code> run our main class with all dependencies on the classpath.</p>
+
+  <h3>Database.java</h3>
+  <pre><span class="file">src/main/java/com/course/jdbcbasics/Database.java</span><code class="lang-java">public static final String URL = "jdbc:h2:mem:college;DB_CLOSE_DELAY=-1";
+
+public static Connection getConnection() throws SQLException {
+    return DriverManager.getConnection(URL, USER, PASSWORD);
+}
+
+public static void createSchema() throws SQLException {
+    String schemaSql = """
+            DROP TABLE IF EXISTS students;
+            CREATE TABLE students ( ... );
+            CREATE TABLE accounts (
+                ...
+                CONSTRAINT balance_not_negative CHECK (balance &gt;= 0)
+            );
+            INSERT INTO accounts (id, owner, balance) VALUES (1, 'Asha', 1000.00);
+            ...
+            """;
+    try (Connection conn = getConnection();
+         Statement stmt = conn.createStatement()) {
+        stmt.execute(schemaSql);
+    }
+}</code></pre>
+  <p><code>DB_CLOSE_DELAY=-1</code> matters: an in-memory H2 database normally disappears when its <i>last connection</i> closes. Because our DAO opens and closes a connection in every method, we ask H2 to keep the database alive until the JVM exits. The <code>CHECK</code> constraint makes the database itself refuse negative balances. Here a plain <code>Statement</code> is fine — the SQL contains no user input.</p>
+
+  <h3>StudentDao.java — save() with generated keys</h3>
+  <pre><span class="file">src/main/java/com/course/jdbcbasics/StudentDao.java</span><code class="lang-java">public Student save(Student student) throws SQLException {
+    String sql = "INSERT INTO students (name, email, marks) VALUES (?, ?, ?)";
+
+    try (Connection conn = Database.getConnection();
+         PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+
+        ps.setString(1, student.name());
+        ps.setString(2, student.email());
+        ps.setInt(3, student.marks());
+        ps.executeUpdate();
+
+        try (ResultSet keys = ps.getGeneratedKeys()) {
+            keys.next();
+            int newId = keys.getInt(1);
+            return new Student(newId, student.name(), student.email(), student.marks());
+        }
+    }
+}</code></pre>
+  <ul>
+    <li>Three <code>?</code> placeholders, filled with <code>setString</code>/<code>setInt</code> by <b>1-based</b> position.</li>
+    <li><code>RETURN_GENERATED_KEYS</code> asks the database for the new <code>AUTO_INCREMENT</code> id, so we can return a <code>Student</code> that has its id. (JPA's <code>save()</code> does the same — Topic 38.)</li>
+    <li>Records are immutable, so we return a <i>new</i> <code>Student</code> with the id.</li>
+  </ul>
+
+  <h3>StudentDao.java — findById() with Optional</h3>
+  <pre><span class="file">src/main/java/com/course/jdbcbasics/StudentDao.java</span><code class="lang-java">public Optional&lt;Student&gt; findById(int id) throws SQLException {
+    String sql = "SELECT id, name, email, marks FROM students WHERE id = ?";
+    try (Connection conn = Database.getConnection();
+         PreparedStatement ps = conn.prepareStatement(sql)) {
+        ps.setInt(1, id);
+        try (ResultSet rs = ps.executeQuery()) {
+            if (rs.next()) {
+                return Optional.of(mapRow(rs));
+            }
+            return Optional.empty();
+        }
+    }
+}
+
+private Student mapRow(ResultSet rs) throws SQLException {
+    return new Student(rs.getInt("id"), rs.getString("name"),
+                       rs.getString("email"), rs.getInt("marks"));
+}</code></pre>
+  <p>Returning <code>Optional</code> forces the caller to think about "not found" — the demo prints <code>not found</code> for id 99. <code>findAll()</code> uses <code>while (rs.next())</code> instead of <code>if</code>. <code>updateMarks</code> and <code>deleteById</code> return <code>executeUpdate() == 1</code>, i.e. "was a row actually changed?".</p>
+
+  <h3>SqlInjectionDemo.java</h3>
+  <pre><span class="file">src/main/java/com/course/jdbcbasics/SqlInjectionDemo.java</span><code class="lang-java">// UNSAFE - never do this
+String sql = "SELECT id, name FROM students WHERE email = '" + emailFromUser + "'";
+ResultSet rs = stmt.executeQuery(sql);
+
+// SAFE
+PreparedStatement ps = conn.prepareStatement("SELECT id, name FROM students WHERE email = ?");
+ps.setString(1, emailFromUser);</code></pre>
+  <p>With input <code>' OR '1'='1</code> the unsafe version returns <b>all</b> students; the safe version returns <b>0</b>.</p>
+
+  <h3>BankTransferService.java</h3>
+  <pre><span class="file">src/main/java/com/course/jdbcbasics/BankTransferService.java</span><code class="lang-java">try (Connection conn = Database.getConnection()) {
+    conn.setAutoCommit(false);                       // BEGIN
+    try (PreparedStatement withdraw = conn.prepareStatement(withdrawSql);
+         PreparedStatement deposit  = conn.prepareStatement(depositSql)) {
+
+        withdraw.setBigDecimal(1, amount); withdraw.setInt(2, fromId);
+        withdraw.executeUpdate();                    // step 1
+
+        if (simulateCrash) {
+            throw new IllegalStateException("Server crashed between the two updates!");
+        }
+
+        deposit.setBigDecimal(1, amount); deposit.setInt(2, toId);
+        deposit.executeUpdate();                     // step 2
+
+        conn.commit();                               // COMMIT
+    } catch (SQLException | RuntimeException e) {
+        conn.rollback();                             // ROLLBACK
+    } finally {
+        conn.setAutoCommit(true);
+    }
+}</code></pre>
+  <p>Three scenarios run: a normal transfer (commit), a crash between the two steps (rollback — balances unchanged), and a transfer bigger than the balance (the <code>CHECK</code> constraint makes step 1 fail → rollback). Notice we use <code>BigDecimal</code> for money — never <code>double</code> (0.1 + 0.2 ≠ 0.3 in floating point!).</p>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <p><b>From the terminal</b> (inside the topic folder, where <code>pom.xml</code> is):</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\19-JDBC-Basics"
+mvn -q compile exec:java</code></pre>
+  <p><code>-q</code> = quiet (only our output). The first run downloads H2 and the exec plugin from the internet into <code>C:\Users\&lt;you&gt;\.m2\repository</code>; later runs are offline and fast. Maven creates a <code>target/</code> folder with compiled classes — you can delete it any time (<code>mvn clean</code>).</p>
+  <p><b>In VS Code:</b> open the folder <code>19-JDBC-Basics</code> (File → Open Folder). The Java extension detects <code>pom.xml</code> and imports the project (wait for "Java: Ready" in the status bar). Then open <code>JdbcDemoApp.java</code> and click <b>▶ Run</b> above <code>main</code>.</p>
+  <p>Expected output:</p>
+  <pre class="terminal"><code>=== 1) Connecting to the database ===
+Connected to H2 using driver H2 JDBC Driver
+Tables created.
+
+=== 2) CRUD with StudentDao ===
+CREATE  -&gt; saved Student[id=1, name=Asha, email=asha@college.edu, marks=91], Ben, Chen
+READ ALL:
+   Student[id=1, name=Asha, email=asha@college.edu, marks=91]
+   Student[id=2, name=Ben, email=ben@college.edu, marks=72]
+   Student[id=3, name=Chen, email=chen@college.edu, marks=85]
+READ ONE (id 2) -&gt; Ben
+READ ONE (id 99) -&gt; not found
+READ WHERE marks &gt;= 85 -&gt; [Asha, Chen]
+UPDATE  -&gt; Ben's marks changed? true -&gt; Student[id=2, name=Ben, email=ben@college.edu, marks=78]
+DELETE  -&gt; Chen deleted? true. Students left: 2
+
+=== 3) SQL injection ===
+  Unsafe SQL sent to DB : SELECT id, name FROM students WHERE email = '' OR '1'='1'
+  Unsafe query returned 2 student(s)  &lt;-- leaked everyone!
+  Safe SQL sent to DB   : SELECT id, name FROM students WHERE email = ?   with parameter [' OR '1'='1]
+  Safe query returned 0 student(s)    &lt;-- correct
+
+=== 4) Transactions ===
+Before:
+  Account 1 (Asha): 1000.00
+  Account 2 (Ben): 500.00
+Transfer 200 from Asha to Ben (no problems):
+  step 1 done: withdrew 200.00 from account 1
+  step 2 done: deposited 200.00 to account 2
+  COMMIT - transfer saved
+  Account 1 (Asha): 800.00
+  Account 2 (Ben): 700.00
+Transfer 300 from Asha to Ben (crash in the middle):
+  step 1 done: withdrew 300.00 from account 1
+  ROLLBACK - Server crashed between the two updates!
+  Account 1 (Asha): 800.00
+  Account 2 (Ben): 700.00
+-&gt; Balances unchanged: the half-done transfer was rolled back.
+Transfer 5000 from Ben to Asha (not enough money -&gt; CHECK constraint fails):
+  ROLLBACK - Check constraint violation: "BALANCE_NOT_NEGATIVE: "; SQL statement:
+  Account 1 (Asha): 800.00
+  Account 2 (Ben): 700.00
+
+=== 5) Handling an SQLException ===
+Could not save: SQLState=23505, errorCode=23505
+Message: Unique index or primary key violation: "PUBLIC.UK_STUDENTS_EMAIL_INDEX_9 ON PUBLIC.STUDENTS(EMAIL NULLS FIRST) VALUES ( /* 1 */ 'asha@college.edu' )"; SQL statement:
+
+Done.</code></pre>
+  <div class="callout tip"><strong>💡 Experiment</strong>
+    In <code>BankTransferService</code>, comment out <code>conn.rollback();</code> and set <code>conn.setAutoCommit(true)</code> at the start instead of <code>false</code>. Run again: after the "crash", Asha has lost 300 and Ben never got it. That's the bug transactions prevent.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>🚫 Mistake: building SQL with string concatenation</strong>
+    Opens the door to SQL injection. <br><strong>Fix:</strong> <code>PreparedStatement</code> with <code>?</code> placeholders — always.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: not closing Connection / Statement / ResultSet</strong>
+    Leaked connections eventually exhaust the database ("Too many connections") or the pool ("Connection is not available, request timed out"). <br><strong>Fix:</strong> try-with-resources for every JDBC object.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: parameter index starting at 0</strong>
+    <code>ps.setString(0, ...)</code> throws "Invalid value 0 for parameter parameterIndex". <br><strong>Fix:</strong> JDBC indexes start at <b>1</b> — for parameters and for columns.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: reading the ResultSet without calling next()</strong>
+    The cursor starts <i>before</i> the first row; <code>rs.getString(...)</code> immediately fails ("No data is available"). <br><strong>Fix:</strong> <code>if (rs.next())</code> or <code>while (rs.next())</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: executeQuery() for INSERT/UPDATE</strong>
+    <br><strong>Fix:</strong> <code>executeQuery</code> for <code>SELECT</code>, <code>executeUpdate</code> for data changes.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: using different connections inside one transaction</strong>
+    A transaction belongs to <b>one connection</b>. If step 1 and step 2 each call <code>Database.getConnection()</code>, they are separate transactions and rollback won't undo step 1. <br><strong>Fix:</strong> pass the same <code>Connection</code> to every step (Spring does this for you by binding the connection to the current thread).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "No suitable driver found for jdbc:..."</strong>
+    The driver JAR isn't on the classpath, or the URL is misspelled. <br><strong>Fix:</strong> check the dependency in <code>pom.xml</code> and the URL prefix (<code>jdbc:h2:</code>, <code>jdbc:mysql:</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: H2 in-memory "Table not found" in the second method</strong>
+    Without <code>DB_CLOSE_DELAY=-1</code>, the in-memory DB is deleted when the last connection closes. <br><strong>Fix:</strong> add <code>;DB_CLOSE_DELAY=-1</code> to the URL (or keep one connection open).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: using double for money</strong>
+    <br><strong>Fix:</strong> <code>DECIMAL</code> column + <code>BigDecimal</code> in Java.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><b>PreparedStatement for everything</b> that contains a value.</li>
+    <li><b>try-with-resources</b> for <code>Connection</code>, <code>PreparedStatement</code>, <code>ResultSet</code>.</li>
+    <li><b>Keep SQL in DAO/repository classes</b> — one per table/aggregate. Business code calls methods, not SQL.</li>
+    <li><b>Select only the columns you need</b> (<code>SELECT id, name</code> rather than <code>SELECT *</code>) — clearer and safer when the table changes.</li>
+    <li><b>Use a connection pool</b> (<code>DataSource</code>, HikariCP) in any real application. Spring Boot gives you one automatically.</li>
+    <li><b>Don't hard-code credentials</b>; read URL/user/password from configuration or environment variables (Topic 29).</li>
+    <li><b>Let the database protect data</b> with constraints (<code>NOT NULL</code>, <code>UNIQUE</code>, <code>CHECK</code>, foreign keys) — your Java checks are a second line, not the only one.</li>
+    <li><b>Keep transactions short</b> and group only the statements that truly belong together.</li>
+    <li><b>Use <code>BigDecimal</code> for money</b> and <code>java.time</code> types for dates (<code>setObject</code>/<code>getObject</code>).</li>
+    <li>In real projects, <b>use Spring's tools</b> (JdbcTemplate / JPA) — raw JDBC is for learning, special cases, and understanding.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Relational databases store data in tables; SQL's CRUD commands are <code>INSERT</code>, <code>SELECT</code>, <code>UPDATE</code>, <code>DELETE</code>.</li>
+    <li>JDBC = standard <code>java.sql</code> interfaces + a database-specific driver JAR.</li>
+    <li><code>DriverManager.getConnection(url, user, pw)</code> → <code>Connection</code> → <code>PreparedStatement</code> → <code>executeQuery</code>/<code>executeUpdate</code> → <code>ResultSet</code>.</li>
+    <li>Never concatenate user input into SQL — <code>PreparedStatement</code> with <code>?</code> prevents SQL injection.</li>
+    <li>JDBC indexes start at 1; call <code>rs.next()</code> before reading a row.</li>
+    <li>A DAO keeps all SQL for one table in one class (later: Spring repositories).</li>
+    <li>Transactions: <code>setAutoCommit(false)</code> → <code>commit()</code> or <code>rollback()</code> on the same connection. Spring: <code>@Transactional</code>.</li>
+    <li>Real apps use a connection pool (HikariCP); Spring Boot configures it for you.</li>
+    <li>Raw JDBC is verbose — that pain is why JdbcTemplate and JPA exist.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Average marks.</b> Add a method <code>double averageMarks()</code> to <code>StudentDao</code> using SQL <code>SELECT AVG(marks) FROM students</code>. Print it in <code>JdbcDemoApp</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public double averageMarks() throws SQLException {
+    try (Connection conn = Database.getConnection();
+         PreparedStatement ps = conn.prepareStatement("SELECT AVG(marks) FROM students");
+         ResultSet rs = ps.executeQuery()) {
+        rs.next();
+        return rs.getDouble(1);      // 0.0 if the table is empty (AVG returns NULL)
+    }
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Search by name.</b> Add <code>List&lt;Student&gt; findByNameStartingWith(String prefix)</code> using <code>WHERE name LIKE ?</code>. Make sure it is injection-safe.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public List&lt;Student&gt; findByNameStartingWith(String prefix) throws SQLException {
+    String sql = "SELECT id, name, email, marks FROM students WHERE name LIKE ? ORDER BY name";
+    List&lt;Student&gt; result = new ArrayList&lt;&gt;();
+    try (Connection conn = Database.getConnection();
+         PreparedStatement ps = conn.prepareStatement(sql)) {
+        ps.setString(1, prefix + "%");          // the % goes into the VALUE, not the SQL
+        try (ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) result.add(mapRow(rs));
+        }
+    }
+    return result;
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Books table.</b> Create a <code>books</code> table (<code>id</code>, <code>title</code>, <code>author</code>, <code>price DECIMAL(8,2)</code>, <code>published DATE</code>), a <code>Book</code> record (use <code>BigDecimal</code> and <code>LocalDate</code>) and a <code>BookDao</code> with <code>save</code> and <code>findAll</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public record Book(Integer id, String title, String author, BigDecimal price, LocalDate published) { }
+
+// save
+ps.setString(1, book.title());
+ps.setString(2, book.author());
+ps.setBigDecimal(3, book.price());
+ps.setObject(4, book.published());               // LocalDate -&gt; DATE
+
+// mapRow
+new Book(rs.getInt("id"), rs.getString("title"), rs.getString("author"),
+         rs.getBigDecimal("price"), rs.getObject("published", LocalDate.class));</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Batch insert.</b> Insert 1,000 students fast using <code>addBatch()</code> / <code>executeBatch()</code> inside one transaction. Compare the time with 1,000 separate <code>save()</code> calls.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">try (Connection conn = Database.getConnection();
+     PreparedStatement ps = conn.prepareStatement(
+             "INSERT INTO students (name, email, marks) VALUES (?, ?, ?)")) {
+    conn.setAutoCommit(false);
+    for (int i = 1; i &lt;= 1000; i++) {
+        ps.setString(1, "Student " + i);
+        ps.setString(2, "s" + i + "@college.edu");
+        ps.setInt(3, 50 + i % 50);
+        ps.addBatch();                 // queue it
+    }
+    ps.executeBatch();                 // send all at once
+    conn.commit();
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>Safe transfer with validation.</b> Improve <code>BankTransferService.transfer</code>: first <code>SELECT balance ... FOR UPDATE</code> (locks the row), throw a custom <code>InsufficientBalanceException</code> if the balance is too low, check that both accounts exist (<code>executeUpdate() == 1</code>), and roll back in every failure case. Return <code>true</code>/<code>false</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">conn.setAutoCommit(false);
+try {
+    BigDecimal balance;
+    try (PreparedStatement ps = conn.prepareStatement(
+            "SELECT balance FROM accounts WHERE id = ? FOR UPDATE")) {
+        ps.setInt(1, fromId);
+        try (ResultSet rs = ps.executeQuery()) {
+            if (!rs.next()) throw new IllegalArgumentException("No account " + fromId);
+            balance = rs.getBigDecimal(1);
+        }
+    }
+    if (balance.compareTo(amount) &lt; 0) {
+        throw new InsufficientBalanceException("Balance " + balance + " &lt; " + amount);
+    }
+    if (update(conn, withdrawSql, amount, fromId) != 1 || update(conn, depositSql, amount, toId) != 1) {
+        throw new IllegalStateException("Account missing");
+    }
+    conn.commit();
+    return true;
+} catch (Exception e) {
+    conn.rollback();
+    return false;
+} finally {
+    conn.setAutoCommit(true);
+}</code></pre></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is JDBC and what is a JDBC driver?</summary>
+    <p>JDBC is the standard Java API (<code>java.sql</code>, <code>javax.sql</code>) for connecting to relational databases and executing SQL. It is mostly interfaces. A JDBC driver is a vendor-supplied library that implements those interfaces for a particular database (MySQL, PostgreSQL, H2...), translating JDBC calls into that database's network protocol.</p></details>
+  <details><summary>Q2. What is the difference between Statement and PreparedStatement?</summary>
+    <p>A Statement executes a complete SQL string; if user input is concatenated into it, it is vulnerable to SQL injection. A PreparedStatement uses a precompiled SQL template with <code>?</code> placeholders and binds values separately with typed setters. It prevents SQL injection, handles quoting/types, and can be reused efficiently. (CallableStatement is for stored procedures.)</p></details>
+  <details><summary>Q3. What is SQL injection and how do you prevent it?</summary>
+    <p>An attack where user input is interpreted as part of the SQL command, e.g. <code>' OR '1'='1</code> turning a filter into "always true", or appending destructive commands. Prevent it with parameterized queries (PreparedStatement / ORM parameters), never concatenating input, validating input, allow-listing dynamic identifiers, and least-privilege database accounts.</p></details>
+  <details><summary>Q4. executeQuery vs executeUpdate vs execute?</summary>
+    <p><code>executeQuery</code> runs a SELECT and returns a ResultSet. <code>executeUpdate</code> runs INSERT/UPDATE/DELETE/DDL and returns the number of affected rows. <code>execute</code> runs any SQL and returns true if the result is a ResultSet (then use <code>getResultSet()</code>), otherwise use <code>getUpdateCount()</code>.</p></details>
+  <details><summary>Q5. How do you manage transactions in JDBC?</summary>
+    <p>Disable auto-commit with <code>conn.setAutoCommit(false)</code>, execute all statements on the same connection, call <code>conn.commit()</code> if all succeed, and <code>conn.rollback()</code> in the catch block if anything fails. Optionally use savepoints (<code>conn.setSavepoint()</code>) and set isolation levels with <code>setTransactionIsolation</code>. Restore auto-commit afterwards, especially with pooled connections.</p></details>
+  <details><summary>Q6. What is connection pooling and why is it important?</summary>
+    <p>Creating a physical DB connection is expensive. A pool (e.g. HikariCP) keeps a set of open connections and lends them to callers; <code>close()</code> returns the connection to the pool. This reduces latency, limits the number of concurrent DB connections, and improves throughput. Applications obtain connections from a <code>DataSource</code> rather than <code>DriverManager</code>. Spring Boot auto-configures HikariCP.</p></details>
+  <details><summary>Q7. What is a DAO?</summary>
+    <p>A Data Access Object encapsulates all persistence logic for an entity/table behind a simple interface (save, findById, findAll, delete...). It separates business logic from data access, centralizes SQL, and allows changing the persistence technology. In Spring it corresponds to a <code>@Repository</code>.</p></details>
+  <details><summary>Q8. Why do we prefer Spring JdbcTemplate or JPA over plain JDBC?</summary>
+    <p>Plain JDBC requires repetitive boilerplate (opening/closing resources, iterating ResultSets, mapping rows, handling checked SQLExceptions, manual transactions). JdbcTemplate removes resource handling and translates exceptions into Spring's unchecked DataAccessException hierarchy; JPA/Spring Data additionally maps objects to tables automatically and generates queries. Both integrate with declarative <code>@Transactional</code>.</p></details>
+  <details><summary>Q9. What does ACID mean?</summary>
+    <p>Atomicity (all or nothing), Consistency (constraints/rules always hold), Isolation (concurrent transactions don't see each other's uncommitted changes, depending on the isolation level), Durability (committed data survives crashes).</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../18-Annotations-And-Reflection/lesson.html"><small>← Previous</small>18. Annotations &amp; Reflection</a>
+    <a class="next" href="../20-Maven-Build-Tool/lesson.html"><small>Next →</small>20. Maven Build Tool</a>
+  </nav>
+</main>
+</body>
+</html>

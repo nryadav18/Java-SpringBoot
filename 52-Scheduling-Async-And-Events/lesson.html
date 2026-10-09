@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>52 · Scheduling, Async &amp; Events</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part E · Advanced Spring Boot › Topic 52</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part E · Advanced Spring Boot</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>52. Scheduling, Async &amp; Events</h1>
+  <p class="subtitle">Run jobs on a timer, move slow work to background threads, and let parts of your app react to "something happened" without knowing each other.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="52-Scheduling-Async-And-Events"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li><code>@EnableScheduling</code> and <code>@Scheduled</code> with <code>fixedRate</code>, <code>fixedDelay</code>, <code>initialDelay</code> and <code>cron</code> (with a full cron table).</li>
+      <li><code>@EnableAsync</code> and <code>@Async</code>, with your own <code>ThreadPoolTaskExecutor</code>.</li>
+      <li>Returning results from async methods with <code>CompletableFuture</code> and running work in parallel.</li>
+      <li>Application events: <code>ApplicationEventPublisher</code>, <code>@EventListener</code>, <code>@TransactionalEventListener</code> and async listeners.</li>
+      <li>A complete example: <em>user registered → send welcome email in the background</em>.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../17-Multithreading-And-Concurrency/lesson.html">Topic 17 · Multithreading</a> (threads, thread pools, CompletableFuture),
+    <a href="../27-Spring-AOP/lesson.html">Topic 27 · AOP</a> (proxies) and <a href="../42-Transactions/lesson.html">Topic 42 · Transactions</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1 -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>So far, our code only ran when a request arrived: a user clicks, the controller runs, a response goes back. Real applications also need work that
+    does <em>not</em> fit this "ask and wait" shape:</p>
+  <ul>
+    <li><strong>Work on a timer</strong> – "Every night at 2 AM, create the sales report." "Every 5 minutes, cancel unpaid orders older than 30 minutes." "Every Monday, email the newsletter." This is <strong>scheduling</strong>.</li>
+    <li><strong>Slow work the user should not wait for</strong> – sending a welcome email takes 3 seconds because the mail server is slow. The user only wants to see "Registered!". Let another thread send the email. This is <strong>async</strong> (asynchronous) processing.</li>
+    <li><strong>Many reactions to one thing</strong> – when a user registers, we want to send an email, write an audit log, give a coupon and update statistics. If <code>UserService</code> called all of them directly, it would depend on four other services and grow every time marketing has a new idea. Instead, it announces "a user registered", and whoever cares reacts. These are <strong>events</strong>.</li>
+  </ul>
+  <p>All three are built into Spring – no extra libraries needed – and you will meet them in almost every enterprise codebase: cleanup jobs, report generation, notification sending,
+    cache warming, retrying failed payments, and modules that talk through events.</p>
+
+  <!-- ===================================================== 2 -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🍽️ A restaurant</strong>
+    <ul>
+      <li><strong>Scheduling = the wall clock and the duty roster.</strong> "Clean the kitchen every night at 11 PM." "Check the fridge temperature every 30 minutes." Nobody asks for it; the clock triggers it.</li>
+      <li><strong>Async = the waiter and the kitchen.</strong> A waiter takes your order, hands the ticket to the kitchen, and immediately goes to the next table. He does not stand in the kitchen for 20 minutes waiting for your pasta. The kitchen (another "thread") cooks in the background. The <strong>kitchen staff</strong> is the <em>thread pool</em> – a fixed team of cooks; when all are busy, new tickets wait on the rail (the <em>queue</em>).</li>
+      <li><strong>Events = the announcement bell.</strong> When a guest arrives, the host rings a bell: "New guest at table 5!" The waiter brings water, the busboy sets cutlery, the manager updates the guest count. The host does not tell each person what to do and does not even know who reacts. That is <strong>publish → listen</strong>.</li>
+      <li><strong>Transactional events = "only after the bill is paid".</strong> The "thank you" SMS is sent only <em>after</em> the payment succeeded – never if the card was declined. That is <code>AFTER_COMMIT</code>.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== 3 -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Quick recap: threads in a Spring Boot app</h3>
+  <p>A <strong>thread</strong> is one line of work that the CPU executes (topic 17). A running Spring Boot app already has many threads.
+    You can see the thread name in every log line, inside square brackets:</p>
+  <pre class="terminal"><code>INFO 25444 --- [           main] ...  Started SchedulingAsyncEventsApplication
+INFO 25444 --- [nio-8080-exec-1] ...  Saved user 1 - publishing UserRegisteredEvent
+INFO 25444 --- [        async-1] ...  Sending welcome email to asha@example.com ...
+INFO 25444 --- [        sched-1] ...  [fixedRate ] Heartbeat at 10:10:32 - 2 registered users</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Thread name</th><th>Who owns it</th><th>What it does</th></tr>
+    <tr><td><code>main</code></td><td>The JVM</td><td>Starts the application.</td></tr>
+    <tr><td><code>http-nio-8080-exec-N</code></td><td>Tomcat</td><td>Handles one HTTP request each (up to 200 by default).</td></tr>
+    <tr><td><code>sched-N</code></td><td>Spring's task <em>scheduler</em></td><td>Runs <code>@Scheduled</code> methods (prefix set in our properties).</td></tr>
+    <tr><td><code>async-N</code></td><td>Our task <em>executor</em></td><td>Runs <code>@Async</code> methods (prefix set in <code>AsyncConfig</code>).</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Learning trick</strong>In this topic, always read the thread name in the log. It tells you <em>where</em> your code is running – the key to understanding async behaviour.</div>
+
+  <!-- ---------- PART A: SCHEDULING ---------- -->
+  <h3>3.2 Scheduling – step 1: <code>@EnableScheduling</code></h3>
+  <pre><code class="lang-java">@Configuration
+@EnableScheduling      // without it, @Scheduled methods are silently ignored
+public class SchedulingConfig { }</code></pre>
+  <p>Spring Boot then auto-configures a <code>ThreadPoolTaskScheduler</code> – the "clock" that calls your methods.</p>
+
+  <h3>3.3 Step 2: <code>@Scheduled</code> methods</h3>
+  <p>Put <code>@Scheduled</code> on a method of any Spring bean. Rules: the method returns <code>void</code>, has <strong>no parameters</strong>, and nobody calls it – the scheduler does.</p>
+  <pre><code class="lang-java">@Component
+public class ShopJobs {
+
+    @Scheduled(fixedRate = 20000)                    // every 20 s, counted from each START
+    public void heartbeat() { ... }
+
+    @Scheduled(fixedDelay = 30000, initialDelay = 5000) // 30 s after each run FINISHES; first run 5 s after startup
+    public void retryFailedEmails() { ... }
+
+    @Scheduled(cron = "0 0 2 * * *")                 // every day at 02:00:00
+    public void dailyReport() { ... }
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Attribute</th><th>Meaning</th><th>Good for</th></tr>
+    <tr><td><code>fixedRate</code></td><td>Start a new run every N ms, measured from the <em>start</em> of the previous run.</td><td>Steady "tick": heartbeats, polling, metrics.</td></tr>
+    <tr><td><code>fixedDelay</code></td><td>Wait N ms after the previous run <em>finished</em>, then start again.</td><td>Jobs whose duration varies; guarantees a rest between runs.</td></tr>
+    <tr><td><code>initialDelay</code></td><td>Wait N ms after startup before the first run.</td><td>Let the app warm up first.</td></tr>
+    <tr><td><code>cron</code></td><td>Calendar rule: "at 02:00 every day".</td><td>Business times: nightly, weekly, month-end.</td></tr>
+    <tr><td><code>timeUnit</code></td><td>Unit for the numbers (default <code>MILLISECONDS</code>).</td><td><code>@Scheduled(fixedRate = 5, timeUnit = TimeUnit.MINUTES)</code></td></tr>
+    <tr><td><code>zone</code></td><td>Time zone for the cron expression.</td><td><code>zone = "Asia/Kolkata"</code></td></tr>
+  </table></div>
+
+  <h4>fixedRate vs fixedDelay on a timeline</h4>
+  <p>Suppose the job takes 3 seconds and the number is 10 seconds:</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 720 190" width="720" role="img" aria-label="fixedRate versus fixedDelay timeline">
+      <g font-family="Segoe UI, sans-serif" font-size="13" fill="currentColor">
+        <text x="10" y="45">fixedRate=10s</text>
+        <text x="10" y="125">fixedDelay=10s</text>
+        <text x="130" y="178">0s</text><text x="290" y="178">10s</text><text x="450" y="178">20s</text><text x="610" y="178">30s</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1" opacity="0.5">
+        <line x1="135" y1="20" x2="135" y2="165"/><line x1="295" y1="20" x2="295" y2="165"/>
+        <line x1="455" y1="20" x2="455" y2="165"/><line x1="615" y1="20" x2="615" y2="165"/>
+      </g>
+      <g fill="var(--accent)" opacity="0.85">
+        <rect x="135" y="30" width="48" height="24" rx="4"/><rect x="295" y="30" width="48" height="24" rx="4"/>
+        <rect x="455" y="30" width="48" height="24" rx="4"/><rect x="615" y="30" width="48" height="24" rx="4"/>
+      </g>
+      <g fill="var(--java)" opacity="0.85">
+        <rect x="135" y="110" width="48" height="24" rx="4"/><rect x="343" y="110" width="48" height="24" rx="4"/>
+        <rect x="551" y="110" width="48" height="24" rx="4"/>
+      </g>
+      <g font-family="Segoe UI, sans-serif" font-size="12" fill="currentColor">
+        <text x="190" y="75">starts at 0, 10, 20, 30 … (start-to-start)</text>
+        <text x="190" y="155">starts at 0, 13, 26 … (end + 10 s rest)</text>
+      </g>
+    </svg>
+    <figcaption>Each bar is one 3-second run. fixedRate keeps the clock; fixedDelay waits after each finish.</figcaption>
+  </figure>
+  <div class="callout info"><strong>ℹ️ What if a fixedRate job takes LONGER than the rate?</strong>By default the same scheduled method never runs twice at the same time.
+    If a 10-second-rate job takes 15 seconds, the next run starts immediately after it finishes (runs "pile up" but do not overlap).</div>
+
+  <h4>Taking values from properties</h4>
+  <p>Hard-coded numbers mean recompiling to change a schedule. Use the <code>...String</code> variants with <code>${...}</code> placeholders:</p>
+  <pre><code class="lang-java">@Scheduled(fixedRateString = "${app.jobs.heartbeat-rate-ms}", initialDelayString = "${app.jobs.initial-delay-ms}")
+@Scheduled(cron = "${app.jobs.daily-report-cron}", zone = "${app.jobs.zone}")</code></pre>
+  <pre><span class="file">application.properties</span><code class="lang-properties">app.jobs.heartbeat-rate-ms=20000
+app.jobs.initial-delay-ms=5000
+app.jobs.daily-report-cron=0 0 2 * * *
+app.jobs.zone=Asia/Kolkata</code></pre>
+  <p>Tip: the special cron value <code>"-"</code> disables a job: <code>app.jobs.daily-report-cron=-</code>.</p>
+
+  <h3>3.4 Cron expressions explained</h3>
+  <p>A <strong>cron expression</strong> is a short text that describes "when". The name comes from the old Unix "cron" scheduler. Spring's cron has
+    <strong>six</strong> fields separated by spaces (Unix crontab has five – Spring adds <em>seconds</em> at the front):</p>
+  <div class="table-wrap"><table>
+    <tr><th>Position</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th></tr>
+    <tr><td><strong>Field</strong></td><td>second</td><td>minute</td><td>hour</td><td>day of month</td><td>month</td><td>day of week</td></tr>
+    <tr><td><strong>Allowed values</strong></td><td>0–59</td><td>0–59</td><td>0–23</td><td>1–31</td><td>1–12 or JAN–DEC</td><td>0–7 or MON–SUN (0 and 7 = Sunday)</td></tr>
+  </table></div>
+  <p>Special characters:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Symbol</th><th>Meaning</th><th>Example</th></tr>
+    <tr><td><code>*</code></td><td>every value</td><td><code>*</code> in hour = every hour</td></tr>
+    <tr><td><code>,</code></td><td>a list</td><td><code>MON,WED,FRI</code></td></tr>
+    <tr><td><code>-</code></td><td>a range</td><td><code>9-17</code> = 9 AM to 5 PM</td></tr>
+    <tr><td><code>/</code></td><td>"every N", starting at</td><td><code>0/15</code> in minutes = 0, 15, 30, 45</td></tr>
+    <tr><td><code>?</code></td><td>"no specific value" (day-of-month or day-of-week)</td><td>same as <code>*</code> in Spring</td></tr>
+    <tr><td><code>L</code></td><td>last</td><td><code>L</code> in day-of-month = last day of the month</td></tr>
+  </table></div>
+  <p>Examples you can copy:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Cron</th><th>Meaning in plain English</th></tr>
+    <tr><td><code>0 * * * * *</code></td><td>At second 0 of every minute (our demo)</td></tr>
+    <tr><td><code>*/10 * * * * *</code></td><td>Every 10 seconds</td></tr>
+    <tr><td><code>0 */5 * * * *</code></td><td>Every 5 minutes</td></tr>
+    <tr><td><code>0 0 * * * *</code></td><td>Every hour, on the hour</td></tr>
+    <tr><td><code>0 0 2 * * *</code></td><td>Every day at 02:00</td></tr>
+    <tr><td><code>0 30 9 * * MON-FRI</code></td><td>Weekdays at 09:30</td></tr>
+    <tr><td><code>0 0 9-17 * * MON-FRI</code></td><td>Every hour from 9 AM to 5 PM on weekdays</td></tr>
+    <tr><td><code>0 0 0 1 * *</code></td><td>Midnight on the 1st of every month</td></tr>
+    <tr><td><code>0 0 18 L * *</code></td><td>18:00 on the last day of every month</td></tr>
+    <tr><td><code>0 0 10 * * SUN</code></td><td>Sundays at 10:00</td></tr>
+  </table></div>
+  <p>Spring also accepts macros: <code>@yearly</code>, <code>@monthly</code>, <code>@weekly</code>, <code>@daily</code> (= <code>0 0 0 * * *</code>), <code>@hourly</code>.</p>
+  <div class="callout warn"><strong>⚠️ The most common cron mistake</strong>Copying a 5-field Unix cron like <code>0 2 * * *</code> from the internet.
+    Spring needs 6 fields and fails at startup with <em>"Cron expression must consist of 6 fields"</em>. Add the seconds: <code>0 0 2 * * *</code>.</div>
+
+  <h3>3.5 The scheduler's thread pool</h3>
+  <p>By default Spring Boot's scheduler has <strong>one single thread</strong>. If one job takes 10 minutes, every other job waits! Give it more threads:</p>
+  <pre><code class="lang-properties">spring.task.scheduling.pool.size=2
+spring.task.scheduling.thread-name-prefix=sched-</code></pre>
+
+  <h3>3.6 Scheduling with several app instances</h3>
+  <p>In production you often run 2–3 copies of your app. Each copy has its own scheduler, so the "nightly report" runs <em>three times</em>! Options:</p>
+  <ul>
+    <li>Switch scheduling on in only one instance with a property (our <code>app.scheduling.enabled</code> + <code>@ConditionalOnProperty</code>).</li>
+    <li>Use a distributed lock library such as <strong>ShedLock</strong> – only the instance that gets the lock (stored in the database) runs the job.</li>
+    <li>For complex needs (persistent jobs, misfire handling, clustering) use <strong>Quartz</strong> (<code>spring-boot-starter-quartz</code>), or an external scheduler (Kubernetes CronJob).</li>
+  </ul>
+
+  <!-- ---------- PART B: ASYNC ---------- -->
+  <h3>3.7 Async – synchronous vs asynchronous</h3>
+  <p><strong>Synchronous</strong> = the caller waits until the work is done. <strong>Asynchronous</strong> = the caller hands the work to someone else and continues immediately.</p>
+  <div class="flow">
+    <span class="box">Request thread</span><span class="arrow">→</span>
+    <span class="box info">save user (20 ms)</span><span class="arrow">→</span>
+    <span class="box alt">send email (3000 ms) ⏳</span><span class="arrow">→</span>
+    <span class="box">response after ~3 s 😞</span>
+  </div>
+  <div class="flow">
+    <span class="box">Request thread</span><span class="arrow">→</span>
+    <span class="box info">save user (20 ms)</span><span class="arrow">→</span>
+    <span class="box">response after ~20 ms 😀</span>
+    <span class="arrow">⤵ meanwhile</span>
+    <span class="box alt">async-1: send email (3000 ms)</span>
+  </div>
+
+  <h3>3.8 <code>@EnableAsync</code> and <code>@Async</code></h3>
+  <pre><code class="lang-java">@Configuration
+@EnableAsync
+public class AsyncConfig { ... }
+
+@Service
+public class ReportService {
+    @Async                                   // runs on a pool thread, caller does not wait
+    public void rebuildSearchIndex() { ... }
+}</code></pre>
+  <p>How it works: like caching and transactions, Spring wraps the bean in a <strong>proxy</strong> (topic 27). When you call an <code>@Async</code> method on the proxy,
+    the proxy packs the call into a task, gives it to a thread pool (an <em>executor</em>), and returns immediately.</p>
+  <p>The same proxy rules apply as always:</p>
+  <ul>
+    <li>The method must be <code>public</code>.</li>
+    <li>It must be called <strong>from another bean</strong>. <code>this.rebuildSearchIndex()</code> inside the same class runs synchronously (self-invocation).</li>
+  </ul>
+
+  <h3>3.9 Return types of <code>@Async</code> methods</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Return type</th><th>What the caller gets</th><th>Exceptions go to…</th></tr>
+    <tr><td><code>void</code></td><td>Nothing – "fire and forget".</td><td>The <code>AsyncUncaughtExceptionHandler</code> (logs by default).</td></tr>
+    <tr><td><code>CompletableFuture&lt;T&gt;</code></td><td>A "promise" of a T in the future. Can wait, combine, chain.</td><td>The future completes exceptionally; <code>join()</code> rethrows.</td></tr>
+    <tr><td><code>Future&lt;T&gt;</code></td><td>Old style; only <code>get()</code>. Prefer CompletableFuture.</td><td><code>get()</code> throws <code>ExecutionException</code>.</td></tr>
+    <tr><td>anything else, e.g. <code>String</code></td><td>Always <code>null</code>! The real value is lost.</td><td>–</td></tr>
+  </table></div>
+  <p>Returning a result:</p>
+  <pre><code class="lang-java">@Async
+public CompletableFuture&lt;Integer&gt; totalSalesToday() {
+    // ... slow work ...
+    return CompletableFuture.completedFuture(15_430);   // wrap the ready value
+}</code></pre>
+  <p>Inside the method you compute the value normally and wrap it with <code>completedFuture</code>. Spring hands the caller a <em>different</em> future that completes when the pool thread finishes.</p>
+
+  <h3>3.10 Running work in parallel with <code>CompletableFuture</code></h3>
+  <p>Three independent 1-second queries take 3 seconds one after the other. Started together, they take about 1 second:</p>
+  <pre><code class="lang-java">CompletableFuture&lt;Integer&gt; sales     = reportService.totalSalesToday();    // starts now, returns at once
+CompletableFuture&lt;Integer&gt; customers = reportService.newCustomersToday();  // starts now
+CompletableFuture&lt;Integer&gt; orders    = reportService.openOrders();         // starts now
+
+CompletableFuture.allOf(sales, customers, orders).join();   // wait for ALL three
+
+int total = sales.join();     // already done - returns immediately</code></pre>
+  <p>Useful <code>CompletableFuture</code> methods (recap from topic 17):</p>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>What it does</th></tr>
+    <tr><td><code>join()</code></td><td>Wait and get the value (unchecked exception on failure).</td></tr>
+    <tr><td><code>allOf(a, b, c)</code></td><td>A future that completes when all are done.</td></tr>
+    <tr><td><code>anyOf(a, b)</code></td><td>Completes when the first one is done.</td></tr>
+    <tr><td><code>thenApply(fn)</code></td><td>Transform the result: <code>sales.thenApply(s -&gt; s * 2)</code>.</td></tr>
+    <tr><td><code>thenCombine(other, fn)</code></td><td>Combine two results: <code>sales.thenCombine(orders, Integer::sum)</code>.</td></tr>
+    <tr><td><code>exceptionally(fn)</code></td><td>Fallback value when it fails.</td></tr>
+    <tr><td><code>orTimeout(2, SECONDS)</code></td><td>Fail if not done in time.</td></tr>
+  </table></div>
+
+  <h3>3.11 Your own thread pool: <code>ThreadPoolTaskExecutor</code></h3>
+  <p>Spring Boot auto-configures an executor called <code>applicationTaskExecutor</code> (8 core threads, unlimited queue). For real apps you usually define your
+    own, with limits that match your workload:</p>
+  <pre><span class="file">config/AsyncConfig.java</span><code class="lang-java">@Bean(name = "appTaskExecutor")
+public ThreadPoolTaskExecutor appTaskExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(3);
+    executor.setMaxPoolSize(6);
+    executor.setQueueCapacity(50);
+    executor.setThreadNamePrefix("async-");
+    executor.setWaitForTasksToCompleteOnShutdown(true);
+    executor.setAwaitTerminationSeconds(10);
+    executor.initialize();
+    return executor;
+}</code></pre>
+  <p>How a <code>ThreadPoolTaskExecutor</code> decides what to do with a new task – this surprises almost everyone:</p>
+  <ol>
+    <li>Fewer than <strong>core</strong> (3) threads busy? → use/create a core thread.</li>
+    <li>All core threads busy? → put the task in the <strong>queue</strong> (up to 50 waiting tasks). <em>No new thread yet!</em></li>
+    <li>Queue full? → create extra threads up to <strong>max</strong> (6).</li>
+    <li>Max threads busy AND queue full? → the task is <strong>rejected</strong> (<code>TaskRejectedException</code>) – unless you set a rejection policy such as <code>CallerRunsPolicy</code>.</li>
+  </ol>
+  <div class="flow">
+    <span class="box">new task</span><span class="arrow">→</span>
+    <span class="box info">core threads free?</span><span class="arrow">no →</span>
+    <span class="box info">queue has space?</span><span class="arrow">no →</span>
+    <span class="box info">below max threads?</span><span class="arrow">no →</span>
+    <span class="box alt">rejected</span>
+  </div>
+  <p>Which executor does <code>@Async</code> use? You can name it: <code>@Async("appTaskExecutor")</code>. Or make one the default by implementing
+    <code>AsyncConfigurer.getAsyncExecutor()</code> – that is what our project does, so plain <code>@Async</code> uses <code>appTaskExecutor</code>.</p>
+
+  <h3>3.12 Exceptions in <code>void</code> async methods</h3>
+  <p>When a <code>void</code> <code>@Async</code> method throws, nobody is waiting for it, so there is nobody to catch the exception. Register a handler to at least log it:</p>
+  <pre><code class="lang-java">@Override
+public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
+    return (exception, method, params) -&gt;
+            log.error("@Async method {}({}) failed: {}", method.getName(), Arrays.toString(params), exception.getMessage());
+}</code></pre>
+
+  <h3>3.13 What does NOT travel to the async thread</h3>
+  <p>Some things are stored "per thread" (in a <code>ThreadLocal</code>), so the new thread starts without them:</p>
+  <ul>
+    <li><strong>The transaction</strong> – an <code>@Async</code> method does not join the caller's transaction. It may even run <em>before</em> the caller's transaction commits and not see the new data! (Section 3.17 shows the fix.)</li>
+    <li><strong>The logged-in user</strong> (Spring Security's <code>SecurityContext</code>).</li>
+    <li><strong>MDC</strong> values such as a request id (topic 30).</li>
+  </ul>
+  <p>Pass what you need as method parameters (ids, not entities). For MDC/security, a <code>TaskDecorator</code> on the executor can copy values across.</p>
+
+  <!-- ---------- PART C: EVENTS ---------- -->
+  <h3>3.14 Events – why?</h3>
+  <p>Without events, the registration service must know everyone who reacts:</p>
+  <pre><code class="lang-java">public AppUser register(...) {
+    AppUser user = repository.save(...);
+    emailService.sendWelcome(user);      // UserService depends on EmailService
+    auditService.log(user);              // ... and AuditService
+    couponService.giveWelcomeCoupon(user); // ... and CouponService. Next month: CrmService? AnalyticsService?
+    return user;
+}</code></pre>
+  <p>With events, it only announces the fact:</p>
+  <pre><code class="lang-java">public AppUser register(...) {
+    AppUser user = repository.save(...);
+    eventPublisher.publishEvent(new UserRegisteredEvent(user.getId(), user.getName(), user.getEmail(), user.getRegisteredAt()));
+    return user;
+}</code></pre>
+  <p>Each reaction lives in its own <strong>listener</strong> class. Adding a new reaction = adding a new class; <code>UserService</code> never changes.
+    This is the classic <strong>Observer pattern</strong> (publisher/subscriber), built into the Spring container.</p>
+  <div class="flow">
+    <span class="box alt">UserService<br><small>publishEvent()</small></span><span class="arrow">→</span>
+    <span class="box info">Spring<br><small>ApplicationEventMulticaster</small></span><span class="arrow">→</span>
+    <span class="box">WelcomeEmailListener</span>
+    <span class="box">AuditLogListener</span>
+    <span class="box">RegistrationFailedListener</span>
+  </div>
+
+  <h3>3.15 The three parts: event, publisher, listener</h3>
+  <p><strong>1. The event</strong> – any object. A record is perfect: small and immutable. Name it in the past tense.</p>
+  <pre><code class="lang-java">public record UserRegisteredEvent(Long userId, String name, String email, LocalDateTime registeredAt) { }</code></pre>
+  <p>(Before Spring 4.2, events had to extend <code>ApplicationEvent</code>. Not needed any more.)</p>
+  <p><strong>2. The publisher</strong> – inject <code>ApplicationEventPublisher</code> and call <code>publishEvent(event)</code>.</p>
+  <p><strong>3. The listener</strong> – a method in any bean, annotated with <code>@EventListener</code>. The parameter type decides which events it receives.</p>
+  <pre><code class="lang-java">@Component
+public class AuditLogListener {
+    @EventListener
+    public void audit(UserRegisteredEvent event) {
+        log.info("AUDIT: user {} registered", event.userId());
+    }
+}</code></pre>
+
+  <h3>3.16 <code>@EventListener</code> is synchronous!</h3>
+  <p>A very important fact: by default, <code>publishEvent()</code> calls every <code>@EventListener</code> <strong>immediately, on the same thread, inside the same transaction</strong>.
+    It is like a normal method call that you cannot see. Consequences:</p>
+  <ul>
+    <li><code>publishEvent()</code> returns only after all listeners finished. A slow listener makes the request slow.</li>
+    <li>If a listener throws, the exception comes out of <code>publishEvent()</code> and the publisher's transaction rolls back.</li>
+  </ul>
+  <p>More options:</p>
+  <pre><code class="lang-java">@EventListener
+@Order(1)                                               // lower number runs first
+public void audit(UserRegisteredEvent event) { ... }
+
+@EventListener(condition = "#event.email().endsWith('@course.com')")   // SpEL filter
+public void flagStaffAccount(UserRegisteredEvent event) { ... }</code></pre>
+
+  <h3>3.17 <code>@TransactionalEventListener</code> – wait for the commit</h3>
+  <p>Problem: we publish the event <em>inside</em> the registration transaction. If we send the welcome email immediately and then the transaction rolls back
+    (duplicate email, database error…), we emailed a user who does not exist! The fix:</p>
+  <pre><code class="lang-java">@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)   // AFTER_COMMIT is the default
+public void sendWelcomeEmail(UserRegisteredEvent event) { ... }</code></pre>
+  <p>Spring holds the event and delivers it to this listener only <em>after</em> the transaction has successfully committed.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Phase</th><th>Runs when…</th><th>Typical use</th></tr>
+    <tr><td><code>BEFORE_COMMIT</code></td><td>just before commit, still inside the transaction</td><td>last-minute validation / extra writes that must be in the same transaction</td></tr>
+    <tr><td><code>AFTER_COMMIT</code> (default)</td><td>the commit succeeded</td><td>emails, messages to other systems, cache eviction</td></tr>
+    <tr><td><code>AFTER_ROLLBACK</code></td><td>the transaction rolled back</td><td>logging / alerting about failures</td></tr>
+    <tr><td><code>AFTER_COMPLETION</code></td><td>after commit <em>or</em> rollback</td><td>cleanup</td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ No transaction = no call</strong>If the event is published when <em>no</em> transaction is active, a <code>@TransactionalEventListener</code> is simply
+    not called. Use <code>@TransactionalEventListener(fallbackExecution = true)</code> if it should run anyway.</div>
+  <div class="callout info"><strong>ℹ️ Careful with database writes in AFTER_COMMIT</strong>The original transaction is already committed. If the listener must write to the
+    database, give it its own transaction: <code>@Transactional(propagation = Propagation.REQUIRES_NEW)</code> (Spring 6.1+ even enforces this for transactional listeners) – or make it <code>@Async</code>.</div>
+
+  <h3>3.18 Async listeners: <code>@Async</code> + <code>@TransactionalEventListener</code></h3>
+  <p>Combine both and you get the perfect "welcome email":</p>
+  <pre><code class="lang-java">@Async
+@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+public void sendWelcomeEmail(UserRegisteredEvent event) { ... }</code></pre>
+  <ul>
+    <li><strong>Only if</strong> the user was really saved (after commit).</li>
+    <li><strong>Without</strong> making the user wait (on an <code>async-N</code> thread).</li>
+    <li>An exception in the email code cannot break the registration.</li>
+  </ul>
+  <p><code>@Async</code> also works on a plain <code>@EventListener</code>.</p>
+
+  <h3>3.19 Spring's own events</h3>
+  <p>Spring publishes events about its own life. You can listen to them like any other event:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Event</th><th>When</th></tr>
+    <tr><td><code>ApplicationStartedEvent</code></td><td>Context refreshed, before runners are called.</td></tr>
+    <tr><td><code>ApplicationReadyEvent</code></td><td>App fully started and ready for requests – great for "warm up the cache".</td></tr>
+    <tr><td><code>ContextRefreshedEvent</code></td><td>The context was initialised or refreshed.</td></tr>
+    <tr><td><code>ContextClosedEvent</code></td><td>The app is shutting down.</td></tr>
+  </table></div>
+  <pre><code class="lang-java">@EventListener(ApplicationReadyEvent.class)
+public void onReady() { log.info("=== Application is READY ==="); }</code></pre>
+
+  <h3>3.20 Spring events vs a message broker</h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Spring application events</th><th>RabbitMQ / Kafka (topics 57, 58)</th></tr>
+    <tr><td>Where</td><td>Inside ONE application (same JVM)</td><td>Between applications, over the network</td></tr>
+    <tr><td>Survive a crash?</td><td>No – an async event in memory is lost if the app dies</td><td>Yes – stored by the broker</td></tr>
+    <tr><td>Extra software</td><td>None</td><td>A broker server</td></tr>
+    <tr><td>Good for</td><td>Decoupling modules of a monolith</td><td>Microservices, guaranteed delivery</td></tr>
+  </table></div>
+  <p>(For more guarantees inside a monolith, look at <em>Spring Modulith</em>, which can store events in the database until listeners succeed.)</p>
+
+  <!-- ===================================================== 4 -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>A small shop backend, package <code>com.course.scheduling</code>, H2 database.</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>config/SchedulingConfig.java</code></td><td><code>@EnableScheduling</code> + <code>@ConditionalOnProperty</code> on/off switch.</td></tr>
+    <tr><td><code>config/AsyncConfig.java</code></td><td><code>@EnableAsync</code>, the <code>appTaskExecutor</code> pool, default executor, exception handler.</td></tr>
+    <tr><td><code>jobs/ShopJobs.java</code></td><td>Three <code>@Scheduled</code> jobs: fixedRate, fixedDelay, cron.</td></tr>
+    <tr><td><code>user/AppUser.java</code>, <code>AppUserRepository.java</code></td><td>JPA entity + repository.</td></tr>
+    <tr><td><code>user/UserRegisteredEvent.java</code></td><td>The event record.</td></tr>
+    <tr><td><code>user/UserService.java</code></td><td><code>@Transactional</code> register → <code>publishEvent</code>; "fail" emails roll back.</td></tr>
+    <tr><td><code>user/UserController.java</code></td><td><code>POST /api/users</code>, <code>GET /api/users</code>.</td></tr>
+    <tr><td><code>notification/WelcomeEmailListener.java</code></td><td><code>@Async</code> + <code>@TransactionalEventListener(AFTER_COMMIT)</code>.</td></tr>
+    <tr><td><code>notification/AuditLogListener.java</code></td><td>Synchronous <code>@EventListener</code>, <code>@Order</code>, <code>condition</code>.</td></tr>
+    <tr><td><code>notification/RegistrationFailedListener.java</code></td><td><code>AFTER_ROLLBACK</code>.</td></tr>
+    <tr><td><code>notification/StartupListener.java</code></td><td><code>ApplicationReadyEvent</code>.</td></tr>
+    <tr><td><code>report/ReportService.java</code></td><td><code>@Async</code> methods returning <code>CompletableFuture</code> + a failing <code>void</code> one.</td></tr>
+    <tr><td><code>report/DashboardController.java</code></td><td>Runs 3 async calls in parallel with <code>allOf</code>.</td></tr>
+    <tr><td><code>application.properties</code></td><td>H2, scheduler pool, job timings, cron.</td></tr>
+    <tr><td><code>src/test/.../EventsAndAsyncTest.java</code></td><td><code>@RecordApplicationEvents</code> + parallel timing test.</td></tr>
+  </table></div>
+
+  <h3>4.1 The registration flow, step by step</h3>
+  <pre><span class="file">user/UserService.java</span><code class="lang-java">@Transactional
+public AppUser register(String name, String email) {
+    if (repository.existsByEmail(email)) {
+        throw new IllegalArgumentException("Email already registered: " + email);
+    }
+    AppUser saved = repository.save(new AppUser(name, email));
+    log.info("Saved user {} - publishing UserRegisteredEvent", saved.getId());
+
+    eventPublisher.publishEvent(
+            new UserRegisteredEvent(saved.getId(), saved.getName(), saved.getEmail(), saved.getRegisteredAt()));
+
+    if (email.contains("fail")) {                      // DEMO: roll back AFTER publishing
+        throw new IllegalStateException("Simulated failure after publishing the event - rolling back");
+    }
+    log.info("register() finished - returning the response now (email is sent in the background)");
+    return saved;
+}</code></pre>
+  <p>What happens for <code>asha@example.com</code>, in order:</p>
+  <ol>
+    <li>The request thread saves the user (inside the transaction).</li>
+    <li><code>publishEvent</code> immediately calls <code>AuditLogListener.audit</code> (synchronous, same thread).</li>
+    <li>The <code>WelcomeEmailListener</code> is a <em>transactional</em> listener, so Spring only <em>remembers</em> it for now.</li>
+    <li><code>register()</code> returns → the transaction <strong>commits</strong>.</li>
+    <li>After the commit, Spring calls <code>sendWelcomeEmail</code>. Because it is <code>@Async</code>, it is handed to <code>async-1</code>, and the HTTP response goes out immediately.</li>
+    <li>3 seconds later <code>async-1</code> logs "Welcome email SENT".</li>
+  </ol>
+  <p>For <code>fail@example.com</code>: steps 1–3 are the same, then the exception rolls back the transaction, so the <code>AFTER_COMMIT</code> listener is <strong>never</strong> called, and the <code>AFTER_ROLLBACK</code> listener logs a warning.</p>
+
+  <h3>4.2 The listeners</h3>
+  <pre><span class="file">notification/WelcomeEmailListener.java</span><code class="lang-java">@Async
+@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+public void sendWelcomeEmail(UserRegisteredEvent event) throws InterruptedException {
+    log.info("Sending welcome email to {} ...", event.email());
+    Thread.sleep(3000);   // pretend the mail server is slow
+    log.info("Welcome email SENT to {} &lt;{}&gt;", event.name(), event.email());
+}</code></pre>
+  <pre><span class="file">notification/RegistrationFailedListener.java</span><code class="lang-java">@TransactionalEventListener(phase = TransactionPhase.AFTER_ROLLBACK)
+public void onRollback(UserRegisteredEvent event) {
+    log.warn("Registration of {} was ROLLED BACK - no welcome email will be sent", event.email());
+}</code></pre>
+  <p>(Topic 54 replaces the <code>Thread.sleep</code> with a real <code>JavaMailSender</code>.)</p>
+
+  <h3>4.3 The scheduled jobs</h3>
+  <pre><span class="file">jobs/ShopJobs.java</span><code class="lang-java">@Scheduled(fixedRateString = "${app.jobs.heartbeat-rate-ms}", initialDelayString = "${app.jobs.initial-delay-ms}")
+public void heartbeat() {
+    log.info("[fixedRate ] Heartbeat at {} - {} registered users", LocalTime.now().format(TIME), userRepository.count());
+}
+
+@Scheduled(fixedDelayString = "${app.jobs.retry-delay-ms}", initialDelayString = "${app.jobs.initial-delay-ms}")
+public void retryFailedEmails() throws InterruptedException {
+    log.info("[fixedDelay] Retrying failed emails... started  {}", ...);
+    Thread.sleep(2000);
+    log.info("[fixedDelay] Retrying failed emails... finished {}", ...);
+}
+
+@Scheduled(cron = "${app.jobs.daily-report-cron}", zone = "${app.jobs.zone}")
+public void dailyReport() { ... }</code></pre>
+  <p>Jobs are normal beans, so they can inject repositories and services. Scheduling can be switched off with <code>app.scheduling.enabled=false</code>
+    because <code>SchedulingConfig</code> is annotated with <code>@ConditionalOnProperty</code> – the test uses this.</p>
+
+  <h3>4.4 The parallel dashboard</h3>
+  <pre><span class="file">report/DashboardController.java</span><code class="lang-java">CompletableFuture&lt;Integer&gt; sales = reportService.totalSalesToday();
+CompletableFuture&lt;Integer&gt; customers = reportService.newCustomersToday();
+CompletableFuture&lt;Integer&gt; orders = reportService.openOrders();
+
+CompletableFuture.allOf(sales, customers, orders).join();
+
+return new Dashboard(sales.join(), customers.join(), orders.join(), System.currentTimeMillis() - start);</code></pre>
+
+  <h3>4.5 The test</h3>
+  <pre><span class="file">src/test/java/com/course/scheduling/EventsAndAsyncTest.java</span><code class="lang-java">@SpringBootTest(properties = "app.scheduling.enabled=false")
+@RecordApplicationEvents
+class EventsAndAsyncTest {
+
+    @Autowired ApplicationEvents events;
+
+    @Test
+    void registeringAUserPublishesOneUserRegisteredEvent() {
+        userService.register("Asha", "asha@example.com");
+        assertThat(events.stream(UserRegisteredEvent.class)).hasSize(1);
+    }
+}</code></pre>
+  <p><code>@RecordApplicationEvents</code> (Spring test) records every event published during a test, so you can assert "this event was published" without real listeners.</p>
+
+  <!-- ===================================================== 5 -->
+  <h2 id="run">5. How to run</h2>
+  <p><strong>VS Code:</strong> open <code>SchedulingAsyncEventsApplication.java</code> and click <em>Run</em>. <strong>Terminal:</strong></p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\52-Scheduling-Async-And-Events"
+mvn spring-boot:run</code></pre>
+  <p>Just wait 1–2 minutes and watch the jobs run by themselves:</p>
+  <pre class="terminal"><code>[        sched-1] ShopJobs : [fixedRate ] Heartbeat at 10:10:32 - 0 registered users
+[        sched-2] ShopJobs : [fixedDelay] Retrying failed emails... started  10:10:32
+[        sched-2] ShopJobs : [fixedDelay] Retrying failed emails... finished 10:10:34
+[        sched-1] ShopJobs : [cron      ] Daily report: 0 users in total</code></pre>
+  <p>Register a user (or use <code>requests.http</code>). In PowerShell, use <code>curl.exe</code>:</p>
+  <pre class="terminal"><code>curl -X POST http://localhost:8080/api/users -H "Content-Type: application/json" -d "{\"name\":\"Asha\",\"email\":\"asha@example.com\"}"</code></pre>
+  <p>The response arrives in milliseconds: <code>{"id":1,"name":"Asha","email":"asha@example.com"}</code>. The log:</p>
+  <pre class="terminal"><code>[nio-8080-exec-1] UserService           : Saved user 1 - publishing UserRegisteredEvent
+[nio-8080-exec-1] AuditLogListener      : AUDIT: user 1 (asha@example.com) registered at 2026-...
+[nio-8080-exec-1] UserService           : register() finished - returning the response now (email is sent in the background)
+[        async-1] WelcomeEmailListener  : Sending welcome email to asha@example.com ...
+   ... 3 seconds later ...
+[        async-1] WelcomeEmailListener  : Welcome email SENT to Asha &lt;asha@example.com&gt;</code></pre>
+  <p>Now the rollback demo:</p>
+  <pre class="terminal"><code>curl -X POST http://localhost:8080/api/users -H "Content-Type: application/json" -d "{\"name\":\"B\",\"email\":\"fail@example.com\"}"
+{"error":"Simulated failure after publishing the event - rolling back"}
+
+[nio-8080-exec-2] AuditLogListener            : AUDIT: user 3 (fail@example.com) registered at ...
+[nio-8080-exec-2] RegistrationFailedListener  : Registration of fail@example.com was ROLLED BACK - no welcome email will be sent</code></pre>
+  <p>Notice: the synchronous audit listener <em>did</em> run (it is inside the transaction – in real life its own database writes would also be rolled back), but no welcome email was sent.</p>
+  <p>The parallel dashboard and the failing fire-and-forget job:</p>
+  <pre class="terminal"><code>curl http://localhost:8080/api/dashboard
+{"salesToday":15430,"newCustomers":42,"openOrders":7,"timeTakenMs":1080}
+
+curl -X POST http://localhost:8080/api/dashboard/rebuild-index
+{"status":"Rebuild started in the background - watch the log"}
+[        async-1] AsyncConfig : @Async method rebuildSearchIndex([]) failed: Search engine is not reachable</code></pre>
+  <p>Run the tests with <code>mvn test</code>. Stop the app with <kbd>Ctrl</kbd>+<kbd>C</kbd>.</p>
+
+  <!-- ===================================================== 6 -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting <code>@EnableScheduling</code> / <code>@EnableAsync</code></strong>No error – jobs never run and <code>@Async</code> methods run synchronously.
+    <br><strong>Fix:</strong> add the annotation to a <code>@Configuration</code> class. Check the thread name in the log.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: calling an <code>@Async</code> method from the same class</strong>
+    <pre><code class="lang-java">public void register(...) {
+    ...
+    this.sendEmail(user);   // runs SYNCHRONOUSLY - the proxy is bypassed
+}</code></pre>
+    <strong>Fix:</strong> move the async method to another bean (e.g. an <code>EmailService</code>), or better, publish an event.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: an <code>@Async</code> method returning <code>String</code> or <code>Product</code></strong>The caller always receives <code>null</code>.
+    <br><strong>Fix:</strong> return <code>CompletableFuture&lt;String&gt;</code> and use <code>CompletableFuture.completedFuture(value)</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: thinking "max pool size 6" means 6 parallel tasks</strong>With a queue capacity of 50, extra threads are created only when 50 tasks are already waiting.
+    Until then only the <em>core</em> threads work. We saw this while building the project: right after registering two users, two of the three core threads were busy sending emails,
+    so the three dashboard tasks queued up behind one thread and took ~3000 ms instead of ~1000 ms.
+    <br><strong>Fix:</strong> size the core pool for normal load, or use a small queue; use separate executors for separate kinds of work (e.g. <code>emailExecutor</code>, <code>reportExecutor</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: a 5-field cron expression</strong><code>@Scheduled(cron = "0 2 * * *")</code> fails at startup.
+    <br><strong>Fix:</strong> Spring cron has 6 fields (seconds first): <code>"0 0 2 * * *"</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: one slow job blocks all other jobs</strong>The default scheduler has 1 thread.
+    <br><strong>Fix:</strong> <code>spring.task.scheduling.pool.size=2</code> (or more), and keep jobs short.</div>
+  <div class="callout danger"><strong>🛑 Mistake: sending the email in a plain <code>@EventListener</code> or <code>@Async</code> method inside the transaction</strong>
+    The email goes out, then the transaction rolls back → the user gets "Welcome!" but has no account. Or the async thread reads the user before the commit and finds nothing.
+    <br><strong>Fix:</strong> <code>@TransactionalEventListener(phase = AFTER_COMMIT)</code> (+ <code>@Async</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: passing JPA entities in events to async listeners</strong>The entity is detached in the new thread; touching a lazy relationship throws <code>LazyInitializationException</code>.
+    <br><strong>Fix:</strong> put ids and simple values into the event (a record), and reload in the listener if needed.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: the same job runs 3× in production</strong>Three app instances = three schedulers.
+    <br><strong>Fix:</strong> ShedLock, a property switch for one instance, or an external scheduler.</div>
+
+  <!-- ===================================================== 7 -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Configure schedules in properties</strong>, not in code, so operations can change them per environment and switch jobs off.</li>
+    <li><strong>Keep scheduled methods thin</strong>: the job calls a service method. The service can then also be tested and triggered manually (e.g. an admin endpoint).</li>
+    <li><strong>Make jobs idempotent</strong> – running twice should not break anything ("cancel unpaid orders older than 30 min" is safe to repeat; "add 10 points to every user" is not).</li>
+    <li><strong>Log the start, end and duration</strong> of every job, and catch exceptions inside – one failure should not stay invisible.</li>
+    <li><strong>Always define your own bounded thread pool</strong> for <code>@Async</code> with a clear name prefix; use separate pools for very different kinds of work.</li>
+    <li><strong>Prefer <code>CompletableFuture</code></strong> over <code>void</code> when the caller cares about the result or errors.</li>
+    <li><strong>Events: past-tense names, immutable records, ids not entities.</strong></li>
+    <li><strong>Use <code>@TransactionalEventListener(AFTER_COMMIT)</code></strong> for anything that talks to the outside world (email, SMS, other services).</li>
+    <li><strong>Remember: in-memory events and async tasks are lost if the app crashes.</strong> For must-not-lose work, use a message broker (topics 57–58) or the "outbox" pattern.</li>
+    <li><strong>Graceful shutdown</strong>: <code>setWaitForTasksToCompleteOnShutdown(true)</code> and <code>spring.task.scheduling.shutdown.await-termination=true</code> let running work finish.</li>
+  </ul>
+
+  <!-- ===================================================== 8 -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li><code>@EnableScheduling</code> + <code>@Scheduled</code> run methods on a timer: <code>fixedRate</code> (start-to-start), <code>fixedDelay</code> (end-to-start), <code>cron</code> (calendar, 6 fields).</li>
+    <li>The scheduler has one thread by default – raise <code>spring.task.scheduling.pool.size</code>.</li>
+    <li><code>@EnableAsync</code> + <code>@Async</code> run methods on a thread pool; the caller continues immediately.</li>
+    <li>Async methods return <code>void</code> or <code>CompletableFuture&lt;T&gt;</code>; combine futures with <code>allOf</code> to run work in parallel.</li>
+    <li>Define a bounded <code>ThreadPoolTaskExecutor</code>; extra threads beyond core start only when the queue is full.</li>
+    <li>Like caching and transactions, <code>@Async</code> works through proxies: public methods, called from another bean.</li>
+    <li>Events decouple code: publish with <code>ApplicationEventPublisher</code>, react with <code>@EventListener</code>.</li>
+    <li><code>@EventListener</code> is synchronous; <code>@TransactionalEventListener</code> waits for commit/rollback; add <code>@Async</code> to move it off the request thread.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9 -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Write cron expressions</strong> for: (a) every 30 seconds, (b) every day at 11:45 PM, (c) every Monday at 8 AM, (d) at 6 PM on the last day of each month.</p>
+    <details><summary>Hint / solution</summary><pre><code>(a) */30 * * * * *
+(b) 0 45 23 * * *
+(c) 0 0 8 * * MON
+(d) 0 0 18 L * *</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>See fixedRate vs fixedDelay.</strong> Change <code>heartbeat()</code> to sleep 5 seconds and set the rate to 3000 ms. What happens to the timestamps? Then switch it to <code>fixedDelay</code>.</p>
+    <details><summary>Hint / solution</summary><p>With <code>fixedRate=3000</code> and a 5-second job, runs cannot overlap, so a new run starts right after the previous one ends – every ~5 s. With <code>fixedDelay=3000</code> there is a 3-second rest after each 5-second run – every ~8 s.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Add a welcome coupon listener.</strong> Without changing <code>UserService</code>, add a listener that "creates" a 10% coupon (just log it) for every new user, only after commit, on an async thread.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Component
+public class WelcomeCouponListener {
+    private static final Logger log = LoggerFactory.getLogger(WelcomeCouponListener.class);
+
+    @Async
+    @TransactionalEventListener   // AFTER_COMMIT is the default phase
+    public void giveCoupon(UserRegisteredEvent event) {
+        String code = "WELCOME-" + event.userId();
+        log.info("Coupon {} (10%) created for {}", code, event.email());
+    }
+}</code></pre><p>This is the beauty of events: a new feature is a new class, and the publisher is untouched (Open/Closed principle).</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>A separate email executor.</strong> Create a second pool <code>emailExecutor</code> (2 threads, prefix <code>mail-</code>) and make only the welcome email use it. Check the thread name in the log.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// AsyncConfig
+@Bean(name = "emailExecutor")
+public ThreadPoolTaskExecutor emailExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(2);
+    executor.setMaxPoolSize(2);
+    executor.setQueueCapacity(100);
+    executor.setThreadNamePrefix("mail-");
+    executor.initialize();
+    return executor;
+}
+
+// WelcomeEmailListener
+@Async("emailExecutor")
+@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+public void sendWelcomeEmail(UserRegisteredEvent event) { ... }</code></pre>
+    <p>Now slow emails can never block the dashboard reports – the "bulkhead" idea you will meet again in topic 64.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Cleanup job.</strong> Add a <code>status</code> field (<code>PENDING</code>/<code>ACTIVE</code>) to <code>AppUser</code>. Write a job that runs every minute and deletes PENDING users registered more than 2 minutes ago. Make the cron configurable and log how many users were removed.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// AppUserRepository
+@Modifying
+@Query("delete from AppUser u where u.status = 'PENDING' and u.registeredAt &lt; :cutoff")
+int deletePendingOlderThan(@Param("cutoff") LocalDateTime cutoff);
+
+// a service (so the job stays thin and the method is transactional)
+@Service
+public class UserCleanupService {
+    private final AppUserRepository repository;
+    public UserCleanupService(AppUserRepository repository) { this.repository = repository; }
+
+    @Transactional
+    public int removeStalePendingUsers() {
+        return repository.deletePendingOlderThan(LocalDateTime.now().minusMinutes(2));
+    }
+}
+
+// ShopJobs
+@Scheduled(cron = "${app.jobs.cleanup-cron:0 * * * * *}")
+public void cleanup() {
+    int removed = userCleanupService.removeStalePendingUsers();
+    log.info("[cleanup] removed {} stale pending users", removed);
+}</code></pre>
+    <p>(With a JPA enum field, compare against the enum in JPQL, e.g. <code>u.status = com.course.scheduling.user.UserStatus.PENDING</code>, or pass it as a parameter.)</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Dashboard with a timeout and fallback.</strong> Make <code>openOrders()</code> sleep 5 seconds. The dashboard must answer in at most 2 seconds, showing <code>-1</code> for any value that is not ready.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">CompletableFuture&lt;Integer&gt; orders = reportService.openOrders()
+        .completeOnTimeout(-1, 2, TimeUnit.SECONDS);   // Java 9+: use -1 if not done in 2 s
+// same for the others, then allOf(...).join() as before</code></pre>
+    <p><code>completeOnTimeout</code> supplies a fallback value; <code>orTimeout</code> would instead fail with a <code>TimeoutException</code> (handle it with <code>exceptionally</code>).
+    Note the slow task keeps running on its thread – timeouts do not stop the work.</p></details>
+  </div>
+
+  <!-- ===================================================== 10 -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between fixedRate and fixedDelay?</summary>
+    <p><code>fixedRate</code> measures from the start of one run to the start of the next (steady rhythm). <code>fixedDelay</code> measures from the end of one run to the start of the next (a guaranteed rest).
+    For jobs with varying duration, <code>fixedDelay</code> avoids back-to-back runs.</p></details>
+  <details><summary>Q2. Explain the Spring cron format.</summary>
+    <p>Six fields: second, minute, hour, day-of-month, month, day-of-week. <code>*</code> = every, <code>,</code> = list, <code>-</code> = range, <code>/</code> = step, <code>L</code> = last. Example: <code>0 0 2 * * *</code> = 02:00 every day;
+    <code>0 30 9 * * MON-FRI</code> = 09:30 on weekdays. Unix crontab has 5 fields (no seconds). A <code>zone</code> attribute sets the time zone.</p></details>
+  <details><summary>Q3. How does @Async work, and when does it NOT work?</summary>
+    <p><code>@EnableAsync</code> makes Spring create a proxy around beans with <code>@Async</code> methods. Calling such a method through the proxy submits it to a <code>TaskExecutor</code> and returns immediately.
+    It does not work for self-invocation (<code>this.method()</code>), non-public methods, or objects not managed by Spring (<code>new MyService()</code>).</p></details>
+  <details><summary>Q4. What can an @Async method return and how are exceptions handled?</summary>
+    <p><code>void</code> or <code>CompletableFuture&lt;T&gt;</code> (or <code>Future</code>). For <code>void</code>, exceptions go to the <code>AsyncUncaughtExceptionHandler</code> (configure via <code>AsyncConfigurer</code>).
+    For a future, the future completes exceptionally and the caller sees the exception on <code>join()/get()</code> or handles it with <code>exceptionally</code>/<code>handle</code>.</p></details>
+  <details><summary>Q5. Explain corePoolSize, maxPoolSize and queueCapacity of ThreadPoolTaskExecutor.</summary>
+    <p>New tasks use core threads first; when all core threads are busy, tasks go to the queue; only when the queue is full are extra threads created up to max;
+    when max threads are busy and the queue is full, tasks are rejected (or handled by a rejection policy like <code>CallerRunsPolicy</code>). With an unbounded queue, max size is never used.</p></details>
+  <details><summary>Q6. Why use application events instead of direct method calls?</summary>
+    <p>Loose coupling: the publisher does not know or depend on the reactions. New reactions are new listener classes (Open/Closed principle), modules stay independent, and listeners can be synchronous,
+    asynchronous or transaction-bound without changing the publisher. Downsides: the flow is less obvious when reading code, and in-memory events are lost on crash.</p></details>
+  <details><summary>Q7. Is @EventListener synchronous or asynchronous?</summary>
+    <p>Synchronous by default: listeners run on the publisher's thread, inside its transaction, before <code>publishEvent()</code> returns. An exception in a listener propagates to the publisher.
+    Add <code>@Async</code> to make it asynchronous (or configure an async multicaster).</p></details>
+  <details><summary>Q8. What is @TransactionalEventListener and when would you use it?</summary>
+    <p>A listener bound to the publisher's transaction. It runs in a chosen phase: <code>AFTER_COMMIT</code> (default), <code>AFTER_ROLLBACK</code>, <code>AFTER_COMPLETION</code> or <code>BEFORE_COMMIT</code>.
+    Use it for side effects that must only happen if the data was really saved, like emails or messages to other systems. Without an active transaction it is not called unless <code>fallbackExecution = true</code>.</p></details>
+  <details><summary>Q9. Your scheduled job runs three times in production. Why, and how do you fix it?</summary>
+    <p>Each of the three application instances has its own scheduler. Fixes: a distributed lock (ShedLock), enabling scheduling on only one instance via a property/profile,
+    moving the job to an external scheduler (Kubernetes CronJob), or Quartz in clustered mode. Also make the job idempotent.</p></details>
+  <details><summary>Q10. What is lost when work moves to an @Async thread?</summary>
+    <p>Thread-bound context: the current transaction, the Spring Security <code>SecurityContext</code>, MDC logging values and request attributes. Pass the needed data as parameters, use a <code>TaskDecorator</code>
+    to copy MDC/security context, and never pass managed JPA entities to another thread.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../51-Caching-With-Redis/lesson.html"><small>← Previous</small>51. Caching with Redis</a>
+    <a class="next" href="../53-Actuator-Monitoring-And-Observability/lesson.html"><small>Next →</small>53. Actuator, Monitoring &amp; Observability</a>
+  </nav>
+</main>
+</body>
+</html>

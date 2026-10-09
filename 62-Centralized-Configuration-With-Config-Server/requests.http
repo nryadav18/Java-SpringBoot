@@ -1,0 +1,42 @@
+### Topic 62 - Config Server
+### Start: config-server (8888) -> product-service (8081)
+
+### ---------- Ask the Config Server directly ----------
+
+### 1. Config for product-service, default profile (JSON: a list of property sources)
+GET http://localhost:8888/product-service/default
+
+### 2. Config for product-service, dev profile (dev file listed FIRST = highest priority)
+GET http://localhost:8888/product-service/dev
+
+### 3. The merged result as a YAML file
+GET http://localhost:8888/product-service-dev.yml
+
+### 4. Encrypt a secret (paste the result into config-repo as '{cipher}<result>')
+POST http://localhost:8888/encrypt
+Content-Type: text/plain
+
+my-super-secret
+
+### ---------- The client: product-service ----------
+
+### 5. Where did my values come from? (welcome message, company, profile)
+GET http://localhost:8081/api/message
+
+### 6. Prices with the centrally configured discount
+GET http://localhost:8081/api/products
+
+### 7. Feature flag: 404 by default, works with the dev profile
+GET http://localhost:8081/api/products/new-arrivals
+
+### 8. Did we receive the decrypted secret? (masked)
+GET http://localhost:8081/api/products/secret-check
+
+### 9. LIVE RELOAD: edit config-repo/product-service.yml, save, then:
+POST http://localhost:8081/actuator/refresh
+
+### 10. ...and check again (beanCreatedAt changes because of @RefreshScope)
+GET http://localhost:8081/api/message
+
+### 11. DEV ONLY: see every property and the file it came from
+GET http://localhost:8081/actuator/env/shop.discount-percent

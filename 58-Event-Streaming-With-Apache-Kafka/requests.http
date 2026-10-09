@@ -1,0 +1,37 @@
+### Topic 58 - Kafka sample requests (VS Code "REST Client" extension)
+### Start Kafka first:  docker compose up -d     then: mvn spring-boot:run
+### Watch the app log: SENT ... partition=.. offset=..  /  NOTIFY ...  /  ANALYTICS ...
+@base = http://localhost:8080
+
+### 1. Create an order -> CREATED event (copy the orderId from the response)
+POST {{base}}/api/orders
+Content-Type: application/json
+
+{ "customerName": "Asha", "amount": 899.99 }
+
+### 2. Pay the order (replace the id) -> same key -> same partition -> kept in order
+POST {{base}}/api/orders/PUT-ORDER-ID-HERE/status/PAID?customerName=Asha
+
+### 3. Ship the order
+POST {{base}}/api/orders/PUT-ORDER-ID-HERE/status/SHIPPED?customerName=Asha
+
+### 4. Analytics counters (consumer group "analytics-service")
+GET {{base}}/api/analytics
+
+### 5. Temporary failure -> 3 attempts, then the record goes to orders.DLT
+POST {{base}}/api/orders
+Content-Type: application/json
+
+{ "customerName": "fail", "amount": 10 }
+
+### 6. Invalid data (negative amount) -> NOT retried, straight to orders.DLT
+POST {{base}}/api/orders
+Content-Type: application/json
+
+{ "customerName": "Ravi", "amount": -5 }
+
+### 7. Validation error -> 400, nothing is sent to Kafka
+POST {{base}}/api/orders
+Content-Type: application/json
+
+{ "customerName": "" }

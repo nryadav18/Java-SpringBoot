@@ -1,0 +1,63 @@
+### Topic 38 - Product CRUD API (VS Code "REST Client" extension: click "Send Request")
+@base = http://localhost:8080/api/products
+
+### 1. List all products (3 are seeded at startup)
+GET {{base}}
+
+### 2. Count products
+GET {{base}}/count
+
+### 3. Get one product
+GET {{base}}/1
+
+### 4. Get a product that does not exist -> 404 ProblemDetail
+GET {{base}}/99
+
+### 5. Create a product -> 201 Created + Location header
+POST {{base}}
+Content-Type: application/json
+
+{
+  "name": "USB-C Hub",
+  "description": "7 ports, 100W pass-through",
+  "sku": "HUB-007",
+  "price": 34.90,
+  "stock": 25
+}
+
+### 6. Create with invalid data -> 400 with fieldErrors
+POST {{base}}
+Content-Type: application/json
+
+{
+  "name": "",
+  "sku": "X",
+  "price": 0,
+  "stock": -1
+}
+
+### 7. Create with a duplicate SKU -> 409 Conflict
+POST {{base}}
+Content-Type: application/json
+
+{
+  "name": "Another mouse",
+  "sku": "MOU-001",
+  "price": 10.00,
+  "stock": 1
+}
+
+### 8. Update product 4 (watch updatedAt change, createdAt stays)
+PUT {{base}}/4
+Content-Type: application/json
+
+{
+  "name": "USB-C Hub Pro",
+  "description": "8 ports",
+  "sku": "HUB-007",
+  "price": 39.90,
+  "stock": 20
+}
+
+### 9. Delete product 4 -> 204 No Content
+DELETE {{base}}/4

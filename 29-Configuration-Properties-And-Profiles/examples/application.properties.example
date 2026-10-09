@@ -1,0 +1,31 @@
+# =====================================================================
+# Topic 29 - REFERENCE ONLY (not loaded by the app; it lives outside src/)
+# This is EXACTLY the same configuration as src/main/resources/application.yml,
+# written in the older ".properties" format, so you can compare both styles.
+# Rule: each YAML level becomes a dot. Lists become [0], [1], ...
+# Do NOT keep both application.properties and application.yml in one project
+# unless you know why - both are loaded and it gets confusing.
+# =====================================================================
+
+spring.application.name=config-props
+spring.profiles.active=dev
+
+server.port=8080
+
+shop.name=ShopEasy
+shop.currency=INR
+shop.discount-percent=5
+shop.max-items-per-order=10
+shop.session-timeout=30m
+shop.welcome-message=Welcome to ShopEasy - happy shopping!
+shop.supported-payment-methods[0]=UPI
+shop.supported-payment-methods[1]=CARD
+shop.supported-payment-methods[2]=CASH_ON_DELIVERY
+# a comma-separated value also works for lists:
+# shop.supported-payment-methods=UPI,CARD,CASH_ON_DELIVERY
+shop.contact.email=support@shopeasy.example
+shop.contact.phone=+91-98765-43210
+
+features.new-checkout=false
+
+payment.api-key=${PAYMENT_API_KEY:not-set}

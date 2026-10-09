@@ -1,0 +1,72 @@
+### Topic 33 - Employee Management API
+### Use with the VS Code "REST Client" extension: click "Send Request" above each request.
+
+@baseUrl = http://localhost:8080/api/employees
+
+### 1. List all employees (3 sample employees are loaded at startup)
+GET {{baseUrl}}
+
+### 2. Filter by department (case does not matter)
+GET {{baseUrl}}?department=engineering
+
+### 3. Get one employee - notice: NO salary in the response!
+GET {{baseUrl}}/1
+
+### 4. Create an employee -> 201 Created + Location header
+POST {{baseUrl}}
+Content-Type: application/json
+
+{
+  "firstName": "Kiran",
+  "lastName": "Patel",
+  "email": "kiran.patel@company.com",
+  "department": "Finance",
+  "salary": 72000
+}
+
+### 5. Try to create the SAME email again -> 409 Conflict
+POST {{baseUrl}}
+Content-Type: application/json
+
+{
+  "firstName": "Kiran",
+  "lastName": "Again",
+  "email": "kiran.patel@company.com",
+  "department": "Finance",
+  "salary": 50000
+}
+
+### 6. Try to sneak in "id" and "internalNotes" - both are IGNORED (they are not in the DTO)
+POST {{baseUrl}}
+Content-Type: application/json
+
+{
+  "id": 999,
+  "firstName": "Nisha",
+  "lastName": "Verma",
+  "email": "nisha.verma@company.com",
+  "department": "HR",
+  "salary": 60000,
+  "internalNotes": "trying to set HR notes"
+}
+
+### 7. Update employee 1
+PUT {{baseUrl}}/1
+Content-Type: application/json
+
+{
+  "firstName": "Asha",
+  "lastName": "Rao",
+  "email": "asha.rao@company.com",
+  "department": "Architecture",
+  "salary": 95000
+}
+
+### 8. Department summary (a "report" DTO)
+GET {{baseUrl}}/departments/summary
+
+### 9. Delete employee 2 -> 204 No Content
+DELETE {{baseUrl}}/2
+
+### 10. Get a missing employee -> 404 Not Found
+GET {{baseUrl}}/99

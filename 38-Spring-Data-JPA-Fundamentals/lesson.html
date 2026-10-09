@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>38 · Spring Data JPA Fundamentals</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 38</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>38. Spring Data JPA Fundamentals</h1>
+  <p class="subtitle">Save, read, update and delete Java objects in a database without writing a single line of SQL — and build a complete Product CRUD API on top of it.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="38-Spring-Data-JPA-Fundamentals"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What ORM means and why it exists (objects ↔ tables).</li>
+      <li>The difference between <strong>JPA</strong>, <strong>Hibernate</strong> and <strong>Spring Data JPA</strong>.</li>
+      <li>How to write an entity: <code>@Entity</code>, <code>@Table</code>, <code>@Id</code>, <code>@GeneratedValue</code>, <code>@Column</code>.</li>
+      <li>The 4 entity lifecycle states: transient, managed, detached, removed — and "dirty checking".</li>
+      <li>All the free <code>JpaRepository</code> methods: <code>save</code>, <code>findById</code>, <code>findAll</code>, <code>deleteById</code>, <code>existsById</code>, <code>count</code>.</li>
+      <li><code>spring.jpa.hibernate.ddl-auto</code> values, <code>show-sql</code>, <code>format_sql</code>, and the H2 console.</li>
+      <li>Automatic audit fields with <code>@CreationTimestamp</code> and <code>@UpdateTimestamp</code>.</li>
+      <li>A complete controller → service → repository → database API with DTOs and clean errors.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know:
+    <a href="../33-Layered-Architecture-And-DTOs/lesson.html">Topic 33 · Layers &amp; DTOs</a>,
+    <a href="../35-Global-Exception-Handling/lesson.html">Topic 35 · Exception handling</a> and
+    <a href="../37-Spring-JDBC-With-JdbcTemplate/lesson.html">Topic 37 · JdbcTemplate</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>In topic 19 you wrote raw JDBC: open a connection, write SQL as a String, set parameters one by one, loop over a <code>ResultSet</code>, copy each column into a Java object, close everything. In topic 37, <code>JdbcTemplate</code> removed the connection and closing work — but you <em>still</em> wrote every SQL statement and every <code>RowMapper</code> by hand.</p>
+  <p>Now imagine a real shop with 40 tables: products, customers, orders, payments, reviews... Writing <code>INSERT</code>, <code>UPDATE</code>, <code>SELECT</code> and a mapper for each of them is a lot of boring, repetitive, error-prone code.</p>
+  <p><strong>Spring Data JPA</strong> removes almost all of it. You describe your Java class once with a few annotations, declare one small interface, and you can immediately save, find, update and delete objects. The SQL is generated for you.</p>
+  <div class="callout info"><strong>ℹ️ Where you will see this at work</strong>
+    Spring Data JPA is the <em>most common</em> way Spring Boot applications talk to relational databases (MySQL, PostgreSQL, Oracle, SQL Server). In almost every Spring Boot job interview you will be asked about entities, repositories, <code>ddl-auto</code>, lazy loading and transactions. Topics 38–43 are the "database block" of this course — this lesson is the foundation for all of them.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🌍 Think of a professional translator</strong>
+    You speak English (Java objects). The database speaks a different language (tables, rows and SQL).<br>
+    With raw JDBC you had to learn the database language and speak it yourself, word by word.<br>
+    With JPA you hire a <strong>translator</strong> (Hibernate). You simply say <em>"please keep this Product for me"</em>, and the translator says <code>INSERT INTO products ...</code> to the database. When you ask <em>"give me product 5"</em>, the translator sends a <code>SELECT</code>, reads the answer and hands you back a ready-made <code>Product</code> object.<br>
+    <strong>JPA</strong> is the <em>rule book</em> every translator must follow. <strong>Hibernate</strong> is the actual translator you hired. <strong>Spring Data JPA</strong> is a friendly <em>receptionist</em> in front of the translator: you just fill in a simple form (<code>repository.save(product)</code>) and she handles the conversation for you.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The problem: objects and tables are different worlds</h3>
+  <p>In Java we think in <strong>objects</strong>: a <code>Product</code> has fields, methods, references to other objects. In a relational database we think in <strong>tables</strong>: rows and columns, linked by ids. These two worlds do not match perfectly. People call this the <em>object–relational mismatch</em>.</p>
+  <p><strong>ORM</strong> = <strong>O</strong>bject <strong>R</strong>elational <strong>M</strong>apping. An ORM tool is a library that translates automatically between the two worlds:</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 230" width="720" role="img" aria-label="ORM maps a Java class to a table">
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="10" y="20" width="250" height="190" rx="10"/>
+        <rect x="460" y="20" width="250" height="190" rx="10"/>
+        <line x1="10" y1="58" x2="260" y2="58"/>
+        <line x1="460" y1="58" x2="710" y2="58"/>
+        <line x1="275" y1="115" x2="445" y2="115"/>
+        <polyline points="435,107 445,115 435,123"/>
+        <polyline points="285,107 275,115 285,123"/>
+      </g>
+      <g fill="currentColor" font-family="Consolas, monospace" font-size="15">
+        <text x="25" y="45" font-weight="bold">class Product</text>
+        <text x="25" y="85">Long id</text>
+        <text x="25" y="110">String name</text>
+        <text x="25" y="135">BigDecimal price</text>
+        <text x="25" y="160">int stock</text>
+        <text x="25" y="190" font-size="13">(one object)</text>
+        <text x="475" y="45" font-weight="bold">TABLE products</text>
+        <text x="475" y="85">id  BIGINT (PK)</text>
+        <text x="475" y="110">name  VARCHAR(100)</text>
+        <text x="475" y="135">price DECIMAL(10,2)</text>
+        <text x="475" y="160">stock_quantity INT</text>
+        <text x="475" y="190" font-size="13">(one row)</text>
+        <text x="300" y="100" font-size="14">ORM (Hibernate)</text>
+        <text x="305" y="145" font-size="13">writes the SQL</text>
+      </g>
+    </svg>
+    <figcaption>One class ↔ one table · one field ↔ one column · one object ↔ one row</figcaption>
+  </figure>
+
+  <div class="table-wrap"><table>
+    <tr><th>Java world</th><th>Database world</th></tr>
+    <tr><td>Class <code>Product</code></td><td>Table <code>products</code></td></tr>
+    <tr><td>Field <code>price</code></td><td>Column <code>price</code></td></tr>
+    <tr><td>One <code>Product</code> object</td><td>One row</td></tr>
+    <tr><td>Field annotated <code>@Id</code></td><td>Primary key column</td></tr>
+    <tr><td><code>new Product(...)</code> + <code>save()</code></td><td><code>INSERT INTO products ...</code></td></tr>
+    <tr><td><code>findById(5)</code></td><td><code>SELECT ... WHERE id = 5</code></td></tr>
+    <tr><td><code>product.setPrice(...)</code> inside a transaction</td><td><code>UPDATE products SET price = ...</code></td></tr>
+    <tr><td><code>deleteById(5)</code></td><td><code>DELETE FROM products WHERE id = 5</code></td></tr>
+  </table></div>
+
+  <h3>3.2 JPA vs Hibernate vs Spring Data JPA — three layers</h3>
+  <p>Beginners often mix these three names. They are three <em>layers</em> stacked on top of each other:</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 330" width="640" role="img" aria-label="Layers from your code down to the database">
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="70" y="10" width="500" height="44" rx="8"/>
+        <rect x="70" y="72" width="500" height="44" rx="8" stroke-dasharray="6 4"/>
+        <rect x="70" y="134" width="500" height="44" rx="8" stroke-dasharray="2 4"/>
+        <rect x="70" y="196" width="500" height="44" rx="8"/>
+        <rect x="70" y="258" width="500" height="44" rx="8"/>
+      </g>
+      <g fill="currentColor" font-family="Segoe UI, sans-serif" font-size="15" text-anchor="middle">
+        <text x="320" y="38">Your code: ProductService → productRepository.save(p)</text>
+        <text x="320" y="100">Spring Data JPA — writes the repository class for you</text>
+        <text x="320" y="162">JPA (Jakarta Persistence) — the standard: annotations + EntityManager API</text>
+        <text x="320" y="224">Hibernate — the implementation that generates SQL</text>
+        <text x="320" y="286">JDBC → H2 / MySQL / PostgreSQL database</text>
+      </g>
+    </svg>
+    <figcaption>Each layer uses the one below it. You mostly touch the top two.</figcaption>
+  </figure>
+
+  <div class="table-wrap"><table>
+    <tr><th>Name</th><th>What it is</th><th>Analogy</th><th>Package / artifact</th></tr>
+    <tr><td><strong>JPA</strong> (Jakarta Persistence API)</td><td>A <em>specification</em>: a set of interfaces and annotations (<code>@Entity</code>, <code>@Id</code>, <code>EntityManager</code>). No real code inside.</td><td>The rule book</td><td><code>jakarta.persistence.*</code></td></tr>
+    <tr><td><strong>Hibernate</strong></td><td>The most popular <em>implementation</em> of JPA. It really generates and runs the SQL. (Others: EclipseLink.)</td><td>The translator</td><td><code>org.hibernate.*</code></td></tr>
+    <tr><td><strong>Spring Data JPA</strong></td><td>A Spring project on top of JPA that creates repository classes for you from interfaces.</td><td>The receptionist</td><td><code>org.springframework.data.jpa.*</code></td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ javax vs jakarta</strong>
+    Old tutorials use <code>javax.persistence.Entity</code>. Since Spring Boot 3 the package is <code>jakarta.persistence.Entity</code>. If you copy an old example and it does not compile, change <code>javax</code> to <code>jakarta</code>.</div>
+  <p>One starter brings all three layers (plus the HikariCP connection pool from topic 37):</p>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-data-jpa&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;com.h2database&lt;/groupId&gt;
+    &lt;artifactId&gt;h2&lt;/artifactId&gt;
+    &lt;scope&gt;runtime&lt;/scope&gt;
+&lt;/dependency&gt;</code></pre>
+
+  <h3>3.3 Your first entity</h3>
+  <p>An <strong>entity</strong> is a normal Java class whose objects are stored in a table. You turn a class into an entity with annotations:</p>
+  <pre><span class="file">entity/Product.java (short version)</span><code class="lang-java">@Entity                          // 1. "JPA, please manage this class"
+@Table(name = "products")        // 2. optional: the table name
+public class Product {
+
+    @Id                                                  // 3. primary key
+    @GeneratedValue(strategy = GenerationType.IDENTITY)  // 4. database generates the id
+    private Long id;
+
+    @Column(nullable = false, length = 100)              // 5. column rules
+    private String name;
+
+    private int stock;           // no annotation = still a column called "stock"
+
+    protected Product() { }      // 6. JPA needs a no-argument constructor
+    // ... other constructor, getters, setters
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Annotation</th><th>Meaning</th><th>Required?</th></tr>
+    <tr><td><code>@Entity</code></td><td>Marks the class as a JPA entity. Hibernate will map it to a table.</td><td>Yes</td></tr>
+    <tr><td><code>@Table(name="products")</code></td><td>Chooses the table name. Without it the table is named after the class (<code>product</code>).</td><td>No</td></tr>
+    <tr><td><code>@Id</code></td><td>The primary key field. Every entity needs exactly one.</td><td>Yes</td></tr>
+    <tr><td><code>@GeneratedValue</code></td><td>Let the database/JPA create the id value instead of you.</td><td>No (but usual)</td></tr>
+    <tr><td><code>@Column</code></td><td>Column details: <code>name</code>, <code>nullable</code>, <code>length</code>, <code>unique</code>, <code>precision</code>/<code>scale</code>, <code>updatable</code>.</td><td>No</td></tr>
+    <tr><td><code>@Transient</code></td><td>"Do NOT store this field" (e.g. a calculated value).</td><td>No</td></tr>
+  </table></div>
+  <p>Rules an entity must follow:</p>
+  <ul>
+    <li>A <strong>no-argument constructor</strong> (public or protected). Hibernate first creates an empty object, then fills its fields from the row.</li>
+    <li>Not <code>final</code>, and not a <code>record</code>. Hibernate needs to change fields and sometimes create a subclass (a proxy).</li>
+    <li>Use wrapper type <code>Long</code> for the id, not <code>long</code>. <code>null</code> means "not saved yet"; a primitive would be <code>0</code>, which is confusing.</li>
+  </ul>
+
+  <h3>3.4 <code>@GeneratedValue</code> strategies</h3>
+  <p>Who creates the next id (1, 2, 3...)? You choose a <em>strategy</em>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Strategy</th><th>How it works</th><th>Good for</th></tr>
+    <tr><td><code>IDENTITY</code></td><td>The database column is auto-increment. The id is known only after the <code>INSERT</code>.</td><td>MySQL, H2, SQL Server. Simple and most common for beginners. <strong>Used in this course.</strong></td></tr>
+    <tr><td><code>SEQUENCE</code></td><td>Uses a database <em>sequence</em> object (a number generator). Hibernate can fetch ids in blocks, which allows batch inserts.</td><td>PostgreSQL, Oracle. Best performance.</td></tr>
+    <tr><td><code>TABLE</code></td><td>Uses a special table to store the "next id". Slow (needs locking).</td><td>Almost never — legacy only.</td></tr>
+    <tr><td><code>AUTO</code> (default)</td><td>Hibernate picks one for the database (usually <code>SEQUENCE</code>).</td><td>Quick demos — but be explicit in real code.</td></tr>
+    <tr><td><code>@GeneratedValue(strategy = GenerationType.UUID)</code></td><td>A random UUID like <code>3f2a...</code> (JPA 3.1+). Field type <code>UUID</code>.</td><td>Ids that must be unguessable or created on many servers.</td></tr>
+  </table></div>
+
+  <h3>3.5 Automatic audit fields: <code>@CreationTimestamp</code> / <code>@UpdateTimestamp</code></h3>
+  <p>Almost every business table has "when was this row created?" and "when was it last changed?". Hibernate can fill these for you:</p>
+  <pre><code class="lang-java">@CreationTimestamp                       // set once, at INSERT
+@Column(name = "created_at", updatable = false)
+private LocalDateTime createdAt;
+
+@UpdateTimestamp                         // refreshed at every UPDATE
+@Column(name = "updated_at")
+private LocalDateTime updatedAt;</code></pre>
+  <p>These come from <code>org.hibernate.annotations</code> (Hibernate-specific, not plain JPA). <code>updatable = false</code> is a safety belt: even if someone calls a setter, the column is never changed by an UPDATE.</p>
+  <div class="callout info"><strong>ℹ️ Alternative: Spring Data auditing</strong>
+    Spring Data also offers <code>@CreatedDate</code>, <code>@LastModifiedDate</code>, <code>@CreatedBy</code>, <code>@LastModifiedBy</code> together with <code>@EnableJpaAuditing</code> and <code>@EntityListeners(AuditingEntityListener.class)</code>. It is useful when you also want to record <em>who</em> made the change (with Spring Security, topic 48). For timestamps only, the Hibernate annotations are the simplest.</div>
+
+  <h3>3.6 The repository: an interface with no class</h3>
+  <pre><span class="file">repository/ProductRepository.java</span><code class="lang-java">public interface ProductRepository extends JpaRepository&lt;Product, Long&gt; {
+}</code></pre>
+  <p>That's it. <code>JpaRepository&lt;Product, Long&gt;</code> says: "a repository for <code>Product</code> entities whose <code>@Id</code> is a <code>Long</code>". You remember <code>Repository&lt;T, ID&gt;</code> from topic 12 (Generics) — this is the real thing.</p>
+  <p>At startup Spring Data sees the interface and creates a <strong>proxy</strong> object (topic 27) that implements it. When you call <code>save()</code>, the proxy calls a ready-made class called <code>SimpleJpaRepository</code>, which uses JPA's <code>EntityManager</code>, which uses Hibernate, which sends SQL.</p>
+  <div class="flow">
+    <span class="box">ProductService</span><span class="arrow">→</span>
+    <span class="box alt">Repository proxy</span><span class="arrow">→</span>
+    <span class="box info">SimpleJpaRepository</span><span class="arrow">→</span>
+    <span class="box">EntityManager (Hibernate)</span><span class="arrow">→</span>
+    <span class="box alt">JDBC → H2</span>
+  </div>
+  <p>The interface hierarchy (each level adds methods):</p>
+  <div class="flow">
+    <span class="box info">Repository</span><span class="arrow">→</span>
+    <span class="box info">CrudRepository</span><span class="arrow">→</span>
+    <span class="box info">ListCrudRepository</span><span class="arrow">→</span>
+    <span class="box">JpaRepository</span>
+  </div>
+  <p>(<code>PagingAndSortingRepository</code> is also mixed into <code>JpaRepository</code> — see topic 41.)</p>
+
+  <h3>3.7 The free methods you get</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>Returns</th><th>SQL (roughly)</th><th>Notes</th></tr>
+    <tr><td><code>save(entity)</code></td><td>the saved entity</td><td><code>INSERT</code> or <code>UPDATE</code></td><td>If the id is <code>null</code> → insert (persist). Otherwise → update (merge). <strong>Always use the returned object.</strong></td></tr>
+    <tr><td><code>saveAll(list)</code></td><td><code>List&lt;T&gt;</code></td><td>many INSERT/UPDATE</td><td></td></tr>
+    <tr><td><code>saveAndFlush(entity)</code></td><td>entity</td><td>runs the SQL <em>now</em></td><td>Normally SQL waits until commit; flush sends it immediately.</td></tr>
+    <tr><td><code>findById(id)</code></td><td><code>Optional&lt;T&gt;</code></td><td><code>SELECT ... WHERE id=?</code></td><td>Empty Optional if not found — never <code>null</code> (topic 14).</td></tr>
+    <tr><td><code>findAll()</code></td><td><code>List&lt;T&gt;</code></td><td><code>SELECT * ...</code></td><td>Careful with big tables — use paging (topic 41).</td></tr>
+    <tr><td><code>findAllById(ids)</code></td><td><code>List&lt;T&gt;</code></td><td><code>... WHERE id IN (...)</code></td><td></td></tr>
+    <tr><td><code>existsById(id)</code></td><td><code>boolean</code></td><td><code>SELECT COUNT(*)...</code></td><td>Cheaper than loading the whole entity.</td></tr>
+    <tr><td><code>count()</code></td><td><code>long</code></td><td><code>SELECT COUNT(*)</code></td><td></td></tr>
+    <tr><td><code>deleteById(id)</code></td><td>void</td><td>SELECT then <code>DELETE</code></td><td>Since Spring Data 3 it silently does nothing if the id is missing.</td></tr>
+    <tr><td><code>delete(entity)</code>, <code>deleteAll()</code></td><td>void</td><td><code>DELETE</code></td><td><code>deleteAll()</code> loads every row first — slow on big tables.</td></tr>
+    <tr><td><code>getReferenceById(id)</code></td><td>a lazy proxy</td><td>none (yet)</td><td>Advanced: gives a "placeholder" without a SELECT. Used for relationships (topic 40).</td></tr>
+  </table></div>
+  <p>You can also add your own methods, and Spring builds the query from the <strong>method name</strong>:</p>
+  <pre><code class="lang-java">Optional&lt;Product&gt; findBySku(String sku);   // SELECT ... WHERE sku = ?
+boolean existsBySku(String sku);            // SELECT COUNT(*) &gt; 0 ... WHERE sku = ?</code></pre>
+  <p>These are called <em>derived queries</em>. Topic 39 is entirely about them, plus JPQL and native SQL.</p>
+
+  <h3>3.8 Entity lifecycle states</h3>
+  <p>This is the most important "under the hood" idea in JPA. Hibernate keeps a little notebook of the entities it is currently watching. This notebook is called the <strong>persistence context</strong> (one per transaction, roughly). An entity object is always in one of four states:</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 760 260" width="760" role="img" aria-label="Entity lifecycle state diagram">
+      <defs>
+        <marker id="arr38" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="10" y="100" width="140" height="56" rx="28"/>
+        <rect x="300" y="100" width="150" height="56" rx="28" stroke-width="3"/>
+        <rect x="600" y="20" width="150" height="56" rx="28"/>
+        <rect x="600" y="180" width="150" height="56" rx="28"/>
+        <line x1="150" y1="128" x2="295" y2="128" marker-end="url(#arr38)"/>
+        <path d="M450,112 C520,60 540,48 595,48" marker-end="url(#arr38)"/>
+        <path d="M600,66 C540,90 500,110 455,120" marker-end="url(#arr38)"/>
+        <path d="M450,144 C520,196 540,208 595,208" marker-end="url(#arr38)"/>
+      </g>
+      <g fill="currentColor" font-family="Segoe UI, sans-serif" font-size="15" text-anchor="middle">
+        <text x="80" y="133" font-weight="bold">TRANSIENT</text>
+        <text x="375" y="133" font-weight="bold">MANAGED</text>
+        <text x="675" y="53" font-weight="bold">DETACHED</text>
+        <text x="675" y="213" font-weight="bold">REMOVED</text>
+        <text x="222" y="118" font-size="13">persist / save</text>
+        <text x="80" y="180" font-size="12">new Product(...)</text>
+        <text x="375" y="180" font-size="12">tracked: changes saved</text>
+        <text x="375" y="196" font-size="12">automatically at commit</text>
+        <text x="535" y="32" font-size="12">tx ends / detach / clear</text>
+        <text x="515" y="100" font-size="12">merge</text>
+        <text x="520" y="225" font-size="12">remove / delete</text>
+      </g>
+    </svg>
+    <figcaption>The four states of a JPA entity.</figcaption>
+  </figure>
+
+  <div class="table-wrap"><table>
+    <tr><th>State</th><th>What it means</th><th>How you get there</th></tr>
+    <tr><td><strong>Transient</strong> (new)</td><td>Just a Java object. JPA has never seen it. No row in the database, usually no id.</td><td><code>new Product(...)</code></td></tr>
+    <tr><td><strong>Managed</strong> (persistent)</td><td>Hibernate is watching it. Any change you make is written to the database automatically at the end of the transaction.</td><td><code>save()</code> / <code>persist()</code>, or loading it with <code>findById()</code> inside a transaction</td></tr>
+    <tr><td><strong>Detached</strong></td><td>Has an id and a row exists, but Hibernate stopped watching it. Changes are NOT saved.</td><td>Transaction ended, or <code>detach()</code> / <code>clear()</code></td></tr>
+    <tr><td><strong>Removed</strong></td><td>Scheduled for deletion. The <code>DELETE</code> runs at flush/commit.</td><td><code>delete()</code> / <code>remove()</code></td></tr>
+  </table></div>
+
+  <h4>Dirty checking — updates without <code>save()</code></h4>
+  <p>Because a <em>managed</em> entity is watched, this code really updates the database even though there is no <code>save()</code> call:</p>
+  <pre><code class="lang-java">@Transactional
+public void increasePrice(Long id) {
+    Product p = repository.findById(id).orElseThrow();  // p is MANAGED
+    p.setPrice(p.getPrice().multiply(new BigDecimal("1.10")));
+    // no save() needed: at commit Hibernate compares p with its original snapshot,
+    // sees the price is "dirty" (changed) and sends:  UPDATE products SET price=? ... WHERE id=?
+}</code></pre>
+  <p>This is called <strong>dirty checking</strong>. Calling <code>save()</code> anyway is harmless and many teams do it for readability. But you must understand <em>why</em> it works without it — interviewers love this question.</p>
+  <div class="callout tip"><strong>💡 Flush vs commit</strong>
+    <em>Flush</em> = "send the pending SQL to the database now" (still inside the transaction, can still be rolled back). <em>Commit</em> = "make it permanent". Hibernate flushes automatically before commit and before queries that need fresh data. You rarely call flush yourself.</div>
+
+  <h3>3.9 <code>spring.jpa.hibernate.ddl-auto</code> — who creates the tables?</h3>
+  <p><em>DDL</em> = Data Definition Language: <code>CREATE TABLE</code>, <code>ALTER TABLE</code>, <code>DROP TABLE</code>. Hibernate can generate DDL from your entities. The <code>ddl-auto</code> property decides what it does at startup:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Value</th><th>What happens at startup</th><th>Use it when</th></tr>
+    <tr><td><code>none</code></td><td>Nothing. Hibernate does not touch the schema.</td><td>Production (tables managed by Flyway — topic 43).</td></tr>
+    <tr><td><code>validate</code></td><td>Checks that tables/columns match the entities; fails startup if not. Changes nothing.</td><td>Production, as a safety check.</td></tr>
+    <tr><td><code>update</code></td><td>Adds missing tables/columns. Never drops anything. Can't rename or fix types.</td><td>Quick prototypes only. Dangerous in production.</td></tr>
+    <tr><td><code>create</code></td><td>Drops all tables and creates them fresh. <strong>All data lost.</strong></td><td>Tests, demos.</td></tr>
+    <tr><td><code>create-drop</code></td><td>Like <code>create</code>, and also drops the tables when the app stops.</td><td>In-memory DB, tests. <strong>Default for embedded H2</strong> (we set it explicitly anyway).</td></tr>
+  </table></div>
+  <div class="callout danger"><strong>🛑 Never in production</strong>
+    <code>create</code> or <code>create-drop</code> against a real database deletes all customer data on restart. Even <code>update</code> is risky: it may silently do the wrong thing. In production use <code>validate</code> or <code>none</code> plus a migration tool (Flyway, topic 43).</div>
+
+  <h3>3.10 Seeing the SQL: <code>show-sql</code> and <code>format_sql</code></h3>
+  <pre><span class="file">application.properties</span><code class="lang-properties">spring.jpa.show-sql=true
+spring.jpa.properties.hibernate.format_sql=true</code></pre>
+  <p>Now every statement appears in the console, nicely indented:</p>
+  <pre class="terminal"><code>Hibernate:
+    insert
+    into
+        products
+        (created_at, description, name, price, sku, stock_quantity, updated_at, id)
+    values
+        (?, ?, ?, ?, ?, ?, ?, default)</code></pre>
+  <p>The <code>?</code> are parameters (Hibernate uses <code>PreparedStatement</code> — safe from SQL injection, topic 19). To also see the parameter <em>values</em>, add <code>logging.level.org.hibernate.orm.jdbc.bind=TRACE</code>. <code>show-sql</code> prints to <code>System.out</code>; in real projects teams prefer <code>logging.level.org.hibernate.SQL=DEBUG</code> so it goes through the logging system (topic 30).</p>
+
+  <h3>3.11 The H2 console — look inside the database</h3>
+  <pre><code class="lang-properties">spring.datasource.url=jdbc:h2:mem:shopdb
+spring.h2.console.enabled=true</code></pre>
+  <ol>
+    <li>Start the app and open <a href="http://localhost:8080/h2-console">http://localhost:8080/h2-console</a>.</li>
+    <li>JDBC URL: <code>jdbc:h2:mem:shopdb</code> (must match exactly!), User Name: <code>sa</code>, Password: empty.</li>
+    <li>Click <em>Connect</em>, then run <code>SELECT * FROM PRODUCTS;</code></li>
+  </ol>
+  <p>Create a product via the API and run the SELECT again — you will see the new row. This is the best way to <em>see</em> that JPA really writes to a database.</p>
+
+  <h3>3.12 Why DTOs and not the entity in the API?</h3>
+  <p>You learned this in topic 33, and with JPA it becomes even more important:</p>
+  <ul>
+    <li><strong>Security:</strong> if the controller accepts <code>Product</code> as <code>@RequestBody</code>, a client could send <code>"id": 1</code> or <code>"createdAt"</code> and overwrite data ("mass assignment").</li>
+    <li><strong>Stability:</strong> renaming a column should not break your mobile app's JSON.</li>
+    <li><strong>Lazy loading problems:</strong> entities with relationships can explode when turned into JSON (topic 40).</li>
+  </ul>
+  <div class="flow">
+    <span class="box alt">JSON</span><span class="arrow">→</span>
+    <span class="box">ProductRequest (record)</span><span class="arrow">→</span>
+    <span class="box info">Service builds Product entity</span><span class="arrow">→</span>
+    <span class="box">save()</span><span class="arrow">→</span>
+    <span class="box info">ProductResponse (record)</span><span class="arrow">→</span>
+    <span class="box alt">JSON</span>
+  </div>
+
+  <h3>3.13 <code>spring.jpa.open-in-view</code> — one warning you will see</h3>
+  <p>Spring Boot logs a warning at startup if you don't set this property. "Open Session In View" keeps the database session open until the HTTP response is fully written. It sounds convenient, but it hides lazy-loading mistakes and keeps database connections busy for longer. We switch it off (<code>false</code>) and load everything we need inside the service. You'll understand the full reason in topic 40.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder (Java files are under <code>src/main/java/com/course/jpabasics/</code>):</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>Starters: web, data-jpa, validation; H2 database; test.</td></tr>
+    <tr><td><code>application.properties</code></td><td>Datasource URL, H2 console, <code>ddl-auto</code>, <code>show-sql</code>, <code>format_sql</code>, <code>open-in-view</code>.</td></tr>
+    <tr><td><code>entity/Product.java</code></td><td>The entity with all the mapping annotations and audit timestamps.</td></tr>
+    <tr><td><code>repository/ProductRepository.java</code></td><td><code>JpaRepository&lt;Product, Long&gt;</code> + <code>findBySku</code>, <code>existsBySku</code>.</td></tr>
+    <tr><td><code>dto/ProductRequest.java</code></td><td>Input record with validation annotations.</td></tr>
+    <tr><td><code>dto/ProductResponse.java</code></td><td>Output record + <code>from(Product)</code> mapper.</td></tr>
+    <tr><td><code>service/ProductService.java</code></td><td>CRUD logic, <code>Optional.orElseThrow</code>, duplicate check, dirty checking.</td></tr>
+    <tr><td><code>controller/ProductController.java</code></td><td>REST endpoints with correct status codes (201, 204, 404...).</td></tr>
+    <tr><td><code>exception/*.java</code></td><td>Custom exceptions + <code>@RestControllerAdvice</code> returning <code>ProblemDetail</code>.</td></tr>
+    <tr><td><code>config/DataSeeder.java</code></td><td><code>CommandLineRunner</code> that inserts 3 products at startup.</td></tr>
+    <tr><td><code>src/test/.../ProductRepositoryTest.java</code></td><td><code>@DataJpaTest</code> tests: CRUD, derived query, lifecycle states, dirty checking.</td></tr>
+    <tr><td><code>requests.http</code></td><td>Ready-made requests for the REST Client extension.</td></tr>
+  </table></div>
+
+  <h3>4.1 The entity — <code>Product.java</code></h3>
+  <pre><span class="file">entity/Product.java</span><code class="lang-java">@Entity
+@Table(name = "products")
+public class Product {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, length = 100)
+    private String name;
+
+    @Column(length = 500)
+    private String description;
+
+    @Column(nullable = false, unique = true, length = 30)
+    private String sku;
+
+    @Column(nullable = false, precision = 10, scale = 2)  // DECIMAL(10,2)
+    private BigDecimal price;
+
+    @Column(name = "stock_quantity", nullable = false)
+    private int stock;
+
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
+    protected Product() { }   // for JPA only
+
+    public Product(String name, String description, String sku, BigDecimal price, int stock) { ... }
+    // getters + setters (no setId / setCreatedAt on purpose)
+}</code></pre>
+  <ul>
+    <li><code>BigDecimal</code> for money: <code>double</code> has rounding errors (<code>0.1 + 0.2 = 0.30000000000000004</code>). <code>precision = 10, scale = 2</code> means up to 10 digits, 2 after the decimal point.</li>
+    <li><code>name = "stock_quantity"</code>: the Java field and the column can have different names.</li>
+    <li>Even without <code>name</code>, Spring Boot converts camelCase to snake_case: a field <code>createdAt</code> becomes column <code>created_at</code>.</li>
+    <li>The generated table (watch your console at startup):</li>
+  </ul>
+  <pre class="terminal"><code>Hibernate:
+    create table products (
+        price numeric(10,2) not null,
+        stock_quantity integer not null,
+        created_at timestamp(6) not null,
+        id bigint generated by default as identity,
+        updated_at timestamp(6),
+        sku varchar(30) not null unique,
+        name varchar(100) not null,
+        description varchar(500),
+        primary key (id)
+    )</code></pre>
+
+  <h3>4.2 The repository</h3>
+  <pre><span class="file">repository/ProductRepository.java</span><code class="lang-java">public interface ProductRepository extends JpaRepository&lt;Product, Long&gt; {
+    Optional&lt;Product&gt; findBySku(String sku);
+    boolean existsBySku(String sku);
+}</code></pre>
+  <p>No <code>@Repository</code> annotation is needed: Spring Boot finds every interface that extends a Spring Data repository in the package of the main class (and below).</p>
+
+  <h3>4.3 The service — where JPA is used</h3>
+  <pre><span class="file">service/ProductService.java</span><code class="lang-java">@Service
+@Transactional(readOnly = true)
+public class ProductService {
+
+    private final ProductRepository repository;
+
+    public ProductService(ProductRepository repository) { this.repository = repository; }
+
+    public List&lt;ProductResponse&gt; findAll() {
+        return repository.findAll().stream().map(ProductResponse::from).toList();
+    }
+
+    @Transactional
+    public ProductResponse create(ProductRequest request) {
+        if (repository.existsBySku(request.sku())) {
+            throw new DuplicateResourceException("A product with SKU '" + request.sku() + "' already exists");
+        }
+        Product product = new Product(request.name(), request.description(), request.sku(),
+                request.price(), request.stock());   // TRANSIENT
+        Product saved = repository.save(product);    // MANAGED, id filled in
+        return ProductResponse.from(saved);
+    }
+
+    @Transactional
+    public ProductResponse update(Long id, ProductRequest request) {
+        Product product = getProductOrThrow(id);     // MANAGED
+        // ... duplicate SKU check ...
+        product.setName(request.name());
+        product.setPrice(request.price());
+        // ... other setters ...
+        return ProductResponse.from(repository.saveAndFlush(product));
+    }
+
+    private Product getProductOrThrow(Long id) {
+        return repository.findById(id)
+                .orElseThrow(() -&gt; new ResourceNotFoundException("Product", id));
+    }
+}</code></pre>
+  <ul>
+    <li><code>@Transactional(readOnly = true)</code> on the class: all methods run in a read-only transaction by default. Write methods override it with a plain <code>@Transactional</code>. Transactions are explained fully in <a href="../42-Transactions/lesson.html">topic 42</a>; for now: "everything inside the method succeeds together or fails together".</li>
+    <li>In <code>update()</code> the setters alone would be enough (dirty checking). We call <code>saveAndFlush</code> so the <code>UPDATE</code> runs immediately and <code>updatedAt</code> is already filled in the response.</li>
+    <li><code>findById(...).orElseThrow(...)</code> is the standard pattern: missing id → custom exception → 404.</li>
+  </ul>
+
+  <h3>4.4 The controller</h3>
+  <pre><span class="file">controller/ProductController.java</span><code class="lang-java">@PostMapping
+public ResponseEntity&lt;ProductResponse&gt; create(@Valid @RequestBody ProductRequest request) {
+    ProductResponse created = service.create(request);
+    URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+            .path("/{id}").buildAndExpand(created.id()).toUri();
+    return ResponseEntity.created(location).body(created);   // 201 + Location header
+}
+
+@DeleteMapping("/{id}")
+public ResponseEntity&lt;Void&gt; delete(@PathVariable Long id) {
+    service.delete(id);
+    return ResponseEntity.noContent().build();               // 204
+}</code></pre>
+  <p>Nothing JPA-specific here — and that is the point of layers. The controller does not know whether the data lives in a List, JDBC or JPA.</p>
+
+  <h3>4.5 Errors and seed data</h3>
+  <p><code>GlobalExceptionHandler</code> converts <code>ResourceNotFoundException</code> → 404, <code>DuplicateResourceException</code> → 409 and validation errors → 400, all as <code>ProblemDetail</code> JSON (topic 35). <code>DataSeeder</code> is a <code>CommandLineRunner</code> that calls <code>saveAll(List.of(...))</code> so you have 3 products to play with.</p>
+
+  <h3>4.6 The tests — <code>ProductRepositoryTest.java</code></h3>
+  <pre><span class="file">src/test/java/com/course/jpabasics/ProductRepositoryTest.java</span><code class="lang-java">@DataJpaTest
+class ProductRepositoryTest {
+
+    @Autowired ProductRepository repository;
+    @Autowired EntityManager entityManager;
+
+    @Test
+    void entityLifecycleStates() {
+        Product product = newMouse();                       // TRANSIENT
+        assertThat(entityManager.contains(product)).isFalse();
+
+        entityManager.persist(product);                     // MANAGED
+        assertThat(entityManager.contains(product)).isTrue();
+
+        entityManager.flush();
+        entityManager.detach(product);                      // DETACHED
+        assertThat(entityManager.contains(product)).isFalse();
+
+        Product managedCopy = entityManager.merge(product); // a MANAGED copy
+        entityManager.remove(managedCopy);                  // REMOVED
+        entityManager.flush();
+        assertThat(repository.findById(product.getId())).isEmpty();
+    }
+}</code></pre>
+  <p><code>@DataJpaTest</code> starts only the JPA part of Spring with an in-memory database, and rolls back each test's transaction at the end. <code>entityManager.contains(x)</code> answers "is x managed right now?" — a perfect way to <em>see</em> the lifecycle states. The <code>dirtyCheckingUpdatesAutomatically</code> test proves that a setter alone produces an UPDATE.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <h3>In VS Code</h3>
+  <ol>
+    <li><em>File → Open Folder…</em> → <code>D:\Java-SpringBoot\38-Spring-Data-JPA-Fundamentals</code>.</li>
+    <li>Wait for the Java extension to import the Maven project (bottom status bar).</li>
+    <li>Open <code>JpaBasicsApplication.java</code> and click <strong>Run</strong> above <code>main</code> (or use the Spring Boot Dashboard).</li>
+    <li>Open <code>requests.http</code> and click <em>Send Request</em> above each request.</li>
+  </ol>
+  <h3>From the terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\38-Spring-Data-JPA-Fundamentals"
+mvn spring-boot:run</code></pre>
+  <p>Look for these lines in the console: the <code>create table products</code> SQL, the seeder's inserts and finally:</p>
+  <pre class="terminal"><code>INFO ... com.course.jpabasics.config.DataSeeder   : Seeded 3 products</code></pre>
+  <h3>Try the API with curl (PowerShell: use <code>curl.exe</code>)</h3>
+  <pre class="terminal"><code>curl.exe http://localhost:8080/api/products
+
+curl.exe -i -X POST http://localhost:8080/api/products -H "Content-Type: application/json" -d "{\"name\":\"USB-C Hub\",\"description\":\"7 ports\",\"sku\":\"HUB-007\",\"price\":34.90,\"stock\":25}"
+
+curl.exe -X PUT http://localhost:8080/api/products/4 -H "Content-Type: application/json" -d "{\"name\":\"USB-C Hub Pro\",\"description\":\"8 ports\",\"sku\":\"HUB-007\",\"price\":39.90,\"stock\":20}"
+
+curl.exe http://localhost:8080/api/products/99
+
+curl.exe -i -X DELETE http://localhost:8080/api/products/4
+
+curl.exe http://localhost:8080/api/products/count</code></pre>
+  <p>Expected responses (shortened):</p>
+  <pre class="terminal"><code>HTTP/1.1 201
+Location: http://localhost:8080/api/products/4
+{"id":4,"name":"USB-C Hub","description":"7 ports","sku":"HUB-007","price":34.90,"stock":25,
+ "createdAt":"2026-10-09T09:58:54.673256","updatedAt":"2026-10-09T09:58:54.673256"}
+
+{"id":4,"name":"USB-C Hub Pro",...,"createdAt":"2026-10-09T09:58:54.673256","updatedAt":"2026-10-09T09:58:55.454976"}
+
+{"type":"about:blank","title":"Resource not found","status":404,
+ "detail":"Product with id 99 was not found","instance":"/api/products/99"}
+
+HTTP/1.1 204
+
+{"count":3}</code></pre>
+  <p>Notice after the PUT: <code>createdAt</code> stayed the same, <code>updatedAt</code> changed. Hibernate did that for you.</p>
+  <h3>Run the tests</h3>
+  <pre class="terminal"><code>mvn test</code></pre>
+  <pre class="terminal"><code>[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS</code></pre>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: "No default constructor for entity"</strong>
+    You added a constructor with parameters and forgot the no-argument one. Hibernate cannot create the object.<br>
+    <strong>Fix:</strong> add <code>protected Product() { }</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "Not a managed type: class ...Product"</strong>
+    The entity is in a package that is not under the main application class's package, or you used <code>javax.persistence.Entity</code> instead of <code>jakarta.persistence.Entity</code>.<br>
+    <strong>Fix:</strong> put entities under <code>com.course.jpabasics</code> (or a sub-package) and import from <code>jakarta.persistence</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: Ignoring the return value of <code>save()</code></strong>
+    <code>repository.save(product); return product.getId();</code> — for a new entity this usually works, but when <code>save</code> does a <em>merge</em> it returns a <strong>different</strong> object, and changes on the old one are lost.<br>
+    <strong>Fix:</strong> always use the result: <code>Product saved = repository.save(product);</code></div>
+  <div class="callout warn"><strong>⚠️ Mistake: Calling <code>findById(id).get()</code></strong>
+    If the id doesn't exist, <code>.get()</code> throws <code>NoSuchElementException</code> → an ugly 500 error.<br>
+    <strong>Fix:</strong> <code>findById(id).orElseThrow(() -&gt; new ResourceNotFoundException(...))</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: H2 console says "Database not found"</strong>
+    The JDBC URL in the login screen defaults to <code>jdbc:h2:~/test</code>, a different database.<br>
+    <strong>Fix:</strong> type exactly the URL from <code>application.properties</code>: <code>jdbc:h2:mem:shopdb</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: Table or column named with a reserved word</strong>
+    An entity called <code>Order</code> or <code>User</code>, or a field called <code>value</code>/<code>order</code>, creates SQL like <code>create table order</code> — a syntax error, because <code>ORDER</code> is an SQL keyword.<br>
+    <strong>Fix:</strong> <code>@Table(name = "orders")</code>, <code>@Table(name = "app_users")</code>, <code>@Column(name = "sort_order")</code>.</div>
+  <div class="callout danger"><strong>🛑 Mistake: <code>ddl-auto=create</code> on a real database</strong>
+    One restart and all the data is gone.<br>
+    <strong>Fix:</strong> <code>validate</code> or <code>none</code> in production, Flyway for schema changes (topic 43).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: Returning entities from controllers</strong>
+    Works in this tiny example, but leaks internal fields, allows mass assignment and breaks with relationships (infinite JSON, lazy errors — topic 40).<br>
+    <strong>Fix:</strong> request/response DTOs, as in this project.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Entities are internal.</strong> Use DTOs (records) at the API boundary.</li>
+    <li><strong>Repositories only in services.</strong> Controllers call services, services call repositories.</li>
+    <li><strong>Put <code>@Transactional</code> on service methods</strong>, with <code>readOnly = true</code> for reads.</li>
+    <li><strong>Use <code>BigDecimal</code> for money</strong> and <code>java.time</code> types for dates.</li>
+    <li><strong>Be explicit with column rules</strong> (<code>nullable</code>, <code>length</code>, <code>unique</code>) — and validate in DTOs too. The database is the last line of defence.</li>
+    <li><strong>Use <code>Long</code> ids with <code>IDENTITY</code></strong> (MySQL) or <code>SEQUENCE</code> (PostgreSQL). Don't expose sequential ids publicly if they reveal business info — consider UUIDs.</li>
+    <li><strong>Watch the SQL</strong> during development (<code>show-sql</code> or <code>logging.level.org.hibernate.SQL=DEBUG</code>). If you don't know what SQL your code produces, you will have performance surprises.</li>
+    <li><strong>Turn off <code>open-in-view</code></strong> and fetch what you need in the service.</li>
+    <li><strong>Production:</strong> <code>ddl-auto=validate</code> + Flyway migrations.</li>
+    <li><strong>Test repositories with <code>@DataJpaTest</code></strong> — fast and isolated.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>ORM maps classes ↔ tables, fields ↔ columns, objects ↔ rows, and writes the SQL for you.</li>
+    <li>JPA = the standard (rule book), Hibernate = the implementation, Spring Data JPA = generated repositories on top.</li>
+    <li>An entity needs <code>@Entity</code>, an <code>@Id</code> and a no-arg constructor. <code>@GeneratedValue(IDENTITY)</code> lets the DB create ids.</li>
+    <li><code>interface XRepository extends JpaRepository&lt;X, Long&gt;</code> gives you save, findById, findAll, existsById, count, deleteById... for free.</li>
+    <li>Entities are transient, managed, detached or removed. Managed entities are saved automatically at commit (dirty checking).</li>
+    <li><code>ddl-auto</code>: <code>create-drop</code> for learning/tests, <code>validate</code>/<code>none</code> in production.</li>
+    <li><code>show-sql</code> + <code>format_sql</code> and the H2 console let you <em>see</em> what happens.</li>
+    <li><code>@CreationTimestamp</code> / <code>@UpdateTimestamp</code> fill audit fields automatically.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Explore the H2 console.</strong> Start the app, open the H2 console, run <code>SELECT * FROM PRODUCTS</code>. Create a product with the API, run the query again. Then delete it and check once more. Also try <code>SHOW COLUMNS FROM PRODUCTS</code> and compare it with the entity annotations.</p>
+    <details><summary>Hint / solution</summary><p>JDBC URL <code>jdbc:h2:mem:shopdb</code>, user <code>sa</code>. You should see the columns <code>ID, NAME, DESCRIPTION, SKU, PRICE, STOCK_QUANTITY, CREATED_AT, UPDATED_AT</code>. <code>SKU</code> has a unique constraint, <code>NAME</code> is <code>NOT NULL</code> with length 100 — exactly what the <code>@Column</code> annotations said.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Add a new field.</strong> Add a <code>category</code> field (String, max 50, not null) to <code>Product</code>, the request and the response DTOs, and to the seeder. Restart and check the generated <code>create table</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// Product.java
+@Column(nullable = false, length = 50)
+private String category;
+// + constructor parameter, getter, setter
+
+// ProductRequest.java
+@NotBlank @Size(max = 50) String category,
+
+// ProductResponse.java -&gt; add String category and p.getCategory() in from(...)</code></pre>
+    <p>Because <code>ddl-auto=create-drop</code>, the new column appears automatically after restart.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Stock adjustment endpoint.</strong> Add <code>PATCH /api/products/{id}/stock?change=-3</code> that adds <code>change</code> to the stock. If the result would be negative, return 400. Use dirty checking (no <code>save()</code> call).</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// ProductService
+@Transactional
+public ProductResponse adjustStock(Long id, int change) {
+    Product p = getProductOrThrow(id);            // MANAGED
+    int newStock = p.getStock() + change;
+    if (newStock &lt; 0) {
+        throw new IllegalArgumentException("Not enough stock: only " + p.getStock() + " left");
+    }
+    p.setStock(newStock);                         // dirty checking -&gt; UPDATE at commit
+    return ProductResponse.from(p);
+}
+
+// ProductController
+@PatchMapping("/{id}/stock")
+public ProductResponse adjustStock(@PathVariable Long id, @RequestParam int change) {
+    return service.adjustStock(id, change);
+}
+
+// GlobalExceptionHandler
+@ExceptionHandler(IllegalArgumentException.class)
+public ProblemDetail badRequest(IllegalArgumentException ex) {
+    return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. A second entity.</strong> Create a <code>Category</code> entity (<code>id</code>, <code>name</code> unique, <code>description</code>) with its own repository, service, DTOs and controller at <code>/api/categories</code> (GET all, GET one, POST, DELETE). Don't link it to Product yet — relationships come in topic 40.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Entity
+@Table(name = "categories")
+public class Category {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    @Column(nullable = false, unique = true, length = 50)
+    private String name;
+    private String description;
+    protected Category() { }
+    public Category(String name, String description) { this.name = name; this.description = description; }
+    // getters
+}
+
+public interface CategoryRepository extends JpaRepository&lt;Category, Long&gt; {
+    boolean existsByNameIgnoreCase(String name);
+}</code></pre><p>Then copy the structure of <code>ProductService</code>/<code>ProductController</code>. It is a good habit-building exercise: entity → repository → DTOs → service → controller.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Prove the lifecycle yourself.</strong> Write a <code>@DataJpaTest</code> showing that changing a <em>detached</em> entity does NOT update the database, while changing a <em>managed</em> one does.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Test
+void detachedChangesAreNotSaved() {
+    Product p = repository.save(new Product("Pen", null, "PEN-1", new BigDecimal("1.00"), 10));
+    entityManager.flush();
+    entityManager.detach(p);          // DETACHED
+
+    p.setStock(500);                  // change on a detached object
+    entityManager.flush();            // nothing to flush - Hibernate isn't watching p
+    entityManager.clear();
+
+    assertThat(repository.findById(p.getId()).orElseThrow().getStock()).isEqualTo(10);
+}</code></pre><p>Compare with the existing <code>dirtyCheckingUpdatesAutomatically</code> test, where the stock does change.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Switch to Spring Data auditing.</strong> Replace <code>@CreationTimestamp</code>/<code>@UpdateTimestamp</code> with <code>@CreatedDate</code>/<code>@LastModifiedDate</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// 1. On the main class (or a @Configuration class)
+@EnableJpaAuditing
+
+// 2. On the entity
+@Entity
+@EntityListeners(AuditingEntityListener.class)
+public class Product {
+    @CreatedDate
+    @Column(nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @LastModifiedDate
+    private LocalDateTime updatedAt;
+}</code></pre><p>Imports: <code>org.springframework.data.annotation.CreatedDate</code>, <code>LastModifiedDate</code>, <code>org.springframework.data.jpa.domain.support.AuditingEntityListener</code>, <code>org.springframework.data.jpa.repository.config.EnableJpaAuditing</code>. Note: in a <code>@DataJpaTest</code> you must import the config class that has <code>@EnableJpaAuditing</code>.</p></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between JPA, Hibernate and Spring Data JPA?</summary>
+    <p><strong>JPA</strong> (Jakarta Persistence) is a <em>specification</em> — annotations and interfaces like <code>@Entity</code> and <code>EntityManager</code>, with no implementation. <strong>Hibernate</strong> is an <em>implementation</em> (ORM framework) of JPA that actually generates and executes SQL. <strong>Spring Data JPA</strong> is a Spring abstraction on top of JPA that generates repository implementations from interfaces (CRUD methods, derived queries, paging), reducing boilerplate.</p></details>
+  <details><summary>Q2. What is ORM and what problem does it solve?</summary>
+    <p>Object-Relational Mapping translates between objects in code and rows in relational tables. It removes repetitive JDBC code (SQL strings, mapping ResultSets to objects), handles the object/relational mismatch (types, identity, relationships) and adds features like caching, lazy loading and dirty checking.</p></details>
+  <details><summary>Q3. What are the entity lifecycle states?</summary>
+    <p><strong>Transient</strong> (new object, unknown to JPA), <strong>Managed</strong> (in the persistence context; changes are synchronized with the DB at flush/commit), <strong>Detached</strong> (has an identity but is no longer tracked, e.g. after the transaction ends), <strong>Removed</strong> (scheduled for deletion at flush/commit). <code>persist</code>, <code>merge</code>, <code>detach</code> and <code>remove</code> move entities between the states.</p></details>
+  <details><summary>Q4. What is dirty checking?</summary>
+    <p>Hibernate keeps a snapshot of each managed entity when it is loaded. At flush time it compares the current field values with the snapshot and automatically issues UPDATE statements for changed ("dirty") entities. That is why modifying a managed entity inside a transaction is saved without calling <code>save()</code>.</p></details>
+  <details><summary>Q5. What does <code>save()</code> do internally?</summary>
+    <p><code>SimpleJpaRepository.save()</code> checks whether the entity is new (by default: id is null, or version is null). If new, it calls <code>entityManager.persist()</code> and returns the same object; otherwise it calls <code>entityManager.merge()</code>, which returns a (possibly different) managed instance. Therefore you should always use the returned value.</p></details>
+  <details><summary>Q6. Explain the <code>ddl-auto</code> options. Which do you use in production?</summary>
+    <p><code>none</code> (do nothing), <code>validate</code> (check schema matches entities), <code>update</code> (add missing tables/columns), <code>create</code> (drop and recreate), <code>create-drop</code> (create, then drop on shutdown; default for embedded DBs). In production: <code>validate</code> or <code>none</code>, with schema managed by a migration tool such as Flyway or Liquibase.</p></details>
+  <details><summary>Q7. What are the <code>@GeneratedValue</code> strategies?</summary>
+    <p><code>IDENTITY</code> (auto-increment column; id known after insert; disables JDBC batch inserts in Hibernate), <code>SEQUENCE</code> (database sequence; supports pre-allocation and batching; preferred on PostgreSQL/Oracle), <code>TABLE</code> (separate key table; slow), <code>AUTO</code> (provider chooses), and <code>UUID</code> (JPA 3.1).</p></details>
+  <details><summary>Q8. Why does an entity need a no-argument constructor and why can't it be a record?</summary>
+    <p>JPA providers instantiate entities via reflection using the no-arg constructor, then populate fields. They may also create runtime subclasses (proxies) for lazy loading. Records are final and immutable with no no-arg constructor, so they cannot be entities — but they are great as DTOs and projections.</p></details>
+  <details><summary>Q9. What is the difference between <code>findById</code> and <code>getReferenceById</code>?</summary>
+    <p><code>findById</code> hits the database immediately (or the persistence context) and returns an <code>Optional</code>. <code>getReferenceById</code> returns a lazy proxy without querying; the SELECT happens only when you access a non-id field, and it throws <code>EntityNotFoundException</code> then if the row doesn't exist. It is useful for setting foreign keys without loading the related entity.</p></details>
+  <details><summary>Q10. Why should you not expose JPA entities directly in REST APIs?</summary>
+    <p>It couples the API to the database schema, risks mass-assignment (clients setting ids or internal fields), can leak sensitive columns, and with relationships leads to lazy-loading exceptions and infinite JSON recursion. DTOs give a stable, explicit contract.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../37-Spring-JDBC-With-JdbcTemplate/lesson.html"><small>← Previous</small>37. Spring JDBC with JdbcTemplate</a>
+    <a class="next" href="../39-JPA-Queries-Derived-JPQL-Native/lesson.html"><small>Next →</small>39. JPA Queries: Derived, JPQL &amp; Native</a>
+  </nav>
+</main>
+</body>
+</html>

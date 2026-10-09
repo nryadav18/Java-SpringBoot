@@ -1,0 +1,35 @@
+# product-service configuration (Topic 63)
+server:
+  port: 8081
+  error:
+    include-message: always   # put our error text into the JSON error body (Feign's ErrorDecoder logs it)
+
+spring:
+  application:
+    name: product-service      # this is the name Feign / Eureka use to find us
+
+# Eureka is OFF by default so the service runs on its own.
+# Start with --spring.profiles.active=eureka to register with the Eureka server (topic 60, port 8761).
+eureka:
+  client:
+    enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+---
+# ----- "eureka" profile: register with the Eureka server from topic 60 -----
+spring:
+  config:
+    activate:
+      on-profile: eureka
+eureka:
+  client:
+    enabled: true
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+  instance:
+    prefer-ip-address: true

@@ -1,0 +1,17 @@
+### Topic 29 - Configuration Properties & Profiles
+### Start the app first: mvn spring-boot:run   (dev profile -> port 8080)
+### With the prod profile the port is 8081 - change @port below.
+
+@port = 8080
+
+### 1. Values read with @Value
+GET http://localhost:{{port}}/config/welcome
+
+### 2. The type-safe ShopProperties record as JSON
+GET http://localhost:{{port}}/config/shop
+
+### 3. Which profile is active?
+GET http://localhost:{{port}}/config/profile
+
+### 4. Was the PAYMENT_API_KEY environment variable picked up? (masked)
+GET http://localhost:{{port}}/config/secret

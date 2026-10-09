@@ -1,0 +1,20 @@
+### Topic 66 - Docker demo requests (VS Code "REST Client")
+### Works the same whether the app runs with mvn spring-boot:run or inside a container
+### started with: docker run -d --name demo -p 8080:8080 docker-demo:1.0
+
+@app = http://localhost:8080
+
+### 1. Greeting + host name (inside Docker: the container id)
+GET {{app}}/api/hello
+
+### 2. Runtime info: Java version, user (should be "spring", not root), max heap, profiles
+GET {{app}}/api/info
+
+### 3. Health (used by the Docker HEALTHCHECK)
+GET {{app}}/actuator/health
+
+### 4. Kubernetes-style probes (topic 69)
+GET {{app}}/actuator/health/liveness
+
+###
+GET {{app}}/actuator/health/readiness

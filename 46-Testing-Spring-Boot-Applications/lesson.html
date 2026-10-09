@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>46 · Testing Spring Boot Applications</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 46</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~3.5 hours</span>
+  <h1>46. Testing Spring Boot Applications</h1>
+  <p class="subtitle">Write fast unit tests, focused "slice" tests and full integration tests for a Spring Boot API — and measure how much of your code they really cover.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="46-Testing-Spring-Boot-Applications"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>The test pyramid applied to a Spring Boot app: unit → slice → integration.</li>
+      <li>What is inside <code>spring-boot-starter-test</code> (JUnit 5, Mockito, AssertJ, MockMvc, JSONPath...).</li>
+      <li>Unit-testing a service with Mockito: <code>@Mock</code>, <code>@InjectMocks</code>, <code>when</code>, <code>verify</code>, <code>ArgumentCaptor</code>.</li>
+      <li>Testing controllers with <code>@WebMvcTest</code> + <code>MockMvc</code> + <code>@MockitoBean</code> (and why <code>@MockBean</code> is gone).</li>
+      <li>Testing repositories with <code>@DataJpaTest</code> and H2.</li>
+      <li>Full integration tests with <code>@SpringBootTest(webEnvironment = RANDOM_PORT)</code> and <code>TestRestTemplate</code>.</li>
+      <li>The test-slices table, Testcontainers (intro) and code coverage with JaCoCo.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../21-Unit-Testing-With-JUnit5/lesson.html">Topic 21 · JUnit 5 &amp; Mockito basics</a>, <a href="../33-Layered-Architecture-And-DTOs/lesson.html">Topic 33 · Layers</a>, <a href="../38-Spring-Data-JPA-Fundamentals/lesson.html">Topic 38 · Spring Data JPA</a>, <a href="../35-Global-Exception-Handling/lesson.html">Topic 35 · Exception handling</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1 -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Imagine you change one line in <code>BookService</code> on a Friday evening. Did you break the discount rule? The duplicate-ISBN check? The 404 answer? Without tests, the only way to know is to click through everything by hand — or wait for an angry customer on Monday.</p>
+  <p>With a good test suite you type <code>mvn test</code>, wait 30 seconds, and get a clear <strong>green</strong> (everything still works) or <strong>red</strong> (this exact thing broke). That is why:</p>
+  <ul>
+    <li>Every serious company <strong>requires tests</strong> in pull requests. CI pipelines (topic 68) run them on every push and block merging if they fail.</li>
+    <li>Tests let you <strong>refactor without fear</strong>.</li>
+    <li>Tests are <strong>living documentation</strong>: <code>rejectsDuplicateIsbnAndNeverCallsSave()</code> tells a new colleague exactly what the rule is.</li>
+    <li>Interviews for Spring developers almost always include "how do you test a controller / a repository?".</li>
+  </ul>
+  <p>In topic 21 you learned JUnit 5 and Mockito on plain Java. Now we add the <strong>Spring</strong> part: how to test controllers, JSON, validation, repositories and the whole running app.</p>
+
+  <!-- ===================================================== 2 -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🚗 Testing a car before it leaves the factory</strong>
+    <ul>
+      <li><strong>Unit tests</strong> = testing each part alone on a workbench: "Does this brake pad grip with 500 N?" The engine is not even attached. Fast and cheap — the factory does thousands per day. (<em>BookService with a fake repository</em>)</li>
+      <li><strong>Slice tests</strong> = testing one <em>system</em> on a test rig: the whole braking system, with a fake wheel that just measures. (<em>@WebMvcTest = only the web layer; @DataJpaTest = only the database layer</em>)</li>
+      <li><strong>Integration tests</strong> = a test driver takes the complete car around the track. Slow and expensive, so only a few — but it catches problems that appear only when everything is connected. (<em>@SpringBootTest with a real server</em>)</li>
+      <li><strong>Mocks</strong> = crash-test dummies and fake wheels: stand-ins that behave the way you script them, and record what happened to them.</li>
+      <li><strong>Code coverage</strong> = a checklist showing which parts of the car were touched by any test at all.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== 3 -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The test pyramid for Spring Boot</h3>
+  <figure class="diagram">
+    <svg viewBox="0 0 520 260" role="img" aria-label="Test pyramid: many unit tests at the bottom, fewer slice tests in the middle, few integration tests at the top">
+      <polygon points="260,10 330,90 190,90" fill="none" stroke="currentColor" stroke-width="2"/>
+      <polygon points="190,90 330,90 400,170 120,170" fill="none" stroke="currentColor" stroke-width="2"/>
+      <polygon points="120,170 400,170 470,250 50,250" fill="none" stroke="currentColor" stroke-width="2"/>
+      <text x="260" y="65" text-anchor="middle" fill="currentColor" font-size="13">@SpringBootTest</text>
+      <text x="260" y="128" text-anchor="middle" fill="currentColor" font-size="13">@WebMvcTest · @DataJpaTest</text>
+      <text x="260" y="146" text-anchor="middle" fill="currentColor" font-size="11">(slice tests)</text>
+      <text x="260" y="212" text-anchor="middle" fill="currentColor" font-size="13">Unit tests (JUnit + Mockito, no Spring)</text>
+      <text x="485" y="40" fill="currentColor" font-size="11">few · slow</text>
+      <text x="485" y="240" fill="currentColor" font-size="11">many · fast</text>
+    </svg>
+    <figcaption>More tests at the bottom (fast, cheap), fewer at the top (slow, but realistic).</figcaption>
+  </figure>
+  <div class="table-wrap"><table>
+    <tr><th>Level</th><th>Spring context?</th><th>Typical speed</th><th>What it proves</th><th>In this project</th></tr>
+    <tr><td>Unit</td><td>None</td><td>Milliseconds</td><td>Business rules in one class are right</td><td><code>BookServiceTest</code></td></tr>
+    <tr><td>Slice</td><td>Partial (one layer)</td><td>1–5 s (first one)</td><td>The layer works with Spring: JSON, validation, URL mapping / real SQL queries</td><td><code>BookControllerTest</code>, <code>BookRepositoryTest</code></td></tr>
+    <tr><td>Integration</td><td>Full app (+ real server)</td><td>Several seconds</td><td>Everything is wired together correctly, end to end</td><td><code>BookApiIntegrationTest</code></td></tr>
+  </table></div>
+
+  <h3>3.2 What's inside <code>spring-boot-starter-test</code></h3>
+  <p>One dependency (scope <code>test</code>) gives you a complete toolbox:</p>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-test&lt;/artifactId&gt;
+    &lt;scope&gt;test&lt;/scope&gt;    &lt;!-- only on the classpath for src/test, never in the final jar --&gt;
+&lt;/dependency&gt;</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Library</th><th>What for</th><th>You use it as</th></tr>
+    <tr><td><strong>JUnit 5 (Jupiter)</strong></td><td>Running tests</td><td><code>@Test</code>, <code>@BeforeEach</code>, <code>@Nested</code>, <code>@ParameterizedTest</code></td></tr>
+    <tr><td><strong>Mockito</strong></td><td>Fake objects (mocks)</td><td><code>@Mock</code>, <code>when(...).thenReturn(...)</code>, <code>verify(...)</code></td></tr>
+    <tr><td><strong>AssertJ</strong></td><td>Readable assertions</td><td><code>assertThat(x).isEqualTo(y)</code></td></tr>
+    <tr><td><strong>Hamcrest</strong></td><td>Matchers (used by MockMvc)</td><td><code>hasSize(2)</code>, <code>containsString("42")</code></td></tr>
+    <tr><td><strong>Spring Test / Spring Boot Test</strong></td><td>Test contexts, slices, MockMvc, TestRestTemplate</td><td><code>@SpringBootTest</code>, <code>@WebMvcTest</code>, <code>MockMvc</code></td></tr>
+    <tr><td><strong>JSONPath</strong></td><td>Reading values inside JSON</td><td><code>jsonPath("$[0].title")</code></td></tr>
+    <tr><td><strong>JSONassert</strong></td><td>Comparing whole JSON documents</td><td><code>JSONAssert.assertEquals(...)</code></td></tr>
+    <tr><td><strong>Awaitility</strong></td><td>Waiting for async results</td><td><code>await().atMost(5, SECONDS).until(...)</code></td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 The AAA pattern (from topic 21)</strong> Every test has three parts: <strong>Arrange</strong> (prepare data and mocks), <strong>Act</strong> (call the thing you test, once), <strong>Assert</strong> (check the result). Some teams write it as <em>Given / When / Then</em>. Keep the three parts visible with blank lines or comments.</div>
+
+  <h3>3.3 Unit tests with Mockito — no Spring at all</h3>
+  <p>A service has dependencies (a repository). In a unit test we replace them with <strong>mocks</strong>: fake objects whose answers we script, and which remember how they were called.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Mockito tool</th><th>Meaning</th></tr>
+    <tr><td><code>@ExtendWith(MockitoExtension.class)</code></td><td>Lets Mockito process the annotations below (JUnit 5 extension)</td></tr>
+    <tr><td><code>@Mock BookRepository repository</code></td><td>Create a fake repository. By default every method returns empty/null/0/false</td></tr>
+    <tr><td><code>@InjectMocks BookService service</code></td><td>Create a <em>real</em> service and inject the mocks (via constructor)</td></tr>
+    <tr><td><code>when(repo.findById(1L)).thenReturn(Optional.of(b))</code></td><td>"When asked this, answer that" (stubbing)</td></tr>
+    <tr><td><code>thenThrow(...)</code> / <code>thenAnswer(inv -&gt; ...)</code></td><td>Throw an exception / compute the answer</td></tr>
+    <tr><td><code>verify(repo).save(any())</code></td><td>Check that a method <em>was</em> called</td></tr>
+    <tr><td><code>verify(repo, never()).save(any())</code></td><td>Check that it was <em>not</em> called; also <code>times(2)</code></td></tr>
+    <tr><td><code>ArgumentCaptor&lt;Book&gt;</code></td><td>Catch the argument passed to a mock to inspect it</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Why constructor injection makes testing easy</strong> Because <code>BookService</code> receives its repository in the constructor (topic 24), a test can simply write <code>new BookService(mockRepository)</code>. With field injection (<code>@Autowired private BookRepository repo;</code>) you would need reflection or Spring to set it.</div>
+
+  <h3>3.4 <code>@WebMvcTest</code> + <code>MockMvc</code> — testing the web layer</h3>
+  <p><code>@WebMvcTest(BookController.class)</code> starts a <strong>small</strong> Spring context with only what the web layer needs:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Loaded ✅</th><th>Not loaded ❌</th></tr>
+    <tr><td><code>@RestController</code> (the one you name), <code>@RestControllerAdvice</code>, Jackson <code>ObjectMapper</code>, validation, converters, filters, <code>MockMvc</code></td><td><code>@Service</code>, <code>@Repository</code>, <code>@Component</code> (normal beans), DataSource/JPA, the real Tomcat server</td></tr>
+  </table></div>
+  <p>The controller needs a <code>BookService</code>, which isn't loaded — so we provide a mock <em>as a Spring bean</em> with <strong><code>@MockitoBean</code></strong>.</p>
+  <p><strong>MockMvc</strong> sends "pretend" HTTP requests straight into Spring MVC's <code>DispatcherServlet</code> (topic 31). No port, no network — but the full MVC machinery runs: URL mapping, <code>@Valid</code>, JSON conversion, exception handlers.</p>
+  <pre><code class="lang-java">mockMvc.perform(get("/api/books/42"))                     // the request
+       .andExpect(status().isNotFound())                  // the status
+       .andExpect(jsonPath("$.title").value("Book not found"));   // something inside the JSON</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>JSONPath</th><th>Means</th></tr>
+    <tr><td><code>$</code></td><td>The whole JSON (the root)</td></tr>
+    <tr><td><code>$.title</code></td><td>Field <code>title</code> of the root object</td></tr>
+    <tr><td><code>$[0].title</code></td><td><code>title</code> of the first element of a root array</td></tr>
+    <tr><td><code>$.errors.price</code></td><td>Nested field</td></tr>
+    <tr><td><code>jsonPath("$", hasSize(2))</code></td><td>Root array has 2 elements</td></tr>
+  </table></div>
+
+  <h3>3.5 <code>@MockitoBean</code> vs the old <code>@MockBean</code></h3>
+  <p>For years, Spring Boot had <code>@MockBean</code> (package <code>org.springframework.boot.test.mock.mockito</code>). In <strong>Spring Framework 6.2 / Spring Boot 3.4</strong>, the Spring team moved this feature into the core framework under a new name:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Old (deprecated since Boot 3.4)</th><th>New (use this)</th></tr>
+    <tr><td><code>@MockBean</code></td><td><code>@MockitoBean</code> — <code>org.springframework.test.context.bean.override.mockito.MockitoBean</code></td></tr>
+    <tr><td><code>@SpyBean</code></td><td><code>@MockitoSpyBean</code></td></tr>
+  </table></div>
+  <p>They do the same job: create a Mockito mock and <strong>put it into the Spring context</strong>, replacing (or adding) the bean of that type. You'll still see <code>@MockBean</code> in older projects and tutorials — just read it as <code>@MockitoBean</code>. (It is removed in Spring Boot 4.)</p>
+  <div class="callout warn"><strong>⚠️ <code>@Mock</code> vs <code>@MockitoBean</code></strong> <code>@Mock</code> = plain Mockito, for unit tests <em>without</em> Spring. <code>@MockitoBean</code> = a mock that lives <em>inside the Spring context</em>, for slice/integration tests. Using <code>@Mock</code> in a <code>@WebMvcTest</code> does nothing for the controller — Spring doesn't know about it.</div>
+
+  <h3>3.6 <code>@DataJpaTest</code> — testing repositories</h3>
+  <p><code>@DataJpaTest</code> starts only the <strong>persistence slice</strong>: entities, Spring Data repositories, Hibernate, a DataSource. By default it:</p>
+  <ul>
+    <li>Replaces your configured database with an <strong>embedded in-memory database</strong> (H2) — we have H2 on the classpath.</li>
+    <li>Runs every test in a <strong>transaction that is rolled back</strong> afterwards → tests don't leak data into each other.</li>
+    <li>Shows the SQL in the log, and provides <code>TestEntityManager</code> to insert test data directly.</li>
+  </ul>
+  <p>What to test here? <strong>Your</strong> queries: derived methods, <code>@Query</code> JPQL/native, constraints. Don't test <code>save()</code>/<code>findById()</code> — the Spring team already did.</p>
+  <div class="callout info"><strong>ℹ️ Flush!</strong> JPA writes to the database lazily. Constraints (unique, not null) are only checked when SQL is actually sent. Use <code>saveAndFlush(...)</code> or <code>entityManager.flush()</code> in tests that expect a database error.</div>
+
+  <h3>3.7 <code>@SpringBootTest</code> — the full application</h3>
+  <p><code>@SpringBootTest</code> starts the <strong>whole</strong> application context — exactly like <code>main()</code> does. The <code>webEnvironment</code> attribute decides about the web server:</p>
+  <div class="table-wrap"><table>
+    <tr><th><code>webEnvironment</code></th><th>Server</th><th>Use with</th></tr>
+    <tr><td><code>MOCK</code> (default)</td><td>No real server; a mock servlet environment</td><td><code>@AutoConfigureMockMvc</code> + <code>MockMvc</code></td></tr>
+    <tr><td><code>RANDOM_PORT</code></td><td>Real embedded Tomcat on a free random port</td><td><code>TestRestTemplate</code> or <code>WebTestClient</code></td></tr>
+    <tr><td><code>DEFINED_PORT</code></td><td>Real server on <code>server.port</code> (8080)</td><td>Rarely — clashes if 8080 is busy</td></tr>
+    <tr><td><code>NONE</code></td><td>No web at all</td><td>Testing non-web beans with the full context</td></tr>
+  </table></div>
+  <p><strong><code>TestRestTemplate</code></strong> is a test-friendly RestTemplate (topic 45) that is pre-configured with the random port, so you write <code>"/api/books"</code>. And it <strong>doesn't throw</strong> on 4xx/5xx — you just check <code>response.getStatusCode()</code>. <code>@LocalServerPort</code> injects the actual port if you need it.</p>
+  <div class="callout warn"><strong>⚠️ No automatic rollback here</strong> With a real server, requests run on <em>server threads</em>, not in the test's transaction. Clean up yourself (<code>repository.deleteAll()</code> in <code>@AfterEach</code>) or each test must create unique data.</div>
+  <div class="callout tip"><strong>💡 Context caching</strong> Spring caches application contexts between test classes with the <em>same</em> configuration. Every different <code>@MockitoBean</code> set, <code>properties</code> or profile creates a new context (slow). Keep test configuration consistent to keep the suite fast.</div>
+
+  <h3>3.8 The test slices table</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Annotation</th><th>Loads</th><th>Typical tool</th></tr>
+    <tr><td><code>@WebMvcTest</code></td><td>MVC controllers, advice, Jackson, validation</td><td><code>MockMvc</code> + <code>@MockitoBean</code></td></tr>
+    <tr><td><code>@DataJpaTest</code></td><td>JPA entities, repositories, embedded DB, rollback</td><td><code>TestEntityManager</code></td></tr>
+    <tr><td><code>@JdbcTest</code></td><td>DataSource + <code>JdbcTemplate</code> (topic 37)</td><td><code>JdbcTemplate</code></td></tr>
+    <tr><td><code>@JsonTest</code></td><td>Jackson only</td><td><code>JacksonTester</code></td></tr>
+    <tr><td><code>@RestClientTest</code></td><td>RestTemplate/RestClient builders (topic 45)</td><td><code>MockRestServiceServer</code></td></tr>
+    <tr><td><code>@WebFluxTest</code></td><td>WebFlux controllers (topic 55)</td><td><code>WebTestClient</code></td></tr>
+    <tr><td><code>@DataMongoTest</code>, <code>@DataRedisTest</code>, <code>@GraphQlTest</code>...</td><td>Other technologies</td><td>—</td></tr>
+    <tr><td><code>@SpringBootTest</code></td><td>Everything</td><td><code>TestRestTemplate</code>, <code>MockMvc</code></td></tr>
+  </table></div>
+
+  <h3>3.9 Testcontainers (introduction)</h3>
+  <p>H2 is "almost" MySQL/PostgreSQL — but not exactly. SQL functions, data types and constraint behaviour differ. <strong>Testcontainers</strong> starts a <strong>real database in Docker</strong> for your tests and removes it afterwards (we mentioned it in topic 43):</p>
+  <pre><code class="lang-java">@DataJpaTest
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)   // don't swap in H2
+@Testcontainers
+class BookRepositoryMySqlTest {
+
+    @Container
+    @ServiceConnection                         // Boot reads URL/user/password from the container
+    static MySQLContainer&lt;?&gt; mysql = new MySQLContainer&lt;&gt;("mysql:8.4");
+
+    // ... same tests, now against real MySQL
+}</code></pre>
+  <p>It needs Docker running and the test dependencies <code>org.springframework.boot:spring-boot-testcontainers</code>, <code>org.testcontainers:junit-jupiter</code> and <code>org.testcontainers:mysql</code>. It also works for Kafka, RabbitMQ, Redis... Our project stays with H2 so <code>mvn test</code> works without Docker.</p>
+
+  <h3>3.10 Code coverage with JaCoCo</h3>
+  <p><strong>Code coverage</strong> = the percentage of your code that ran during the tests. <strong>JaCoCo</strong> ("Java Code Coverage") is the standard tool. It attaches an agent to the test JVM, records which lines and branches ran, and writes an HTML report.</p>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;plugin&gt;
+    &lt;groupId&gt;org.jacoco&lt;/groupId&gt;
+    &lt;artifactId&gt;jacoco-maven-plugin&lt;/artifactId&gt;
+    &lt;version&gt;0.8.13&lt;/version&gt;
+    &lt;executions&gt;
+        &lt;execution&gt;&lt;id&gt;prepare-agent&lt;/id&gt;&lt;goals&gt;&lt;goal&gt;prepare-agent&lt;/goal&gt;&lt;/goals&gt;&lt;/execution&gt;   &lt;!-- before tests --&gt;
+        &lt;execution&gt;&lt;id&gt;report&lt;/id&gt;&lt;phase&gt;test&lt;/phase&gt;&lt;goals&gt;&lt;goal&gt;report&lt;/goal&gt;&lt;/goals&gt;&lt;/execution&gt;   &lt;!-- after tests --&gt;
+        &lt;execution&gt;
+            &lt;id&gt;check&lt;/id&gt;&lt;goals&gt;&lt;goal&gt;check&lt;/goal&gt;&lt;/goals&gt;                &lt;!-- on mvn verify --&gt;
+            &lt;configuration&gt;
+                &lt;rules&gt;&lt;rule&gt;
+                    &lt;element&gt;BUNDLE&lt;/element&gt;
+                    &lt;limits&gt;&lt;limit&gt;
+                        &lt;counter&gt;LINE&lt;/counter&gt;&lt;value&gt;COVEREDRATIO&lt;/value&gt;&lt;minimum&gt;0.70&lt;/minimum&gt;
+                    &lt;/limit&gt;&lt;/limits&gt;
+                &lt;/rule&gt;&lt;/rules&gt;
+            &lt;/configuration&gt;
+        &lt;/execution&gt;
+    &lt;/executions&gt;
+&lt;/plugin&gt;</code></pre>
+  <p>After <code>mvn test</code>, open <code>target/site/jacoco/index.html</code>. Green lines ran, red lines never ran, yellow means only some branches of an <code>if</code> ran.</p>
+  <div class="callout warn"><strong>⚠️ Coverage is a flashlight, not a grade</strong> 100 % coverage does not mean "no bugs" — a test can run a line without checking anything. Use the report to find <em>untested important logic</em>. Many teams aim for ~70–80 % and focus on services and edge cases.</div>
+
+  <!-- ===================================================== 4 -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td><code>spring-boot-starter-test</code> + JaCoCo (report + 70 % gate)</td></tr>
+    <tr><td><code>book/Book.java</code></td><td>Entity with a unique ISBN</td></tr>
+    <tr><td><code>book/BookRepository.java</code></td><td>Derived queries + one <code>@Query</code> — tested in the JPA slice</td></tr>
+    <tr><td><code>book/BookService.java</code></td><td>Business rules: unique ISBN, discount 1–50 %, rounding</td></tr>
+    <tr><td><code>book/BookController.java</code></td><td>REST endpoints: GET, POST (201 + Location), PATCH discount, DELETE</td></tr>
+    <tr><td><code>book/BookRequest</code>, <code>BookResponse</code>, exceptions</td><td>DTOs with validation; 404 / 409 exceptions</td></tr>
+    <tr><td><code>common/GlobalExceptionHandler.java</code></td><td>ProblemDetail for 404, 409, 400</td></tr>
+    <tr><td><code>config/DataSeeder.java</code></td><td>Sample data, switched by <code>app.seed-data</code> (off in tests)</td></tr>
+    <tr><td><code>test/.../book/BookServiceTest.java</code></td><td>Unit: <code>@Mock</code>, <code>@InjectMocks</code>, <code>verify</code>, <code>ArgumentCaptor</code>, <code>@Nested</code>, <code>@ParameterizedTest</code></td></tr>
+    <tr><td><code>test/.../book/BookControllerTest.java</code></td><td>Web slice: <code>@WebMvcTest</code>, <code>MockMvc</code>, <code>jsonPath</code>, <code>@MockitoBean</code></td></tr>
+    <tr><td><code>test/.../book/BookRepositoryTest.java</code></td><td>JPA slice: <code>@DataJpaTest</code>, <code>TestEntityManager</code>, constraint test</td></tr>
+    <tr><td><code>test/.../BookApiIntegrationTest.java</code></td><td>Full app: <code>@SpringBootTest(RANDOM_PORT)</code>, <code>TestRestTemplate</code>, <code>@LocalServerPort</code></td></tr>
+  </table></div>
+
+  <h3>4.1 The service under test</h3>
+  <pre><span class="file">book/BookService.java</span><code class="lang-java">@Transactional
+public BookResponse create(BookRequest request) {
+    if (repository.existsByIsbn(request.isbn())) {
+        throw new DuplicateIsbnException(request.isbn());          // rule 1
+    }
+    Book book = new Book(request.title().trim(), request.author().trim(), request.isbn(),
+            request.price().setScale(2, RoundingMode.HALF_UP));    // rule 3
+    return BookResponse.from(repository.save(book));
+}
+
+@Transactional
+public BookResponse applyDiscount(Long id, int percent) {
+    if (percent &lt; 1 || percent &gt; MAX_DISCOUNT_PERCENT) {
+        throw new IllegalArgumentException("Discount must be between 1 and " + MAX_DISCOUNT_PERCENT + " percent");   // rule 2
+    }
+    Book book = getOrThrow(id);
+    BigDecimal factor = BigDecimal.valueOf(100 - percent).divide(BigDecimal.valueOf(100));
+    book.setPrice(book.getPrice().multiply(factor).setScale(2, RoundingMode.HALF_UP));
+    return BookResponse.from(repository.save(book));
+}</code></pre>
+
+  <h3>4.2 <code>BookServiceTest</code> — unit tests</h3>
+  <pre><span class="file">src/test/java/com/course/testingdemo/book/BookServiceTest.java</span><code class="lang-java">@ExtendWith(MockitoExtension.class)
+class BookServiceTest {
+
+    @Mock
+    private BookRepository repository;     // fake
+
+    @InjectMocks
+    private BookService service;           // real, with the fake inside
+
+    @Test
+    @DisplayName("rejects a duplicate ISBN and never calls save()")
+    void rejectsDuplicateIsbn() {
+        // Arrange
+        BookRequest request = new BookRequest("Clean Code", "Robert C. Martin", "978-0132350884", new BigDecimal("450.00"));
+        when(repository.existsByIsbn("978-0132350884")).thenReturn(true);
+
+        // Act + Assert
+        assertThatThrownBy(() -&gt; service.create(request))
+                .isInstanceOf(DuplicateIsbnException.class);
+
+        verify(repository, never()).save(any());      // the important part: nothing was saved!
+    }</code></pre>
+  <p>Capturing what was saved:</p>
+  <pre><code class="lang-java">when(repository.existsByIsbn("978-0134757599")).thenReturn(false);
+when(repository.save(any(Book.class))).thenAnswer(invocation -&gt; invocation.getArgument(0));   // echo it back
+
+service.create(new BookRequest("  Refactoring ", " Martin Fowler ", "978-0134757599", new BigDecimal("499.999")));
+
+ArgumentCaptor&lt;Book&gt; captor = ArgumentCaptor.forClass(Book.class);
+verify(repository).save(captor.capture());          // catch the Book passed to save()
+Book saved = captor.getValue();
+assertThat(saved.getTitle()).isEqualTo("Refactoring");             // trimmed
+assertThat(saved.getPrice()).isEqualByComparingTo("500.00");       // rounded</code></pre>
+  <p>Many inputs, one test, with <code>@ParameterizedTest</code>:</p>
+  <pre><code class="lang-java">@ParameterizedTest(name = "{1}% off {0} = {2}")
+@CsvSource({
+        "100.00, 10, 90.00",
+        "450.00, 50, 225.00",
+        "99.99,  1,  98.99",
+        "10.00,  33, 6.70"
+})
+void reducesPrice(String originalPrice, int percent, String expectedPrice) { ... }
+
+@ParameterizedTest(name = "{0}% is rejected")
+@ValueSource(ints = {-5, 0, 51, 100})
+void rejectsInvalidPercent(int percent) { ... }</code></pre>
+  <p><code>@Nested</code> inner classes group the tests per method (<code>findById</code>, <code>create</code>, <code>applyDiscount</code>), so the test report reads like a specification. <code>isEqualByComparingTo</code> compares <code>BigDecimal</code> values ignoring scale (<code>90.0</code> equals <code>90.00</code>) — <code>isEqualTo</code> would fail there!</p>
+
+  <h3>4.3 <code>BookControllerTest</code> — web slice</h3>
+  <pre><span class="file">src/test/java/com/course/testingdemo/book/BookControllerTest.java</span><code class="lang-java">@WebMvcTest(BookController.class)
+class BookControllerTest {
+
+    @Autowired private MockMvc mockMvc;
+    @Autowired private ObjectMapper objectMapper;
+
+    @MockitoBean
+    private BookService bookService;          // mock placed into the Spring context
+
+    @Test
+    void postCreatesBookAndReturns201WithLocation() throws Exception {
+        BookRequest request = new BookRequest("Refactoring", "Martin Fowler", "978-0134757599", new BigDecimal("499.00"));
+        when(bookService.create(any(BookRequest.class)))
+                .thenReturn(new BookResponse(7L, "Refactoring", "Martin Fowler", "978-0134757599", new BigDecimal("499.00")));
+
+        mockMvc.perform(post("/api/books")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))   // Java → JSON
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", containsString("/api/books/7")))
+                .andExpect(jsonPath("$.id").value(7));
+    }
+
+    @Test
+    void postWithInvalidBodyReturns400AndNeverCallsService() throws Exception {
+        String invalidJson = """
+                { "title": "", "author": "Someone", "isbn": "123", "price": -1 }
+                """;
+        mockMvc.perform(post("/api/books").contentType(MediaType.APPLICATION_JSON).content(invalidJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.title").exists())
+                .andExpect(jsonPath("$.errors.price").exists());
+
+        verify(bookService, never()).create(any());     // validation stopped it before the service
+    }</code></pre>
+  <p>This test proves things a unit test cannot: the URL and HTTP method are mapped, <code>@Valid</code> is active, JSON field names are right, the <code>Location</code> header is built, and the <code>@RestControllerAdvice</code> turns exceptions into the right status codes. <code>.andDo(print())</code> prints the full request and response in the console — great for debugging.</p>
+
+  <h3>4.4 <code>BookRepositoryTest</code> — JPA slice</h3>
+  <pre><span class="file">src/test/java/com/course/testingdemo/book/BookRepositoryTest.java</span><code class="lang-java">@DataJpaTest
+class BookRepositoryTest {
+
+    @Autowired private TestEntityManager entityManager;
+    @Autowired private BookRepository repository;
+
+    @BeforeEach
+    void insertBooks() {
+        entityManager.persist(new Book("Clean Code", "Robert C. Martin", "978-0132350884", new BigDecimal("450.00")));
+        entityManager.persist(new Book("Clean Architecture", "Robert C. Martin", "978-0134494166", new BigDecimal("480.00")));
+        entityManager.persist(new Book("Effective Java", "Joshua Bloch", "978-0134685991", new BigDecimal("599.00")));
+        entityManager.flush();
+    }
+
+    @Test
+    void findByAuthorIsCaseInsensitiveAndSortedByTitle() {
+        List&lt;Book&gt; books = repository.findByAuthorContainingIgnoreCaseOrderByTitleAsc("MARTIN");
+        assertThat(books).extracting(Book::getTitle).containsExactly("Clean Architecture", "Clean Code");
+    }
+
+    @Test
+    void uniqueIsbnIsEnforcedByTheDatabase() {
+        Book duplicate = new Book("Copy", "Someone", "978-0132350884", new BigDecimal("1.00"));
+        assertThatThrownBy(() -&gt; repository.saveAndFlush(duplicate))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+}</code></pre>
+  <p>Each test starts with the same 3 books, because the previous test's changes were rolled back. You'll see an <code>ERROR ... Unique index or primary key violation</code> line in the log during <code>uniqueIsbnIsEnforcedByTheDatabase</code> — that's Hibernate logging the error <em>we expected</em>; the test still passes.</p>
+
+  <h3>4.5 <code>BookApiIntegrationTest</code> — the whole app</h3>
+  <pre><span class="file">src/test/java/com/course/testingdemo/BookApiIntegrationTest.java</span><code class="lang-java">@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "app.seed-data=false")              // no sample data: tests own their data
+class BookApiIntegrationTest {
+
+    @LocalServerPort private int port;
+    @Autowired private TestRestTemplate restTemplate;
+    @Autowired private BookRepository repository;
+
+    @AfterEach
+    void cleanDatabase() { repository.deleteAll(); }
+
+    @Test
+    void fullBookLifecycle() {
+        BookRequest request = new BookRequest("Clean Code", "Robert C. Martin", "978-0132350884", new BigDecimal("450.00"));
+        ResponseEntity&lt;BookResponse&gt; created = restTemplate.postForEntity("/api/books", request, BookResponse.class);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        URI location = created.getHeaders().getLocation();
+        Long id = created.getBody().id();
+
+        ResponseEntity&lt;BookResponse&gt; fetched = restTemplate.getForEntity(location, BookResponse.class);
+        assertThat(fetched.getBody().title()).isEqualTo("Clean Code");
+
+        ResponseEntity&lt;BookResponse&gt; discounted = restTemplate.exchange(
+                "/api/books/{id}/discount?percent=10", HttpMethod.PATCH, null, BookResponse.class, id);
+        assertThat(discounted.getBody().price()).isEqualByComparingTo("405.00");
+
+        ResponseEntity&lt;Void&gt; deleted = restTemplate.exchange("/api/books/{id}", HttpMethod.DELETE, null, Void.class, id);
+        assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+    }
+
+    @Test
+    void unknownBookReturns404() {
+        ResponseEntity&lt;ProblemDetail&gt; response = restTemplate.getForEntity("/api/books/12345", ProblemDetail.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+}</code></pre>
+  <p>Real HTTP, real JSON, real Tomcat, real H2, real transactions. If any wiring is wrong (a missing bean, a wrong property, a broken query), this test shows it.</p>
+
+  <!-- ===================================================== 5 -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 Terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\46-Testing-Spring-Boot-Applications"
+mvn test</code></pre>
+  <p>Expected end of the output:</p>
+  <pre class="terminal"><code>[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0 -- in com.course.testingdemo.book.BookControllerTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0 -- in com.course.testingdemo.book.BookRepositoryTest
+[INFO] Tests run: ..., Failures: 0, Errors: 0, Skipped: 0 -- in applyDiscount
+...
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0 -- in com.course.testingdemo.BookApiIntegrationTest
+[INFO] Tests run: 30, Failures: 0, Errors: 0, Skipped: 0
+[INFO] --- jacoco:0.8.13:report (report) @ testing-demo ---
+[INFO] BUILD SUCCESS</code></pre>
+  <p>Useful variations:</p>
+  <pre class="terminal"><code>mvn test -Dtest=BookServiceTest                     # one class
+mvn test -Dtest=BookControllerTest#deleteReturns204  # one method
+mvn verify                                           # tests + coverage gate (fails below 70 %)
+mvn -q test                                          # quiet: only problems are printed</code></pre>
+  <p>Coverage report: open <code>target\site\jacoco\index.html</code> in your browser (about 85 % of instructions are covered).</p>
+  <h3>5.2 VS Code</h3>
+  <ol>
+    <li>With the "Extension Pack for Java" installed, open the <strong>Testing</strong> view (the flask icon in the left bar).</li>
+    <li>It lists all test classes and methods — click ▶ to run one, or ▶ at the top to run all.</li>
+    <li>In the editor, small ▶ icons appear next to each <code>@Test</code>; right-click → <strong>Debug Test</strong> to stop at breakpoints.</li>
+    <li>Failed tests show the AssertJ message, e.g. <em>expected: "405.00" but was: "400.00"</em>.</li>
+  </ol>
+  <h3>5.3 Run the API itself (optional)</h3>
+  <pre class="terminal"><code>mvn spring-boot:run
+curl http://localhost:8080/api/books
+curl -i -X POST http://localhost:8080/api/books -H "Content-Type: application/json" -d "{\"title\":\"Refactoring\",\"author\":\"Martin Fowler\",\"isbn\":\"978-0134757599\",\"price\":499}"
+curl -X PATCH "http://localhost:8080/api/books/1/discount?percent=10"
+curl http://localhost:8080/api/books/99</code></pre>
+  <pre class="terminal"><code>HTTP/1.1 201
+Location: http://localhost:8080/api/books/4
+{"id":4,"title":"Refactoring","author":"Martin Fowler","isbn":"978-0134757599","price":499.00}
+
+{"type":"about:blank","title":"Book not found","status":404,"detail":"Book with id 99 not found","instance":"/api/books/99"}</code></pre>
+  <p>Or use <code>requests.http</code> in VS Code.</p>
+
+  <!-- ===================================================== 6 -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>@SpringBootTest</code> for everything</strong> Every test starts the whole app; the suite takes minutes.<br><strong>Fix:</strong> unit tests for logic, slices for layers, a few <code>@SpringBootTest</code>s for key flows.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>NoSuchBeanDefinitionException: BookService</code> in a <code>@WebMvcTest</code></strong> Services aren't loaded in the web slice.<br><strong>Fix:</strong> add <code>@MockitoBean private BookService bookService;</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: using <code>@Mock</code> instead of <code>@MockitoBean</code> in a Spring test</strong> (or the other way round).<br><strong>Fix:</strong> <code>@Mock</code> + <code>@ExtendWith(MockitoExtension.class)</code> for plain unit tests; <code>@MockitoBean</code> for tests with a Spring context.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: comparing <code>BigDecimal</code> with <code>isEqualTo</code></strong> <code>new BigDecimal("90.0")</code> is not <em>equal</em> to <code>new BigDecimal("90.00")</code> (different scale).<br><strong>Fix:</strong> <code>isEqualByComparingTo("90.00")</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: tests that depend on each other or on order</strong> Test B only passes if test A ran first and left data behind.<br><strong>Fix:</strong> each test arranges its own data; clean up in <code>@AfterEach</code>; rely on rollback in <code>@DataJpaTest</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: expecting a constraint error without flushing</strong> <code>repository.save(duplicate)</code> passes; the error appears later or never.<br><strong>Fix:</strong> <code>saveAndFlush(...)</code> or <code>entityManager.flush()</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "UnnecessaryStubbingException"</strong> Mockito's strict mode complains that you stubbed something the code never used.<br><strong>Fix:</strong> remove the unused <code>when(...)</code> — it usually means the test doesn't test what you think.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: hard-coding port 8080 in tests</strong> Fails when the app (or another test run) is already using 8080.<br><strong>Fix:</strong> <code>RANDOM_PORT</code> + <code>TestRestTemplate</code> (relative URLs) or <code>@LocalServerPort</code>.</div>
+  <div class="callout danger"><strong>🛑 Mistake: tests without assertions</strong> A test that calls code but checks nothing always passes and gives false confidence (and fake coverage).<br><strong>Fix:</strong> every test must <code>assertThat</code> or <code>verify</code> something meaningful.</div>
+
+  <!-- ===================================================== 7 -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Follow the pyramid</strong>: many fast unit tests, some slice tests, a few integration tests.</li>
+    <li><strong>One behaviour per test</strong>, with a descriptive name: <code>rejectsDuplicateIsbnAndNeverCallsSave</code> or <code>@DisplayName</code>.</li>
+    <li><strong>AAA / Given-When-Then</strong> structure, visible in every test.</li>
+    <li><strong>Test behaviour, not implementation</strong>: assert results and important interactions, not every internal call.</li>
+    <li><strong>Test the edges</strong>: empty lists, 0, negative numbers, max values, nulls, duplicates, not found.</li>
+    <li><strong>Mock only what you own and what is slow/external</strong> (repositories, HTTP clients). Don't mock simple value objects or DTOs.</li>
+    <li><strong>Keep tests independent and repeatable</strong>: no shared mutable state, no dependence on time/order/network (inject a <code>Clock</code> for time-based logic).</li>
+    <li><strong>Prefer Testcontainers</strong> for repository/integration tests against your real database engine in CI.</li>
+    <li><strong>Run tests on every push</strong> (CI, topic 68) and never merge red builds.</li>
+    <li><strong>Use coverage to find gaps</strong>, not as a target to game; review the red lines in services first.</li>
+    <li><strong>Keep the context cache warm</strong>: reuse the same test configuration across classes; avoid unnecessary <code>@DirtiesContext</code>.</li>
+  </ul>
+
+  <!-- ===================================================== 8 -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li><code>spring-boot-starter-test</code> bundles JUnit 5, Mockito, AssertJ, Hamcrest, MockMvc, JSONPath and more.</li>
+    <li>Unit tests use <code>@ExtendWith(MockitoExtension.class)</code>, <code>@Mock</code>, <code>@InjectMocks</code>, <code>when</code>/<code>verify</code> — no Spring, milliseconds.</li>
+    <li><code>@WebMvcTest</code> loads only the web layer; use <code>MockMvc</code> + <code>jsonPath</code>, and <code>@MockitoBean</code> for services.</li>
+    <li><code>@MockitoBean</code>/<code>@MockitoSpyBean</code> replace the deprecated <code>@MockBean</code>/<code>@SpyBean</code> (Boot 3.4+).</li>
+    <li><code>@DataJpaTest</code> loads JPA + embedded H2 and rolls back each test; test your own queries and constraints.</li>
+    <li><code>@SpringBootTest(webEnvironment = RANDOM_PORT)</code> + <code>TestRestTemplate</code> tests the real running app end to end.</li>
+    <li>Testcontainers runs real databases/brokers in Docker for realistic tests.</li>
+    <li>JaCoCo measures coverage (<code>target/site/jacoco/index.html</code>) and can fail the build below a threshold.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9 -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>A missing unit test.</strong> Add a test to <code>BookServiceTest</code>: <code>applyDiscount</code> on an unknown id throws <code>BookNotFoundException</code> and never calls <code>save</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Test
+void applyDiscountOnUnknownBookThrows() {
+    when(repository.findById(77L)).thenReturn(Optional.empty());
+
+    assertThatThrownBy(() -&gt; service.applyDiscount(77L, 10))
+            .isInstanceOf(BookNotFoundException.class);
+
+    verify(repository, never()).save(any());
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>A missing controller test.</strong> In <code>BookControllerTest</code>, test that <code>GET /api/books/1</code> returns 200 and the JSON fields <code>title</code> and <code>isbn</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Test
+void getOneReturnsBook() throws Exception {
+    when(bookService.findById(1L)).thenReturn(
+            new BookResponse(1L, "Clean Code", "Robert C. Martin", "978-0132350884", new BigDecimal("450.00")));
+
+    mockMvc.perform(get("/api/books/1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.title").value("Clean Code"))
+            .andExpect(jsonPath("$.isbn").value("978-0132350884"));
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>New feature, test first (TDD).</strong> Add <code>GET /api/books/search?author=martin</code>. Write the <code>@WebMvcTest</code> test <em>first</em> (it fails: 404/500), then add <code>BookService.searchByAuthor</code> and the controller method until it passes. Also add a unit test for the service method.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// Test first
+@Test
+void searchByAuthor() throws Exception {
+    when(bookService.searchByAuthor("martin")).thenReturn(List.of(
+            new BookResponse(1L, "Clean Code", "Robert C. Martin", "978-0132350884", new BigDecimal("450.00"))));
+
+    mockMvc.perform(get("/api/books/search").param("author", "martin"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$", hasSize(1)))
+            .andExpect(jsonPath("$[0].author").value("Robert C. Martin"));
+}
+
+// Service
+public List&lt;BookResponse&gt; searchByAuthor(String author) {
+    return repository.findByAuthorContainingIgnoreCaseOrderByTitleAsc(author)
+            .stream().map(BookResponse::from).toList();
+}
+
+// Controller (declare it BEFORE or next to "/{id}" - Spring prefers the literal path anyway)
+@GetMapping("/search")
+public List&lt;BookResponse&gt; search(@RequestParam String author) {
+    return service.searchByAuthor(author);
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Integration test for validation.</strong> In <code>BookApiIntegrationTest</code>, POST a book with an empty title and assert status 400 and that the response's <code>errors</code> map contains <code>title</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Test
+void invalidBookReturns400() {
+    BookRequest bad = new BookRequest("", "Someone", "111", new BigDecimal("10.00"));
+
+    ResponseEntity&lt;ProblemDetail&gt; response = restTemplate.postForEntity("/api/books", bad, ProblemDetail.class);
+
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    @SuppressWarnings("unchecked")
+    Map&lt;String, String&gt; errors = (Map&lt;String, String&gt;) response.getBody().getProperties().get("errors");
+    assertThat(errors).containsKey("title");
+    assertThat(repository.count()).isZero();
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>MockMvc in a full context.</strong> Write <code>BookFlowMockMvcTest</code> using <code>@SpringBootTest</code> (default MOCK environment) + <code>@AutoConfigureMockMvc</code> + <code>@Transactional</code>. Create a book with MockMvc, then read it back with MockMvc. Why does <code>@Transactional</code> roll back here but not in <code>BookApiIntegrationTest</code>?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@SpringBootTest(properties = "app.seed-data=false")
+@AutoConfigureMockMvc
+@Transactional
+class BookFlowMockMvcTest {
+
+    @Autowired MockMvc mockMvc;
+
+    @Test
+    void createThenRead() throws Exception {
+        String location = mockMvc.perform(post("/api/books")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title":"DDD","author":"Eric Evans","isbn":"978-0321125217","price":700}
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getHeader("Location");
+
+        mockMvc.perform(get(location))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("DDD"));
+    }
+}</code></pre><p>With the MOCK environment, MockMvc calls the controller <strong>on the test's own thread</strong>, so it joins the test transaction, which Spring rolls back at the end. With <code>RANDOM_PORT</code>, requests are handled by Tomcat threads with their own transactions that commit — the test's transaction can't undo them.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Read the coverage report.</strong> Run <code>mvn test</code>, open <code>target/site/jacoco/index.html</code>, and find red (uncovered) lines in the <code>com.course.testingdemo</code> packages. Write tests to cover them, then raise the JaCoCo minimum to <code>0.85</code> and run <code>mvn verify</code>.</p>
+    <details><summary>Hint / solution</summary><p>Typical uncovered spots: <code>TestingDemoApplication.main</code> (often excluded), the <code>DataSeeder</code> (disabled in tests), and some branches. Options: add a small <code>@SpringBootTest</code> with <code>app.seed-data=true</code> that asserts <code>repository.count() == 3</code>; or exclude classes from coverage:</p><pre><code class="lang-xml">&lt;configuration&gt;
+    &lt;excludes&gt;
+        &lt;exclude&gt;com/course/testingdemo/TestingDemoApplication.class&lt;/exclude&gt;
+    &lt;/excludes&gt;
+&lt;/configuration&gt;</code></pre><p>Put the <code>&lt;configuration&gt;</code> at plugin level so it applies to report and check.</p></details>
+  </div>
+
+  <!-- ===================================================== 10 -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between a unit test and an integration test in Spring Boot?</summary><p>A unit test checks one class in isolation, with dependencies mocked and no Spring context — very fast. An integration test runs several real components together (often the full context with <code>@SpringBootTest</code>, a real database and HTTP) to verify they work together. Slice tests sit in between: a partial context for one layer.</p></details>
+  <details><summary>Q2. What does <code>@WebMvcTest</code> load, and how do you deal with the service dependency?</summary><p>It loads only MVC infrastructure: the specified controllers, <code>@ControllerAdvice</code>, Jackson, validation, converters, filters and <code>MockMvc</code> — not services, repositories or data sources. Missing dependencies like services are provided as mocks with <code>@MockitoBean</code> (formerly <code>@MockBean</code>).</p></details>
+  <details><summary>Q3. <code>@Mock</code> vs <code>@MockitoBean</code> (or <code>@MockBean</code>)?</summary><p><code>@Mock</code> creates a plain Mockito mock, used with <code>MockitoExtension</code> in tests without Spring. <code>@MockitoBean</code> creates a mock and registers it in the Spring <code>ApplicationContext</code>, replacing any bean of that type, so other beans (e.g. the controller) get it injected. <code>@MockitoBean</code> (Spring Framework 6.2) replaces Spring Boot's <code>@MockBean</code>, deprecated in Boot 3.4.</p></details>
+  <details><summary>Q4. What does <code>@DataJpaTest</code> do by default?</summary><p>Configures only JPA components (entities, repositories, EntityManager), replaces the DataSource with an embedded in-memory database if available, enables SQL logging, provides <code>TestEntityManager</code>, and wraps each test in a transaction rolled back at the end. Use <code>@AutoConfigureTestDatabase(replace = NONE)</code> to use a real database (e.g. with Testcontainers).</p></details>
+  <details><summary>Q5. What is MockMvc and how is it different from TestRestTemplate?</summary><p>MockMvc performs requests directly against the <code>DispatcherServlet</code> in a mock servlet environment — no real server or network, same thread as the test. TestRestTemplate sends real HTTP requests to a running embedded server (<code>RANDOM_PORT</code>). MockMvc is faster and allows transactional rollback; TestRestTemplate is more realistic (real serialization over the wire, filters, server behaviour).</p></details>
+  <details><summary>Q6. Explain the <code>webEnvironment</code> options of <code>@SpringBootTest</code>.</summary><p><code>MOCK</code> (default): mock servlet environment, used with MockMvc; <code>RANDOM_PORT</code>: real server on a random free port; <code>DEFINED_PORT</code>: real server on the configured port; <code>NONE</code>: no web environment.</p></details>
+  <details><summary>Q7. Why might Spring tests be slow, and how do you speed them up?</summary><p>Starting application contexts is expensive. Speed up by preferring unit and slice tests, keeping test configuration consistent so Spring's context cache can reuse contexts (each distinct set of <code>@MockitoBean</code>s/properties/profiles creates a new context), avoiding <code>@DirtiesContext</code>, and running tests in parallel where safe.</p></details>
+  <details><summary>Q8. What is Testcontainers and when would you use it?</summary><p>A library that starts throwaway Docker containers (databases, Kafka, Redis...) from tests. Use it for integration/repository tests that must behave exactly like production infrastructure, instead of H2 or fakes. Spring Boot's <code>@ServiceConnection</code> wires connection details automatically.</p></details>
+  <details><summary>Q9. What is code coverage, and is 100 % a good goal?</summary><p>The share of code (lines, branches, instructions) executed by tests, measured by tools like JaCoCo. It's useful to find untested code, but 100 % is rarely worth it and doesn't guarantee correctness — assertions matter more. Teams commonly set a reasonable threshold (e.g. 70–80 %) and focus on critical business logic.</p></details>
+  <details><summary>Q10. How do you test that a method was NOT called, or inspect the argument passed to a mock?</summary><p><code>verify(mock, never()).method(any())</code> checks it was not called (also <code>times(n)</code>, <code>atLeastOnce()</code>). <code>ArgumentCaptor&lt;T&gt;</code> with <code>verify(mock).method(captor.capture())</code> captures the actual argument so you can assert on its fields.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../45-Consuming-External-APIs-RestClient-WebClient/lesson.html"><small>← Previous</small>45. Consuming External APIs: RestClient &amp; WebClient</a>
+    <a class="next" href="../47-Spring-Security-Fundamentals/lesson.html"><small>Next →</small>47. Spring Security Fundamentals</a>
+  </nav>
+</main>
+</body>
+</html>

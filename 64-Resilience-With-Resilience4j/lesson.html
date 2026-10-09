@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>64 · Resilience with Resilience4j</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part F · Microservices &amp; Spring Cloud › Topic 64</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag adv">Part F · Microservices &amp; Spring Cloud</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>64. Resilience with Resilience4j</h1>
+  <p class="subtitle">Keep your service alive and friendly when the services it depends on are slow, broken or overloaded — with circuit breakers, retries, time limits, rate limits and bulkheads.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="64-Resilience-With-Resilience4j"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What a <strong>cascading failure</strong> is and why one slow service can take down a whole system.</li>
+      <li>The <strong>circuit breaker</strong> pattern and its three states: CLOSED → OPEN → HALF_OPEN.</li>
+      <li>The other four Resilience4j modules: <strong>Retry, TimeLimiter, RateLimiter, Bulkhead</strong>.</li>
+      <li>How to use the annotations <code>@CircuitBreaker</code>, <code>@Retry</code>… with <strong>fallback methods</strong>.</li>
+      <li>How to configure everything in YAML and <strong>watch the state live</strong> with Actuator.</li>
+      <li>How the annotations are ordered, and the classic “retry never happens” trap.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know:
+    <a href="../27-Spring-AOP/lesson.html">Topic 27 · AOP (proxies)</a>,
+    <a href="../45-Consuming-External-APIs-RestClient-WebClient/lesson.html">Topic 45 · RestClient</a>,
+    <a href="../53-Actuator-Monitoring-And-Observability/lesson.html">Topic 53 · Actuator</a> and
+    <a href="../63-Inter-Service-Communication-With-OpenFeign/lesson.html">Topic 63 · OpenFeign</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>In a monolith, a method call never “times out” — the code is in the same process. In microservices, every call
+    crosses the network, and the network <strong>will</strong> fail sometimes: a service restarts, a database is slow,
+    a deployment goes wrong, a cloud zone has trouble.</p>
+  <p>The question is not <em>“will a dependency fail?”</em> but <em>“what happens to <strong>my</strong> service when it does?”</em></p>
+  <p>Picture an online store. Product pages show stock levels from <code>inventory-service</code>. One Friday evening
+    inventory's database gets slow and every call takes 30 seconds:</p>
+  <ol>
+    <li>Each product page request in <code>store-service</code> waits 30 s, holding one Tomcat thread (Tomcat has 200 by default).</li>
+    <li>Friday traffic: 50 requests per second. After 4 seconds all 200 threads are waiting.</li>
+    <li>Now <em>every</em> request to the store hangs — even the “About us” page that does not need inventory at all.</li>
+    <li>The API gateway and the mobile backend that call the store also start to hang…</li>
+  </ol>
+  <p>One sick service has knocked over the whole shop. This is a <strong>cascading failure</strong>. Resilience patterns stop
+    the chain reaction: fail <em>fast</em>, give a <em>sensible fallback</em> (“stock: probably available”), and give the sick
+    service time to recover.</p>
+  <div class="callout info"><strong>ℹ️ Where you will see this at work</strong>
+    Netflix made the circuit breaker famous with its library <em>Hystrix</em> (now retired). <strong>Resilience4j</strong> is
+    its modern, lightweight successor and the default choice in Spring Boot 3 projects. Payment gateways, airline booking
+    systems and banks use exactly these patterns, and “how do you handle a failing downstream service?” is one of the
+    most common microservice interview questions.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>⚡ Dominoes and the electric fuse box</strong>
+    <p><strong>The problem — dominoes:</strong> stand dominoes in a row and push the first one. Each one knocks over the next
+      until all are down. Services that wait forever on each other behave the same way: one failure topples the chain.</p>
+    <p><strong>The solution — the fuse (circuit breaker) in your home:</strong></p>
+    <ul>
+      <li>Normally the switch is <strong>closed</strong> — electricity flows (calls go through).</li>
+      <li>A short circuit happens → the breaker <strong>trips open</strong>. Electricity stops at once, so the wires do not catch fire
+        (we stop calling the sick service and answer immediately with a fallback).</li>
+      <li>After a while you carefully flip it back to test: <strong>half open</strong>. If the lights work, it stays on (closed).
+        If it trips again, it goes back to open.</li>
+    </ul>
+    <p>Other everyday versions of today's patterns:</p>
+    <ul>
+      <li><strong>Retry</strong> — the phone line is busy, you call again a few seconds later.</li>
+      <li><strong>Time limiter</strong> — “if the pizza is not here in 30 minutes, I cook noodles instead.”</li>
+      <li><strong>Rate limiter</strong> — a nightclub bouncer lets in only 10 people per minute.</li>
+      <li><strong>Bulkhead</strong> — a ship is split into watertight compartments; one leaking room does not sink the whole ship.</li>
+    </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Cascading failure in a picture</h3>
+  <div class="flow">
+    <span class="box info">Mobile app</span><span class="arrow">→ waits →</span>
+    <span class="box info">API gateway</span><span class="arrow">→ waits →</span>
+    <span class="box alt">store-service<br><small>all threads busy</small></span><span class="arrow">→ waits →</span>
+    <span class="box alt">inventory-service<br><small>slow DB 🔥</small></span>
+  </div>
+  <p>The fix is to put a <strong>protective layer</strong> between store-service and inventory-service that decides, for every call:
+    <em>Should I even try? How long do I wait? Should I try again? What do I answer if it fails?</em></p>
+
+  <h3>3.2 Resilience4j in one table</h3>
+  <p>Resilience4j is a small Java library made of independent modules. You pick only what you need.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Module</th><th>Question it answers</th><th>Annotation</th><th>Exception when it blocks a call</th></tr>
+    <tr><td><strong>CircuitBreaker</strong></td><td>Is this dependency sick? Then stop calling it for a while.</td><td><code>@CircuitBreaker</code></td><td><code>CallNotPermittedException</code></td></tr>
+    <tr><td><strong>Retry</strong></td><td>Was it a short hiccup? Try again.</td><td><code>@Retry</code></td><td>(rethrows the last error)</td></tr>
+    <tr><td><strong>TimeLimiter</strong></td><td>Taking too long? Stop waiting.</td><td><code>@TimeLimiter</code></td><td><code>TimeoutException</code></td></tr>
+    <tr><td><strong>RateLimiter</strong></td><td>Too many calls per second? Reject some.</td><td><code>@RateLimiter</code></td><td><code>RequestNotPermitted</code></td></tr>
+    <tr><td><strong>Bulkhead</strong></td><td>Too many calls at the same moment? Reject extras.</td><td><code>@Bulkhead</code></td><td><code>BulkheadFullException</code></td></tr>
+  </table></div>
+
+  <h3>3.3 The circuit breaker state machine</h3>
+  <figure class="diagram">
+    <svg viewBox="0 0 700 300" width="700" role="img" aria-label="Circuit breaker states: closed, open, half open">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" style="fill: currentColor"/>
+        </marker>
+      </defs>
+      <g style="font: 13px sans-serif; fill: currentColor">
+        <!-- CLOSED -->
+        <circle cx="110" cy="150" r="70" style="fill: var(--accent-soft); stroke: var(--accent); stroke-width: 3"/>
+        <text x="110" y="145" text-anchor="middle" style="font-weight:700">CLOSED</text>
+        <text x="110" y="165" text-anchor="middle" style="font-size:11px">calls go through,</text>
+        <text x="110" y="179" text-anchor="middle" style="font-size:11px">failures are counted</text>
+        <!-- OPEN -->
+        <circle cx="590" cy="150" r="70" style="fill: var(--danger-soft); stroke: var(--danger); stroke-width: 3"/>
+        <text x="590" y="145" text-anchor="middle" style="font-weight:700">OPEN</text>
+        <text x="590" y="165" text-anchor="middle" style="font-size:11px">calls rejected at once</text>
+        <text x="590" y="179" text-anchor="middle" style="font-size:11px">→ fallback</text>
+        <!-- HALF OPEN -->
+        <circle cx="350" cy="235" r="58" style="fill: var(--warn-soft); stroke: var(--warn); stroke-width: 3"/>
+        <text x="350" y="230" text-anchor="middle" style="font-weight:700">HALF_OPEN</text>
+        <text x="350" y="250" text-anchor="middle" style="font-size:11px">a few trial calls</text>
+        <!-- arrows -->
+        <path d="M170,110 Q350,20 530,110" style="fill:none; stroke: currentColor; stroke-width:2" marker-end="url(#arr)"/>
+        <text x="350" y="48" text-anchor="middle" style="font-size:12px">failure rate ≥ threshold (e.g. 50 %)</text>
+        <text x="350" y="64" text-anchor="middle" style="font-size:12px">or slow-call rate ≥ threshold</text>
+        <path d="M560,212 Q500,265 410,250" style="fill:none; stroke: currentColor; stroke-width:2" marker-end="url(#arr)"/>
+        <text x="560" y="262" style="font-size:12px">wait duration over</text>
+        <text x="560" y="277" style="font-size:12px">(e.g. 10 s)</text>
+        <path d="M292,240 Q200,250 150,212" style="fill:none; stroke: var(--accent); stroke-width:2" marker-end="url(#arr)"/>
+        <text x="120" y="268" style="font-size:12px">trial calls OK → CLOSED</text>
+        <path d="M398,205 Q470,170 522,165" style="fill:none; stroke: var(--danger); stroke-width:2" marker-end="url(#arr)"/>
+        <text x="405" y="160" style="font-size:12px">trial calls fail → OPEN</text>
+      </g>
+    </svg>
+    <figcaption>The three main states of a Resilience4j circuit breaker. (There are also special states DISABLED, FORCED_OPEN and METRICS_ONLY that you can set by hand.)</figcaption>
+  </figure>
+  <div class="table-wrap"><table>
+    <tr><th>State</th><th>What happens to a call</th><th>How it leaves this state</th></tr>
+    <tr><td><strong>CLOSED</strong> (healthy)</td><td>Goes to the downstream. Result (success / failure / slow) is recorded in a <em>sliding window</em>.</td><td>When the window has at least <code>minimum-number-of-calls</code> and the failure rate (or slow rate) reaches the threshold → OPEN.</td></tr>
+    <tr><td><strong>OPEN</strong> (tripped)</td><td>Rejected <em>immediately</em> with <code>CallNotPermittedException</code> — no network call. Fallback answers in ~1 ms.</td><td>After <code>wait-duration-in-open-state</code> → HALF_OPEN.</td></tr>
+    <tr><td><strong>HALF_OPEN</strong> (testing)</td><td>Only <code>permitted-number-of-calls-in-half-open-state</code> calls go through; others are rejected.</td><td>If those trial calls are mostly OK → CLOSED; otherwise → OPEN again.</td></tr>
+  </table></div>
+  <p><strong>Why is fail-fast good?</strong> Two reasons. (1) <em>Our</em> threads are free again — the store stays fast.
+    (2) The sick service gets a break instead of being hammered by thousands of calls while it tries to recover.</p>
+
+  <h3>3.4 The sliding window</h3>
+  <p>The breaker judges health using recent calls only:</p>
+  <ul>
+    <li><code>COUNT_BASED</code> — the last <strong>N calls</strong> (e.g. last 6). Good for steady traffic.</li>
+    <li><code>TIME_BASED</code> — the calls of the last <strong>N seconds</strong>. Good when traffic goes up and down.</li>
+  </ul>
+  <p>Example with window 6, minimum 4 calls, threshold 50 %:</p>
+  <div class="flow">
+    <span class="box">✔</span><span class="box alt">✘</span><span class="box alt">✘</span><span class="box alt">✘</span>
+    <span class="arrow">→ 4 calls, 3 failed = 75 % ≥ 50 %</span><span class="box alt">OPEN!</span>
+  </div>
+  <p>Which errors count as “failure”? You decide with <code>record-exceptions</code> and <code>ignore-exceptions</code>.
+    A <strong>404 or 400</strong> is usually <em>our</em> mistake, not a sick service → ignore it. A <strong>500 or a timeout</strong> → record it.</p>
+
+  <h3>3.5 Retry</h3>
+  <p>Many failures are short: a pod restarting, a lost network packet. Trying again after a small pause often works.</p>
+  <pre><code class="lang-yaml">resilience4j:
+  retry:
+    instances:
+      inventory:
+        max-attempts: 3                    # 1 normal try + 2 retries
+        wait-duration: 500ms
+        enable-exponential-backoff: true   # 500 ms, 1 s, 2 s ...
+        exponential-backoff-multiplier: 2
+        retry-exceptions:                  # only errors that may go away by themselves
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.ResourceAccessException
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException   # 4xx: retrying will not help</code></pre>
+  <div class="callout warn"><strong>⚠️ Retry is a double-edged sword</strong>
+    <ul>
+      <li>If 1 000 clients each retry 3 times, the struggling service suddenly receives 3 000 calls — a <em>retry storm</em>. Use backoff (growing waits), maybe with random <em>jitter</em>, and few attempts.</li>
+      <li>Only retry <strong>idempotent</strong> operations (safe to repeat: GET, or POST with an idempotency key). Retrying “charge credit card” may charge twice!</li>
+    </ul></div>
+
+  <h3>3.6 TimeLimiter</h3>
+  <p>A time limiter stops <em>waiting</em> after a fixed time. Because it must be able to walk away from a call that is
+    still running, it works on <strong>asynchronous</strong> results: the method must return a <code>CompletableFuture</code>
+    (or a reactive <code>Mono</code>/<code>Flux</code>).</p>
+  <pre><code class="lang-java">@TimeLimiter(name = "inventorySlow", fallbackMethod = "stockAsyncFallback")
+public CompletableFuture&lt;StockInfo&gt; getStockWithTimeLimit(String sku) {
+    return CompletableFuture.supplyAsync(() -&gt; inventoryClient.fetchStock(sku));
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ TimeLimiter vs HTTP read timeout</strong>
+    For plain blocking HTTP calls, the simplest “time limit” is the <strong>read timeout</strong> on the HTTP client
+    (topic 63 for Feign, <code>SimpleClientHttpRequestFactory.setReadTimeout</code> for RestClient). Always set it.
+    <code>@TimeLimiter</code> is for async code or when you need a fallback for “too slow”. Note: when it gives up, the
+    background work may keep running until the HTTP read timeout ends it — so keep both.</div>
+
+  <h3>3.7 RateLimiter</h3>
+  <p>Limits how many calls are allowed <strong>per time period</strong>: “3 calls per 10 seconds”. Use it to protect an expensive
+    operation, to respect a partner API's quota (“max 100 calls per minute”), or to stop one client from flooding you.</p>
+  <pre><code class="lang-yaml">resilience4j:
+  ratelimiter:
+    instances:
+      deals:
+        limit-for-period: 3          # permits per period
+        limit-refresh-period: 10s    # length of a period
+        timeout-duration: 0          # do not wait for a permit, reject at once</code></pre>
+
+  <h3>3.8 Bulkhead</h3>
+  <p>Limits how many calls run <strong>at the same moment</strong>. If report generation is heavy, allow only 2 at a time; the 3rd
+    caller is rejected (or waits a little). This keeps threads free for everything else — one slow feature cannot eat the whole thread pool.</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>RateLimiter</th><th>Bulkhead</th></tr>
+    <tr><td>Limits</td><td>Calls <strong>per time period</strong></td><td>Calls <strong>in progress at once</strong></td></tr>
+    <tr><td>Example</td><td>“max 100 per minute”</td><td>“max 10 at the same time”</td></tr>
+    <tr><td>Protects</td><td>The downstream / a quota</td><td>Our own threads / resources</td></tr>
+  </table></div>
+  <p>Resilience4j has two bulkhead types: <code>SEMAPHORE</code> (default — just a counter, runs on the caller's thread) and
+    <code>THREADPOOL</code> (separate thread pool, needs a <code>CompletableFuture</code> return type).</p>
+
+  <h3>3.9 Fallback methods</h3>
+  <p>A fallback is the “plan B” answer. Rules for a fallback method:</p>
+  <ul>
+    <li>It lives in the <strong>same class</strong> as the protected method.</li>
+    <li>It has the <strong>same return type</strong>.</li>
+    <li>It has the <strong>same parameters, plus one extra exception parameter at the end</strong>.</li>
+    <li>You can write several fallbacks with different exception types; Resilience4j picks the <strong>closest match</strong>.</li>
+  </ul>
+  <pre><code class="lang-java">@Retry(name = "inventory", fallbackMethod = "stockFallback")
+@CircuitBreaker(name = "inventory")
+public StockInfo getStock(String sku) { ... }
+
+// circuit is OPEN - we did not even try
+private StockInfo stockFallback(String sku, CallNotPermittedException ex) { ... }
+
+// any other failure, after retries were used up
+private StockInfo stockFallback(String sku, Exception ex) { ... }</code></pre>
+  <p>Good fallbacks: a cached / last-known value, a default (“stock unknown — order anyway, we will confirm by email”),
+    an empty list, or a clear error. Bad fallback: quietly returning wrong data (e.g. “price = 0”).</p>
+
+  <h3>3.10 Order of the annotations — and the “retry never happens” trap</h3>
+  <p>When several annotations sit on one method, Resilience4j applies them in a fixed order (outermost first):</p>
+  <div class="flow">
+    <span class="box">Retry</span><span class="arrow">(</span>
+    <span class="box alt">CircuitBreaker</span><span class="arrow">(</span>
+    <span class="box info">RateLimiter</span><span class="arrow">(</span>
+    <span class="box info">TimeLimiter</span><span class="arrow">(</span>
+    <span class="box info">Bulkhead</span><span class="arrow">(</span>
+    <span class="box">your method</span><span class="arrow">)))))</span>
+  </div>
+  <p>So every retry attempt passes through the circuit breaker and is counted. Now the trap:</p>
+  <div class="callout danger"><strong>🚨 Fallback on the inner annotation swallows the error</strong>
+    If you write <code>@Retry(name="x") @CircuitBreaker(name="x", fallbackMethod="fb")</code>, the circuit breaker (inner)
+    catches the error and returns the fallback value. The Retry (outer) sees a <em>successful</em> result and never retries.
+    <br><strong>Fix:</strong> put the <code>fallbackMethod</code> on the <strong>outermost</strong> annotation — <code>@Retry</code> — as our code does.</div>
+  <p>You can change the order with properties like <code>resilience4j.retry.retry-aspect-order</code> and
+    <code>resilience4j.circuitbreaker.circuit-breaker-aspect-order</code> (higher number = applied first / outer), but the default is fine for most cases.</p>
+
+  <h3>3.11 Setup with Spring Boot</h3>
+  <pre><span class="file">store-service/pom.xml (dependencies)</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;io.github.resilience4j&lt;/groupId&gt;
+    &lt;artifactId&gt;resilience4j-spring-boot3&lt;/artifactId&gt;
+    &lt;version&gt;2.2.0&lt;/version&gt;
+&lt;/dependency&gt;
+&lt;!-- REQUIRED: the annotations are implemented with Spring AOP --&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-aop&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-actuator&lt;/artifactId&gt;
+&lt;/dependency&gt;</code></pre>
+
+  <h3>3.12 Spring Cloud CircuitBreaker — the alternative way</h3>
+  <p>Spring Cloud offers a vendor-neutral abstraction: <code>spring-cloud-starter-circuitbreaker-resilience4j</code>
+    (with the Spring Cloud 2025.0.0 BOM). Instead of annotations you use a factory in code:</p>
+  <pre><code class="lang-java">@Service
+class StockServiceProgrammatic {
+    private final CircuitBreakerFactory&lt;?, ?&gt; cbFactory;
+    private final InventoryClient client;
+
+    StockServiceProgrammatic(CircuitBreakerFactory&lt;?, ?&gt; cbFactory, InventoryClient client) {
+        this.cbFactory = cbFactory;
+        this.client = client;
+    }
+
+    StockInfo getStock(String sku) {
+        return cbFactory.create("inventory")
+                .run(() -&gt; client.fetchStock(sku),                    // the protected call
+                     throwable -&gt; new StockInfo(sku, -1, "fallback", throwable.getMessage()));
+    }
+}</code></pre>
+  <p>This starter is also what powers <strong>Feign fallbacks</strong> (<code>spring.cloud.openfeign.circuitbreaker.enabled=true</code>, topic 63).
+    Both approaches use the same Resilience4j engine. This lesson uses the direct <code>resilience4j-spring-boot3</code>
+    annotations because they cover all five modules with the least code.</p>
+
+  <h3>3.13 Watching it live with Actuator</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Endpoint</th><th>Shows</th></tr>
+    <tr><td><code>/actuator/circuitbreakers</code></td><td>State, failure rate, buffered/failed/not-permitted calls of each breaker</td></tr>
+    <tr><td><code>/actuator/circuitbreakerevents</code></td><td>History: SUCCESS, ERROR, STATE_TRANSITION, NOT_PERMITTED…</td></tr>
+    <tr><td><code>/actuator/retries</code>, <code>/actuator/retryevents</code></td><td>Retry instances and their events</td></tr>
+    <tr><td><code>/actuator/ratelimiters</code>, <code>/actuator/bulkheads</code>, <code>/actuator/timelimiters</code></td><td>The other modules</td></tr>
+    <tr><td><code>/actuator/health</code></td><td>Breaker details (with <code>register-health-indicator: true</code>)</td></tr>
+    <tr><td><code>/actuator/metrics/resilience4j.circuitbreaker.state</code></td><td>Micrometer metrics → Prometheus/Grafana dashboards (topic 53)</td></tr>
+  </table></div>
+
+  <!-- ============================================================ -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>inventory-service/…/InventoryController.java</code></td><td>Stock API (port 8083) + <strong>chaos switch</strong> (OK / FAIL / SLOW) + a counter of calls received.</td></tr>
+    <tr><td><code>store-service/…/client/InventoryClient.java</code></td><td>Plain <code>RestClient</code> call with timeouts. No resilience code.</td></tr>
+    <tr><td><code>store-service/…/service/StockService.java</code></td><td>All annotations and fallbacks — the heart of the topic.</td></tr>
+    <tr><td><code>store-service/…/controller/StoreController.java</code></td><td>One endpoint per module (port 8084).</td></tr>
+    <tr><td><code>store-service/…/model/StockInfo.java</code></td><td>Record with a <code>source</code> field (real / fallback) so you can see what happened.</td></tr>
+    <tr><td><code>store-service/src/main/resources/application.yml</code></td><td>All thresholds + actuator exposure.</td></tr>
+    <tr><td><code>requests.http</code></td><td>A guided 17-step demo.</td></tr>
+  </table></div>
+
+  <h3>4.1 The downstream with a chaos switch</h3>
+  <pre><span class="file">inventory-service/…/InventoryController.java (core)</span><code class="lang-java">private final AtomicReference&lt;ChaosMode&gt; mode = new AtomicReference&lt;&gt;(ChaosMode.OK);
+
+@GetMapping("/{sku}")
+public StockResponse getStock(@PathVariable String sku) throws InterruptedException {
+    int callNo = callCounter.incrementAndGet();
+    ChaosMode current = mode.get();
+    log.info("Call #{} for {} (chaos mode = {})", callNo, sku, current);
+
+    if (current == ChaosMode.FAIL) {
+        throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Simulated database crash");
+    }
+    if (current == ChaosMode.SLOW) {
+        Thread.sleep(slowDelayMs.get());
+    }
+    return new StockResponse(sku, stock.getOrDefault(sku, 0), "inventory-service");
+}
+
+@PostMapping("/chaos")
+public Map&lt;String, Object&gt; setChaos(@RequestParam ChaosMode mode,
+                                    @RequestParam(defaultValue = "4000") long delayMs) { ... }</code></pre>
+  <p>This kind of switch is a tiny version of <strong>chaos engineering</strong> — deliberately breaking things to prove your system survives (Netflix's “Chaos Monkey”).</p>
+
+  <h3>4.2 The client — just the call, with timeouts</h3>
+  <pre><span class="file">store-service/…/client/InventoryClient.java (constructor)</span><code class="lang-java">SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+factory.setConnectTimeout(Duration.ofSeconds(1));
+factory.setReadTimeout(Duration.ofSeconds(10));   // generous: the TimeLimiter demo cuts at 2 s
+
+this.restClient = builder.baseUrl(baseUrl).requestFactory(factory).build();</code></pre>
+
+  <h3>4.3 The service — five patterns, five methods</h3>
+  <pre><span class="file">store-service/…/service/StockService.java (circuit breaker + retry)</span><code class="lang-java">@Retry(name = "inventory", fallbackMethod = "stockFallback")
+@CircuitBreaker(name = "inventory")
+public StockInfo getStock(String sku) {
+    StockInfo fresh = inventoryClient.fetchStock(sku);
+    lastKnownStock.put(sku, fresh);       // remember for bad times
+    return fresh;
+}
+
+private StockInfo stockFallback(String sku, CallNotPermittedException ex) {
+    return lastKnownOrUnknown(sku, "Circuit breaker is OPEN - inventory-service is resting");
+}
+
+private StockInfo stockFallback(String sku, Exception ex) {
+    return lastKnownOrUnknown(sku, "inventory-service failed: " + ex.getClass().getSimpleName());
+}</code></pre>
+  <p><code>lastKnownStock</code> is a small map that remembers the last good answer per product. The fallback serves
+    that value (marked <code>"fallback-last-known"</code>) — slightly old stock is far better than an error page.</p>
+  <pre><span class="file">StockService.java (rate limiter + bulkhead)</span><code class="lang-java">@RateLimiter(name = "deals", fallbackMethod = "dealsFallback")
+public List&lt;String&gt; todaysDeals() { ... }
+
+private List&lt;String&gt; dealsFallback(RequestNotPermitted ex) {
+    return List.of("Too many requests - please try again in a few seconds.");
+}
+
+@Bulkhead(name = "report", fallbackMethod = "reportFallback")
+public String buildReport(String sku) throws InterruptedException {
+    Thread.sleep(3000);                   // pretend this is heavy work
+    return "Stock report for " + sku + " is ready";
+}
+
+private String reportFallback(String sku, BulkheadFullException ex) {
+    return "Report service busy (max 2 at a time). Please retry shortly.";
+}</code></pre>
+  <p>Note <code>dealsFallback</code> has only the exception parameter — because <code>todaysDeals()</code> has no parameters.</p>
+
+  <h3>4.4 The configuration</h3>
+  <pre><span class="file">store-service/src/main/resources/application.yml (circuit breaker part)</span><code class="lang-yaml">resilience4j:
+  circuitbreaker:
+    instances:
+      inventory:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 6
+        minimum-number-of-calls: 4
+        failure-rate-threshold: 50
+        slow-call-duration-threshold: 2s
+        slow-call-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        automatic-transition-from-open-to-half-open-enabled: true
+        permitted-number-of-calls-in-half-open-state: 2
+        record-exceptions:
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.ResourceAccessException
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+        register-health-indicator: true
+        allow-health-indicator-to-fail: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,circuitbreakers,circuitbreakerevents,retries,retryevents,ratelimiters,bulkheads,timelimiters
+  health:
+    circuitbreakers:
+      enabled: true</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Property</th><th>Plain-English meaning</th></tr>
+    <tr><td><code>sliding-window-size: 6</code></td><td>Judge health using the last 6 calls.</td></tr>
+    <tr><td><code>minimum-number-of-calls: 4</code></td><td>Do not open just because the very first call failed — wait for 4.</td></tr>
+    <tr><td><code>failure-rate-threshold: 50</code></td><td>Open when half or more failed.</td></tr>
+    <tr><td><code>slow-call-duration-threshold: 2s</code></td><td>Calls slower than this count as “slow” — a slow service is also a sick service.</td></tr>
+    <tr><td><code>wait-duration-in-open-state: 10s</code></td><td>Rest time before testing again.</td></tr>
+    <tr><td><code>automatic-transition-...: true</code></td><td>Move to HALF_OPEN by itself after 10 s (otherwise only on the next call).</td></tr>
+    <tr><td><code>permitted-number-of-calls-in-half-open-state: 2</code></td><td>Number of trial calls.</td></tr>
+    <tr><td><code>allow-health-indicator-to-fail: false</code></td><td>An OPEN breaker shows in health details but does not make <em>our</em> app “DOWN” — otherwise Kubernetes might restart a perfectly healthy store-service because inventory is sick!</td></tr>
+  </table></div>
+  <p>Tip: shared settings can go into <code>resilience4j.circuitbreaker.configs.default</code> and every instance inherits them; instances only override what is different.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 Start</h3>
+  <pre class="terminal"><code># Terminal 1
+cd "D:\Java-SpringBoot\64-Resilience-With-Resilience4j\inventory-service"
+mvn spring-boot:run
+
+# Terminal 2
+cd "D:\Java-SpringBoot\64-Resilience-With-Resilience4j\store-service"
+mvn spring-boot:run</code></pre>
+  <p>In VS Code: Spring Boot Dashboard → start inventory-service, then store-service. Then open <code>requests.http</code> and run the steps in order.</p>
+
+  <h3>5.2 The circuit breaker demo (real output)</h3>
+  <pre class="terminal"><code>curl.exe http://localhost:8084/api/store/stock/LAPTOP-1
+{"sku":"LAPTOP-1","quantity":12,"source":"inventory-service","note":null}
+
+curl.exe -X POST "http://localhost:8083/api/inventory/chaos?mode=FAIL"
+{"mode":"FAIL","delayMs":4000}
+
+curl.exe http://localhost:8084/api/store/stock/LAPTOP-1        # took ~1.7 s: 3 attempts with backoff
+{"sku":"LAPTOP-1","quantity":12,"source":"fallback-last-known","note":"inventory-service failed: InternalServerError"}
+
+curl.exe http://localhost:8084/api/store/stock/LAPTOP-1        # took ~0.01 s: circuit is OPEN
+{"sku":"LAPTOP-1","quantity":12,"source":"fallback-last-known","note":"Circuit breaker is OPEN - inventory-service is resting"}
+
+curl.exe http://localhost:8084/api/store/stock/PHONE-7         # never fetched before: no last-known value
+{"sku":"PHONE-7","quantity":-1,"source":"fallback-unknown","note":"Circuit breaker is OPEN - inventory-service is resting"}
+
+curl.exe http://localhost:8084/actuator/circuitbreakers
+{"circuitBreakers":{"inventory":{"failureRate":"75.0%","slowCallRate":"0.0%","failureRateThreshold":"50.0%",
+ "slowCallRateThreshold":"50.0%","bufferedCalls":4,"failedCalls":3,"slowCalls":0,"slowFailedCalls":0,
+ "notPermittedCalls":3,"state":"OPEN"}}}
+
+curl.exe http://localhost:8083/api/inventory/chaos
+{"delayMs":4000,"callsReceived":4,"mode":"FAIL"}</code></pre>
+  <p>Read the numbers like a detective:</p>
+  <ul>
+    <li>The first failing request made <strong>3 attempts</strong> (Retry). Together with the first good call, the breaker had 4 calls, 3 failed = <strong>75 %</strong> → OPEN.</li>
+    <li>inventory-service received only <strong>4 calls in total</strong>. The next 3 store requests never reached it (<code>notPermittedCalls: 3</code>) — the sick service gets peace and quiet.</li>
+    <li>The answers dropped from ~1.7 s to ~0.01 s. Fail fast!</li>
+  </ul>
+  <p>Now heal it and watch the recovery:</p>
+  <pre class="terminal"><code>curl.exe -X POST "http://localhost:8083/api/inventory/chaos?mode=OK"
+# wait 10 seconds ...
+curl.exe http://localhost:8084/actuator/circuitbreakers        # "state":"HALF_OPEN"
+curl.exe http://localhost:8084/api/store/stock/LAPTOP-1        # trial call 1 -&gt; real data
+curl.exe http://localhost:8084/api/store/stock/LAPTOP-1        # trial call 2 -&gt; real data
+curl.exe http://localhost:8084/actuator/circuitbreakers        # "state":"CLOSED"</code></pre>
+  <p>Also try stopping inventory-service completely (Ctrl + C). The store still answers:</p>
+  <pre class="terminal"><code>{"sku":"PHONE-7","quantity":-1,"source":"fallback-unknown","note":"inventory-service failed: ResourceAccessException"}</code></pre>
+
+  <h3>5.3 Time limiter</h3>
+  <pre class="terminal"><code>curl.exe -X POST "http://localhost:8083/api/inventory/chaos?mode=SLOW&amp;delayMs=4000"
+curl.exe http://localhost:8084/api/store/stock-fast/PHONE-7      # answers after ~2.0 s, not 4 s
+{"sku":"PHONE-7","quantity":-1,"source":"fallback-unknown","note":"inventory-service too slow (TimeoutException)"}
+curl.exe -X POST "http://localhost:8083/api/inventory/chaos?mode=OK"</code></pre>
+
+  <h3>5.4 Rate limiter (4 quick calls)</h3>
+  <pre class="terminal"><code>curl.exe http://localhost:8084/api/store/deals
+["LAPTOP-1: 10% off","PHONE-7: free case","HEADPHONES-3: back soon"]
+... (2nd and 3rd call: same)
+["Too many requests - please try again in a few seconds."]</code></pre>
+
+  <h3>5.5 Bulkhead (3 calls at the same time)</h3>
+  <p>In <strong>PowerShell</strong>, start three background jobs at once:</p>
+  <pre class="terminal"><code>1..3 | ForEach-Object { Start-Job { curl.exe -s http://localhost:8084/api/store/report/LAPTOP-1 } } | Wait-Job | Receive-Job
+
+Report service busy (max 2 at a time). Please retry shortly.
+Stock report for LAPTOP-1 is ready
+Stock report for LAPTOP-1 is ready</code></pre>
+  <p>(In Git Bash: <code>for i in 1 2 3; do curl -s localhost:8084/api/store/report/X &amp; done; wait</code>.)</p>
+  <p>Stop both services with <strong>Ctrl + C</strong> when you are done.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>🚨 Mistake: “my @CircuitBreaker does nothing”</strong>
+    Usual causes: (1) <code>spring-boot-starter-aop</code> is missing; (2) the method is called from inside the same class
+    (<code>this.getStock()</code>) — the AOP proxy is bypassed (topic 27); (3) the method is <code>private</code>; (4) the class is not a Spring bean.<br>
+    <strong>Fix:</strong> add AOP, call the method from another bean, make it public.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: wrong fallback signature</strong>
+    Error: <code>NoSuchMethodException ... fallback method</code> or the fallback is never used.<br>
+    <strong>Fix:</strong> same return type, same parameters in the same order, plus one <code>Throwable</code>/<code>Exception</code> parameter at the end, in the same class.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: fallback on the inner annotation</strong>
+    With <code>@Retry</code> + <code>@CircuitBreaker(fallbackMethod=...)</code> retries never happen. Put the fallback on <code>@Retry</code> (outermost).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: counting 4xx as failures</strong>
+    A user asking for an unknown product (404) opens the circuit and now <em>nobody</em> can see stock.<br>
+    <strong>Fix:</strong> <code>ignore-exceptions: HttpClientErrorException</code> (or list only real failures in <code>record-exceptions</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: instance name typo</strong>
+    <code>@CircuitBreaker(name = "inventroy")</code> silently creates a new breaker with <em>default</em> settings — your YAML is ignored.<br>
+    <strong>Fix:</strong> keep names in constants, and check <code>/actuator/circuitbreakers</code> lists exactly the names you expect.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>@TimeLimiter</code> on a normal method</strong>
+    TimeLimiter needs <code>CompletableFuture</code> (or reactive types). On a method returning <code>StockInfo</code> it fails.
+    For blocking calls use the HTTP client's read timeout.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: retrying non-idempotent calls</strong>
+    Retrying “place order” or “charge card” can create duplicates. Retry only safe operations or use idempotency keys.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: the fallback hides problems forever</strong>
+    Everything “works”, but nobody notices inventory has been down for 3 hours.<br>
+    <strong>Fix:</strong> log in fallbacks, export metrics, and set alerts on the breaker state (Grafana / Prometheus).</div>
+
+  <!-- ============================================================ -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Timeouts first.</strong> Every remote call needs connect + read timeouts. Resilience patterns build on top of that.</li>
+    <li><strong>Circuit breaker on every remote dependency</strong> (one instance per downstream service, not per method).</li>
+    <li><strong>Meaningful fallbacks</strong>: cached data, defaults, degraded features (“recommendations unavailable”) — and be honest in the response (a flag like our <code>source</code>).</li>
+    <li><strong>Retry carefully</strong>: few attempts (2–3), exponential backoff + jitter, only for transient errors and idempotent operations.</li>
+    <li><strong>Tune from real data</strong>: set thresholds from your latency percentiles (p99) and normal error rates; start with defaults and adjust.</li>
+    <li><strong>Don't let an OPEN breaker fail your health check</strong> (<code>allow-health-indicator-to-fail: false</code>), or orchestrators may restart healthy pods.</li>
+    <li><strong>Monitor and alert</strong> on <code>resilience4j_circuitbreaker_state</code> metrics; log state transitions.</li>
+    <li><strong>Use shared <code>configs.default</code></strong> and override per instance to keep YAML short.</li>
+    <li><strong>Bulkhead slow features</strong> so they can't eat all Tomcat threads.</li>
+    <li><strong>Test failure on purpose</strong> (chaos switches, Toxiproxy, WireMock delays) — resilience you never tested is a guess.</li>
+    <li>Resilience at the edge too: Spring Cloud Gateway (topic 61) has a CircuitBreaker filter and RequestRateLimiter.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Remote calls fail; without protection one slow service causes a <strong>cascading failure</strong>.</li>
+    <li><strong>Circuit breaker</strong>: CLOSED (count) → OPEN (fail fast) → HALF_OPEN (test) → CLOSED/OPEN.</li>
+    <li><strong>Retry</strong> for short hiccups (with backoff, idempotent only); <strong>TimeLimiter</strong> stops waiting (async);
+      <strong>RateLimiter</strong> limits calls per period; <strong>Bulkhead</strong> limits concurrent calls.</li>
+    <li>Setup: <code>resilience4j-spring-boot3</code> 2.2.0 + <code>spring-boot-starter-aop</code> + YAML instances.</li>
+    <li>Fallback = same signature + exception parameter; the closest exception type wins.</li>
+    <li>Default order: Retry(CircuitBreaker(RateLimiter(TimeLimiter(Bulkhead(method))))) — put the fallback on the outermost.</li>
+    <li>Watch it with <code>/actuator/circuitbreakers</code>, <code>/actuator/circuitbreakerevents</code>, health and metrics.</li>
+    <li>Ignore 4xx errors; record 5xx and timeouts.</li>
+  </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Tune the breaker.</strong> Change the circuit breaker so it opens only at 70 % failures and stays open for 20 seconds. Repeat the demo and confirm with <code>/actuator/circuitbreakers</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-yaml">resilience4j:
+  circuitbreaker:
+    instances:
+      inventory:
+        failure-rate-threshold: 70
+        wait-duration-in-open-state: 20s</code></pre>
+      <p>With 1 success + 3 failures (75 %) it still opens. Try a window where 2 of 4 fail (50 %) — now it stays CLOSED.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>See the events.</strong> Break inventory, make 3 calls, then open <code>/actuator/circuitbreakerevents</code>. Find the <code>STATE_TRANSITION</code> event and write down from which state to which.</p>
+    <details><summary>Hint / solution</summary><p>You will see entries like <code>"type":"ERROR"</code> (each failed attempt), <code>"type":"STATE_TRANSITION","stateTransition":"CLOSED_TO_OPEN"</code>, then <code>"type":"NOT_PERMITTED"</code> for rejected calls. After healing: <code>OPEN_TO_HALF_OPEN</code> and <code>HALF_OPEN_TO_CLOSED</code>.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Slow calls open the breaker.</strong> Set inventory to <code>SLOW</code> with <code>delayMs=2500</code> and call <code>/api/store/stock/LAPTOP-1</code> 4 times. Why does the circuit open even though no call failed?</p>
+    <details><summary>Hint / solution</summary><p>Each call takes 2.5 s, more than <code>slow-call-duration-threshold: 2s</code>, so all 4 are “slow”. Slow-call rate 100 % ≥ 50 % → OPEN. A service that is very slow is treated as sick — exactly what prevents thread exhaustion.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Log state changes.</strong> Register an event consumer that logs every state transition of the <code>inventory</code> breaker.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Component
+class BreakerLogger {
+    private static final Logger log = LoggerFactory.getLogger(BreakerLogger.class);
+
+    BreakerLogger(CircuitBreakerRegistry registry) {
+        registry.circuitBreaker("inventory")
+                .getEventPublisher()
+                .onStateTransition(e -&gt; log.warn("Breaker {}: {}",
+                        e.getCircuitBreakerName(), e.getStateTransition()));
+    }
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Protect the Feign client from topic 63.</strong> Add Resilience4j to topic 63's order-service so that when product-service is down, <code>GET /api/orders/products</code> returns an empty list instead of a 504.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// pom: resilience4j-spring-boot3 2.2.0 + spring-boot-starter-aop
+// OrderService
+@CircuitBreaker(name = "product", fallbackMethod = "productsFallback")
+public List&lt;ProductResponse&gt; availableProducts() {
+    return productClient.getAllProducts();
+}
+
+private List&lt;ProductResponse&gt; productsFallback(Exception ex) {
+    log.warn("product-service unavailable: {}", ex.toString());
+    return List.of();
+}
+// Alternative: spring-cloud-starter-circuitbreaker-resilience4j +
+// spring.cloud.openfeign.circuitbreaker.enabled=true + @FeignClient(fallback = ...)</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Thread-pool bulkhead.</strong> Make <code>buildReport</code> asynchronous (return <code>CompletableFuture&lt;String&gt;</code>) and use <code>@Bulkhead(name = "report", type = Bulkhead.Type.THREADPOOL)</code> with a pool of 2 threads and a queue of 1. What happens to the 4th parallel request?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-yaml">resilience4j:
+  thread-pool-bulkhead:
+    instances:
+      report:
+        core-thread-pool-size: 2
+        max-thread-pool-size: 2
+        queue-capacity: 1</code></pre>
+      <pre><code class="lang-java">@Bulkhead(name = "report", type = Bulkhead.Type.THREADPOOL, fallbackMethod = "reportFallbackAsync")
+public CompletableFuture&lt;String&gt; buildReportAsync(String sku) throws InterruptedException {
+    Thread.sleep(3000);
+    return CompletableFuture.completedFuture("Report for " + sku);
+}
+private CompletableFuture&lt;String&gt; reportFallbackAsync(String sku, Throwable ex) {
+    return CompletableFuture.completedFuture("busy");
+}</code></pre>
+      <p>Two requests run, one waits in the queue, the 4th is rejected → fallback “busy”.</p></details>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is a cascading failure and how do you prevent it?</summary>
+    <p>A failure that spreads: a slow/broken service makes its callers wait, they run out of threads and become slow/broken too, and so on up the chain. Prevent it with timeouts, circuit breakers (fail fast), bulkheads (isolate resources), sensible fallbacks, and limited retries with backoff.</p></details>
+  <details><summary>Q2. Explain the states of a circuit breaker.</summary>
+    <p>CLOSED: calls pass, outcomes are recorded in a sliding window. When the failure rate or slow-call rate exceeds its threshold (after the minimum number of calls) it goes OPEN: calls are rejected immediately with CallNotPermittedException. After the wait duration it goes HALF_OPEN: a limited number of trial calls are allowed; if they succeed it returns to CLOSED, otherwise back to OPEN.</p></details>
+  <details><summary>Q3. Count-based vs time-based sliding window?</summary>
+    <p>Count-based aggregates the last N calls; time-based aggregates calls from the last N seconds. Time-based fits bursty or low/variable traffic; count-based is simple for steady traffic.</p></details>
+  <details><summary>Q4. Difference between RateLimiter and Bulkhead?</summary>
+    <p>RateLimiter limits the number of calls per time period (throughput, e.g. 100/minute). Bulkhead limits the number of concurrent calls (e.g. 10 at once) to isolate resources like threads. Semaphore bulkhead uses a counter on the caller thread; thread-pool bulkhead uses a dedicated pool.</p></details>
+  <details><summary>Q5. In which order are Resilience4j annotations applied?</summary>
+    <p>By default Retry ( CircuitBreaker ( RateLimiter ( TimeLimiter ( Bulkhead ( function ))))). Retry is outermost, so each retry attempt is counted by the circuit breaker. The order can be changed with the *-aspect-order properties.</p></details>
+  <details><summary>Q6. Why might a retry never happen when combined with a circuit breaker?</summary>
+    <p>If the fallbackMethod is defined on the inner @CircuitBreaker, the breaker converts the exception into a fallback value; the outer Retry sees success and does not retry. Put the fallback on the outermost annotation (Retry).</p></details>
+  <details><summary>Q7. What rules must a fallback method follow?</summary>
+    <p>Same class, same return type, same parameter list plus one trailing exception parameter (Throwable or a subtype). Multiple overloaded fallbacks can exist; the one with the most specific matching exception type is used.</p></details>
+  <details><summary>Q8. Which exceptions should open a circuit breaker?</summary>
+    <p>Those that signal the downstream is unhealthy: 5xx responses, connection errors, timeouts. Client errors (4xx — validation, not found) should be ignored, otherwise bad user input could open the circuit for everyone.</p></details>
+  <details><summary>Q9. Hystrix vs Resilience4j?</summary>
+    <p>Hystrix (Netflix) is in maintenance mode since 2018, built around thread-pool isolation and Java 6-style APIs. Resilience4j is lightweight, functional (decorators), modular (pick only needed modules), based on Java 8+, integrates with Spring Boot 3, Micrometer and reactive types. Spring Cloud replaced Hystrix with the Spring Cloud CircuitBreaker abstraction backed by Resilience4j.</p></details>
+  <details><summary>Q10. How do you monitor circuit breakers in production?</summary>
+    <p>Actuator endpoints (/actuator/circuitbreakers, /circuitbreakerevents, health indicator) and Micrometer metrics (resilience4j_circuitbreaker_state, _calls, _failure_rate) scraped by Prometheus and shown in Grafana with alerts on OPEN state; plus logging of state-transition events.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../63-Inter-Service-Communication-With-OpenFeign/lesson.html"><small>← Previous</small>63. Inter-Service Communication with OpenFeign</a>
+    <a class="next" href="../65-Distributed-Tracing-And-Centralized-Logging/lesson.html"><small>Next →</small>65. Distributed Tracing &amp; Centralized Logging</a>
+  </nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>68 · CI/CD with GitHub Actions</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part F · Microservices &amp; Spring Cloud › Topic 68</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag adv">Part F · Microservices &amp; Cloud</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>68. CI/CD with GitHub Actions</h1>
+  <p class="subtitle">Make a robot build and test your Spring Boot app on every push, block broken code from being merged, and publish a Docker image automatically.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="68-CI-CD-With-GitHub-Actions"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>The difference between Continuous Integration, Continuous Delivery and Continuous Deployment.</li>
+      <li>A short Git refresher: <code>init</code>, <code>add</code>, <code>commit</code>, <code>branch</code>, <code>push</code>, pull request.</li>
+      <li>GitHub Actions vocabulary: workflow, event, job, step, runner, action, artifact, secret.</li>
+      <li>A real <code>.github/workflows/ci.yml</code> that installs Java 17 with Maven caching and runs <code>mvn -B verify</code>.</li>
+      <li>Building and pushing a Docker image with <code>docker/build-push-action</code> using secrets.</li>
+      <li>Branch protection rules, required checks, environments with approvals.</li>
+      <li>Code quality helpers: JaCoCo coverage, Dependabot, SonarQube/SonarCloud, CodeQL.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../46-Testing-Spring-Boot-Applications/lesson.html">Topic 46 · Testing</a> (tests are what CI runs),
+    <a href="../20-Maven-Build-Tool/lesson.html">Topic 20 · Maven</a> (lifecycle: <code>verify</code>), and <a href="../66-Docker-For-Spring-Boot/lesson.html">Topic 66 · Docker</a> (images, Docker Hub).
+    You need a free <a href="https://github.com">GitHub</a> account to try the pipeline online; everything else works offline.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Imagine a team of 8 developers working on the same Spring Boot project. Every day each of them changes code. Questions appear:</p>
+  <ul>
+    <li>"Does the project still <strong>compile</strong> after Priya's change?"</li>
+    <li>"Did Rahul's change <strong>break</strong> the shipping price calculation?"</li>
+    <li>"Who builds the jar / Docker image for the release, and on which machine?" (Answer in many old companies: "Bob, on his laptop, on Friday evening." 😱)</li>
+  </ul>
+  <p><strong>CI/CD</strong> answers all of these with automation: a server (GitHub Actions, Jenkins, GitLab CI…) runs your build and tests <strong>on every single change</strong>, in a clean environment, and reports a ✅ or ❌. If tests fail, the change can't be merged. If everything is green, the same pipeline can package and ship the app.</p>
+  <p>Where you will see it at work: <strong>everywhere</strong>. Every professional team has a pipeline. In your first week you'll open a pull request and wait for "All checks have passed". Interviewers often ask "How does your CI/CD pipeline look?" — after this lesson you can answer with confidence.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏭 A car factory assembly line</strong>
+    In an old workshop, each mechanic built a whole car alone and tested it at the end — problems were found late and were expensive to fix.
+    A modern factory uses an <strong>assembly line</strong>: after every station, an automatic <strong>quality check</strong> runs. A bad part is caught <em>immediately</em>, at the station that made it.
+    <ul>
+      <li><strong>Continuous Integration (CI)</strong> = every new part (your commit) is fitted into the car and checked right away (build + tests).</li>
+      <li><strong>Continuous Delivery</strong> = every car that passes all checks is driven to the parking lot, <em>ready</em> to be sold. A manager decides when it goes to the showroom (a human clicks "deploy").</li>
+      <li><strong>Continuous Deployment</strong> = the car goes straight to the showroom automatically, no human click.</li>
+    </ul>
+    GitHub Actions is the conveyor belt and the robots; <code>ci.yml</code> is the list of stations.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 CI vs CD vs CD</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Term</th><th>What happens automatically</th><th>Human step?</th></tr>
+    <tr><td><strong>Continuous Integration</strong></td><td>Every push/PR: compile, run tests, maybe code analysis. Developers merge small changes often (daily).</td><td>Someone reviews &amp; merges the PR.</td></tr>
+    <tr><td><strong>Continuous Delivery</strong></td><td>CI + package the app (jar / Docker image) so it is <em>always releasable</em>, often deployed to a test/staging environment.</td><td>A person clicks "Approve / Deploy to production".</td></tr>
+    <tr><td><strong>Continuous Deployment</strong></td><td>Everything, including production deployment, on every green change to main.</td><td>None — needs very good tests and monitoring.</td></tr>
+  </table></div>
+  <div class="flow">
+    <span class="box">git push</span><span class="arrow">→</span>
+    <span class="box info">Build</span><span class="arrow">→</span>
+    <span class="box info">Test</span><span class="arrow">→</span>
+    <span class="box info">Package (jar / image)</span><span class="arrow">→</span>
+    <span class="box alt">Deploy staging</span><span class="arrow">→</span>
+    <span class="box alt">Deploy production</span>
+  </div>
+  <p>"CI" covers the first three boxes. Continuous Delivery adds packaging + staging and stops before production for approval. Continuous Deployment runs all the way.</p>
+
+  <h3>3.2 Git refresher (just enough)</h3>
+  <p><strong>Git</strong> is a version-control system: it remembers every saved version ("commit") of your project. <strong>GitHub</strong> is a website that hosts Git repositories and adds pull requests, issues and Actions. You need Git installed (<code>git --version</code>; download from git-scm.com if missing).</p>
+  <div class="table-wrap"><table>
+    <tr><th>Command</th><th>Meaning</th></tr>
+    <tr><td><code>git init</code></td><td>Start tracking this folder as a repository (creates a hidden <code>.git</code> folder).</td></tr>
+    <tr><td><code>git status</code></td><td>What changed? What is staged?</td></tr>
+    <tr><td><code>git add .</code></td><td>Stage all changes ("put them in the box").</td></tr>
+    <tr><td><code>git commit -m "message"</code></td><td>Save a snapshot with a description ("seal the box").</td></tr>
+    <tr><td><code>git branch -M main</code></td><td>Rename the current branch to <code>main</code>.</td></tr>
+    <tr><td><code>git switch -c feature/express-fee</code></td><td>Create and move to a new <strong>branch</strong> — a parallel line of work.</td></tr>
+    <tr><td><code>git remote add origin &lt;url&gt;</code></td><td>Connect to the repository on GitHub.</td></tr>
+    <tr><td><code>git push -u origin main</code></td><td>Upload your commits to GitHub.</td></tr>
+    <tr><td><code>git pull</code></td><td>Download others' commits.</td></tr>
+  </table></div>
+  <p>A <strong>pull request (PR)</strong> is a request on GitHub: "please merge my branch into main". Teammates review the code, and — this is where CI comes in — GitHub runs the workflow and shows the result <em>on the PR</em>.</p>
+  <div class="flow">
+    <span class="box">branch</span><span class="arrow">→</span>
+    <span class="box">commits</span><span class="arrow">→</span>
+    <span class="box">push</span><span class="arrow">→</span>
+    <span class="box info">open PR</span><span class="arrow">→</span>
+    <span class="box info">CI runs ✅/❌</span><span class="arrow">→</span>
+    <span class="box alt">review</span><span class="arrow">→</span>
+    <span class="box alt">merge to main</span>
+  </div>
+
+  <h3>3.3 GitHub Actions vocabulary</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Word</th><th>Meaning</th><th>In our file</th></tr>
+    <tr><td><strong>Workflow</strong></td><td>An automated process described in a YAML file under <code>.github/workflows/</code>. A repo can have many.</td><td><code>ci.yml</code>, named <code>CI</code></td></tr>
+    <tr><td><strong>Event / trigger</strong></td><td>What starts the workflow: push, pull_request, schedule (cron), manual button…</td><td><code>on: push / pull_request / workflow_dispatch</code></td></tr>
+    <tr><td><strong>Job</strong></td><td>A group of steps that runs on <em>one</em> machine. Jobs run in parallel unless you say <code>needs:</code>.</td><td><code>build</code>, <code>docker</code>, <code>deploy</code></td></tr>
+    <tr><td><strong>Step</strong></td><td>One task inside a job: either a shell command (<code>run:</code>) or a reusable action (<code>uses:</code>). Steps run in order.</td><td>"Set up JDK 17", "Build and test with Maven"</td></tr>
+    <tr><td><strong>Runner</strong></td><td>The machine that executes a job. GitHub-hosted runners are fresh VMs (Ubuntu, Windows, macOS) thrown away after each job.</td><td><code>runs-on: ubuntu-latest</code></td></tr>
+    <tr><td><strong>Action</strong></td><td>A reusable building block someone published, like a library for pipelines.</td><td><code>actions/checkout@v4</code>, <code>actions/setup-java@v4</code></td></tr>
+    <tr><td><strong>Artifact</strong></td><td>Files saved from a job (reports, jars) to download later or pass to another job.</td><td><code>test-reports</code>, <code>app-jar</code></td></tr>
+    <tr><td><strong>Secret</strong></td><td>An encrypted value (password, token) stored in repo settings, injected at runtime, hidden in logs.</td><td><code>${{ secrets.DOCKERHUB_TOKEN }}</code></td></tr>
+    <tr><td><strong>Expression</strong></td><td><code>${{ ... }}</code> — read contexts like <code>github.sha</code> or write conditions.</td><td><code>if: github.ref == 'refs/heads/main'</code></td></tr>
+  </table></div>
+  <figure class="diagram">
+    <svg viewBox="0 0 680 230" width="680" role="img" aria-label="Workflow contains jobs build, docker and deploy; each job runs on its own runner and has steps; docker needs build, deploy needs docker">
+      <rect x="10" y="10" width="660" height="210" rx="10" fill="none" stroke="currentColor" stroke-width="2"/>
+      <text x="20" y="32" fill="currentColor" font-size="14" font-weight="bold">Workflow "CI"  (trigger: push / pull_request)</text>
+      <rect x="30" y="50" width="190" height="155" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+      <text x="125" y="72" text-anchor="middle" fill="currentColor" font-size="14" font-weight="bold">job: build</text>
+      <text x="125" y="90" text-anchor="middle" fill="var(--muted)" font-size="11">runner: ubuntu-latest</text>
+      <text x="45" y="115" fill="currentColor" font-size="12">1. checkout</text>
+      <text x="45" y="135" fill="currentColor" font-size="12">2. setup-java 17</text>
+      <text x="45" y="155" fill="currentColor" font-size="12">3. mvn -B verify</text>
+      <text x="45" y="175" fill="currentColor" font-size="12">4. upload reports</text>
+      <text x="45" y="195" fill="currentColor" font-size="12">5. upload jar</text>
+      <rect x="250" y="50" width="190" height="155" rx="8" fill="none" stroke="var(--info)" stroke-width="2"/>
+      <text x="345" y="72" text-anchor="middle" fill="currentColor" font-size="14" font-weight="bold">job: docker</text>
+      <text x="345" y="90" text-anchor="middle" fill="var(--muted)" font-size="11">needs: build · main only</text>
+      <text x="265" y="115" fill="currentColor" font-size="12">1. checkout</text>
+      <text x="265" y="135" fill="currentColor" font-size="12">2. download jar</text>
+      <text x="265" y="155" fill="currentColor" font-size="12">3. buildx + login</text>
+      <text x="265" y="175" fill="currentColor" font-size="12">4. build &amp; push</text>
+      <rect x="470" y="50" width="180" height="155" rx="8" fill="none" stroke="var(--java)" stroke-width="2"/>
+      <text x="560" y="72" text-anchor="middle" fill="currentColor" font-size="14" font-weight="bold">job: deploy</text>
+      <text x="560" y="90" text-anchor="middle" fill="var(--muted)" font-size="11">needs: docker · env production</text>
+      <text x="485" y="115" fill="currentColor" font-size="12">1. (placeholder)</text>
+      <line x1="220" y1="128" x2="248" y2="128" stroke="currentColor" stroke-width="2"/>
+      <line x1="440" y1="128" x2="468" y2="128" stroke="currentColor" stroke-width="2"/>
+    </svg>
+    <figcaption>One workflow, three jobs, each on its own fresh runner. <code>needs:</code> creates the order.</figcaption>
+  </figure>
+
+  <h3>3.4 Anatomy of a workflow file</h3>
+  <pre><code class="lang-yaml">name: CI                       # shown in the Actions tab
+
+on:                            # WHEN
+  push:
+    branches: [ main ]
+
+jobs:                          # WHAT
+  build:                       # job id (your choice)
+    runs-on: ubuntu-latest     # WHERE
+    steps:                     # HOW, in order
+      - uses: actions/checkout@v4          # a reusable action
+      - run: echo "Hello from the runner"  # a shell command</code></pre>
+  <p>That's a complete, valid workflow. Everything else is detail.</p>
+
+  <h3>3.5 Triggers (events) you'll use most</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Trigger</th><th>Runs when…</th></tr>
+    <tr><td><code>push</code> (with <code>branches</code> / <code>paths</code> filters)</td><td>commits are pushed</td></tr>
+    <tr><td><code>pull_request</code></td><td>a PR is opened or updated — the classic CI trigger</td></tr>
+    <tr><td><code>workflow_dispatch</code></td><td>you click "Run workflow" (manual)</td></tr>
+    <tr><td><code>schedule: - cron: '0 2 * * 1'</code></td><td>on a timetable (here: Mondays 02:00 UTC) — nightly builds, dependency scans</td></tr>
+    <tr><td><code>release</code> / <code>push: tags: ['v*']</code></td><td>you publish a release or push a version tag</td></tr>
+  </table></div>
+
+  <h3>3.6 Setting up Java with <code>actions/setup-java</code></h3>
+  <p>A fresh runner has <em>some</em> Java, but you want exactly the version your project uses. <code>actions/setup-java@v4</code> installs it and (with <code>cache: maven</code>) saves <code>~/.m2/repository</code> between runs — so Maven doesn't download 100 MB of dependencies every time. The cache key is the hash of your <code>pom.xml</code>; change the pom and the cache refreshes.</p>
+  <pre><code class="lang-yaml">- uses: actions/setup-java@v4
+  with:
+    distribution: temurin   # same JDK vendor you installed locally
+    java-version: '17'      # quoted: YAML would otherwise read numbers like 17.0 strangely
+    cache: maven</code></pre>
+
+  <h3>3.7 Why <code>mvn -B verify</code>?</h3>
+  <p>Remember the Maven lifecycle from topic 20: <code>validate → compile → test → package → verify → install → deploy</code>. Running <code>verify</code> runs everything up to it: compile, unit tests, build the jar, plus checks bound to <code>verify</code> (our JaCoCo report, integration tests with Failsafe, quality gates). If any test fails, Maven exits with a non-zero code → the step fails → the job is red ❌.</p>
+  <p><code>-B</code> = <em>batch mode</em>: no interactive prompts, no colourful progress bars that fill logs with garbage.</p>
+  <div class="callout tip"><strong>💡 The golden rule</strong>
+    CI should run the <strong>same command</strong> you run locally. If <code>mvn -B verify</code> passes on your laptop, it should pass on the runner. Avoid magic that only exists in the pipeline.
+  </div>
+
+  <h3>3.8 Secrets</h3>
+  <p>To push to Docker Hub the pipeline needs credentials. <strong>Never</strong> write them in the YAML (it's in Git, everyone can read it). Instead:</p>
+  <ol>
+    <li>On Docker Hub: <em>Account settings → Personal access tokens → Generate</em> (Read &amp; Write). A token can be revoked without changing your password.</li>
+    <li>On GitHub: repo <em>Settings → Secrets and variables → Actions → New repository secret</em>: <code>DOCKERHUB_USERNAME</code> and <code>DOCKERHUB_TOKEN</code>.</li>
+    <li>In the workflow: <code>${{ secrets.DOCKERHUB_TOKEN }}</code>. GitHub replaces it at runtime and prints <code>***</code> if it appears in logs.</li>
+  </ol>
+  <div class="callout info"><strong>ℹ️ <code>GITHUB_TOKEN</code> and <code>permissions</code></strong>
+    Every run also gets an automatic token called <code>GITHUB_TOKEN</code> to talk to GitHub itself (e.g. to push to GitHub's own registry <code>ghcr.io</code>). The <code>permissions:</code> block limits what it may do. We set <code>contents: read</code> — the principle of least privilege.
+  </div>
+  <div class="callout warn"><strong>⚠️ PRs from forks don't get secrets</strong>
+    For safety, workflows triggered by pull requests from forked repositories cannot read your secrets. That's why our <code>docker</code> job runs only on <code>push</code> to <code>main</code>.
+  </div>
+
+  <h3>3.9 Building and pushing a Docker image</h3>
+  <p>The official Docker actions make this easy:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Action</th><th>Job</th></tr>
+    <tr><td><code>docker/setup-buildx-action@v3</code></td><td>Enables BuildKit/Buildx (faster builds, caching).</td></tr>
+    <tr><td><code>docker/login-action@v3</code></td><td>Logs in to Docker Hub (or ghcr.io, AWS ECR…) with secrets.</td></tr>
+    <tr><td><code>docker/build-push-action@v6</code></td><td><code>docker build</code> + <code>docker push</code> with tags and cache.</td></tr>
+  </table></div>
+  <p>We tag every image twice: <code>latest</code> (convenient) and <code>${{ github.sha }}</code> — the full commit id. With the commit tag you can always answer "which code is running in production?" and roll back to an exact version.</p>
+  <p>Our Dockerfile in this topic is <strong>single-stage</strong>: it copies <code>target/app.jar</code> that the <code>build</code> job already compiled and tested. That's the "<strong>build once, deploy many</strong>" principle: the exact bytes that passed tests are the ones you ship. (The multi-stage Dockerfile from topic 66/67 is also fine in CI; then the image builds its own jar.)</p>
+
+  <h3>3.10 Passing files between jobs: artifacts</h3>
+  <p>Each job runs on a <em>different</em>, fresh machine. Files from <code>build</code> do not magically appear in <code>docker</code>. We use <code>actions/upload-artifact@v4</code> in the first job and <code>actions/download-artifact@v4</code> in the second. Artifacts also appear on the run's summary page for download — handy for test reports.</p>
+
+  <h3>3.11 Branch protection: making CI mandatory</h3>
+  <p>A red ❌ is just a picture unless it <em>blocks</em> merging. On GitHub: <em>Settings → Branches → Add branch ruleset</em> (or "branch protection rule") for <code>main</code>:</p>
+  <ul>
+    <li>☑ <strong>Require a pull request before merging</strong> (no direct pushes to main), optionally with 1+ approvals.</li>
+    <li>☑ <strong>Require status checks to pass</strong> → choose "Build &amp; test". Now a PR with failing tests cannot be merged.</li>
+    <li>☑ Require branches to be up to date; ☑ block force pushes.</li>
+  </ul>
+
+  <h3>3.12 Environments and approvals (Continuous Delivery)</h3>
+  <p>In <em>Settings → Environments</em> create <code>production</code> and add <strong>Required reviewers</strong>. Our <code>deploy</code> job says <code>environment: production</code>, so the run pauses and waits until a reviewer clicks "Approve and deploy". Remove the reviewers and it becomes Continuous Deployment. Environments can also hold their own secrets (e.g. production DB password).</p>
+
+  <h3>3.13 Code quality in the pipeline</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Tool</th><th>What it does</th><th>How to add</th></tr>
+    <tr><td><strong>JaCoCo</strong></td><td>Measures test coverage (which lines tests executed). Report at <code>target/site/jacoco/index.html</code>.</td><td>Already in our <code>pom.xml</code>; can also <em>fail</em> the build below e.g. 80% with the <code>check</code> goal.</td></tr>
+    <tr><td><strong>Dependabot</strong></td><td>Opens PRs to update outdated/vulnerable dependencies, actions and base images.</td><td><code>.github/dependabot.yml</code> (included).</td></tr>
+    <tr><td><strong>SonarQube / SonarCloud</strong></td><td>Static analysis: bugs, code smells, duplication, security hotspots, "quality gate".</td><td><code>mvn verify sonar:sonar -Dsonar.token=${{ secrets.SONAR_TOKEN }}</code> (free for public repos on SonarCloud).</td></tr>
+    <tr><td><strong>CodeQL</strong></td><td>GitHub's security scanner (e.g. finds SQL injection patterns).</td><td><em>Security → Code scanning → Set up</em> (one click).</td></tr>
+    <tr><td><strong>Checkstyle / Spotless</strong></td><td>Enforce code style/formatting.</td><td>Maven plugins bound to <code>verify</code>.</td></tr>
+  </table></div>
+
+  <h3>3.14 Other CI/CD tools (for your CV)</h3>
+  <p>The ideas are identical everywhere; only the file format changes: <strong>Jenkins</strong> (<code>Jenkinsfile</code>, self-hosted, very common in enterprises), <strong>GitLab CI</strong> (<code>.gitlab-ci.yml</code>), <strong>Azure DevOps Pipelines</strong>, <strong>CircleCI</strong>, <strong>Bitbucket Pipelines</strong>. For deployment to Kubernetes, many teams use <strong>Argo CD</strong> (GitOps — topic 69 mentions it).</p>
+
+  <!-- ============================================================ -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>.github/workflows/ci.yml</code></td><td>⭐ The pipeline: build/test, Docker build &amp; push, deploy placeholder.</td></tr>
+    <tr><td><code>.github/dependabot.yml</code></td><td>Weekly update PRs for Maven, Actions and Docker.</td></tr>
+    <tr><td><code>pom.xml</code></td><td>Spring Boot 3.5.6, <code>finalName</code> <code>app</code>, JaCoCo plugin.</td></tr>
+    <tr><td><code>src/main/java/com/course/cicd/ShippingApplication.java</code></td><td>Main class.</td></tr>
+    <tr><td><code>.../shipping/ShippingService.java</code></td><td>Business rule: 5.00 + 2.00/kg, express ×1.5, weight 0–30 kg.</td></tr>
+    <tr><td><code>.../shipping/ShippingController.java</code></td><td><code>GET /api/shipping/quote</code>, 400 ProblemDetail for bad weight.</td></tr>
+    <tr><td><code>.../shipping/ShippingQuote.java</code></td><td>Response record.</td></tr>
+    <tr><td><code>src/test/.../ShippingServiceTest.java</code></td><td>10 unit tests incl. <code>@ParameterizedTest</code>.</td></tr>
+    <tr><td><code>src/test/.../ShippingControllerTest.java</code></td><td>3 <code>@WebMvcTest</code> tests with MockMvc.</td></tr>
+    <tr><td><code>Dockerfile</code>, <code>.dockerignore</code></td><td>Single-stage image from the tested jar; <code>!target/app.jar</code> trick.</td></tr>
+    <tr><td><code>.gitignore</code></td><td>Never commit <code>target/</code> or <code>.env</code>.</td></tr>
+    <tr><td><code>requests.http</code></td><td>Sample requests.</td></tr>
+  </table></div>
+
+  <h3>4.1 The application under test</h3>
+  <pre><span class="file">src/main/java/com/course/cicd/shipping/ShippingService.java</span><code class="lang-java">static final BigDecimal BASE_FEE = new BigDecimal("5.00");
+static final BigDecimal PRICE_PER_KG = new BigDecimal("2.00");
+static final BigDecimal EXPRESS_MULTIPLIER = new BigDecimal("1.5");
+static final double MAX_WEIGHT_KG = 30.0;
+
+public ShippingQuote quote(double weightKg, boolean express) {
+    if (weightKg &lt;= 0 || weightKg &gt; MAX_WEIGHT_KG) {
+        throw new IllegalArgumentException("Weight must be greater than 0 and at most ...");
+    }
+    BigDecimal cost = BASE_FEE.add(PRICE_PER_KG.multiply(BigDecimal.valueOf(weightKg)));
+    if (express) {
+        cost = cost.multiply(EXPRESS_MULTIPLIER);
+    }
+    return new ShippingQuote(weightKg, express, cost.setScale(2, RoundingMode.HALF_UP));
+}</code></pre>
+  <p>Small on purpose. What matters: it's a <strong>business rule</strong> that someone could break by accident, and tests guard it.</p>
+
+  <h3>4.2 The tests CI runs</h3>
+  <pre><span class="file">src/test/java/com/course/cicd/shipping/ShippingServiceTest.java (part)</span><code class="lang-java">@ParameterizedTest(name = "{0} kg, express={1} -&gt; {2}")
+@CsvSource({
+        "1,    false, 7.00",
+        "10,   false, 25.00",
+        "30,   false, 65.00",
+        "0.5,  true,  9.00"
+})
+void manyWeights(double weightKg, boolean express, String expectedCost) {
+    assertThat(service.quote(weightKg, express).cost()).isEqualByComparingTo(expectedCost);
+}</code></pre>
+  <p>One test method, four cases. <code>isEqualByComparingTo</code> compares BigDecimals by value (<code>7.0</code> equals <code>7.00</code>), unlike <code>equals</code>.</p>
+  <pre><span class="file">src/test/java/com/course/cicd/shipping/ShippingControllerTest.java (part)</span><code class="lang-java">@WebMvcTest(ShippingController.class)
+@Import(ShippingService.class)
+class ShippingControllerTest {
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    void tooHeavyGives400() throws Exception {
+        mockMvc.perform(get("/api/shipping/quote").param("weightKg", "50"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+}</code></pre>
+  <p>Fast web-layer tests: no real server or port, so they're perfect for CI.</p>
+
+  <h3>4.3 <code>ci.yml</code> — the build job</h3>
+  <pre><span class="file">.github/workflows/ci.yml (part 1)</span><code class="lang-yaml">name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build &amp; test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Build and test with Maven
+        run: mvn -B verify
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            target/surefire-reports/
+            target/site/jacoco/
+          retention-days: 7
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: target/app.jar</code></pre>
+  <ul>
+    <li><code>on:</code> — three triggers: pushes to main, PRs targeting main, and a manual button.</li>
+    <li><code>concurrency</code> — if you push twice in a minute, the first (now outdated) run is cancelled. Saves minutes.</li>
+    <li><code>actions/checkout@v4</code> — the runner starts EMPTY; this step downloads your repo. Forgetting it is a classic error ("no POM in this directory").</li>
+    <li><code>@v4</code> — the action's version. Always pin a version (big companies even pin the full commit SHA).</li>
+    <li><code>if: always()</code> — normally later steps are skipped after a failure. For reports we want them <em>especially</em> after a failure.</li>
+    <li><code>path: |</code> — the <code>|</code> means "multi-line text follows" in YAML.</li>
+  </ul>
+
+  <h3>4.4 <code>ci.yml</code> — the docker job</h3>
+  <pre><span class="file">.github/workflows/ci.yml (part 2)</span><code class="lang-yaml">  docker:
+    name: Build &amp; push Docker image
+    needs: build
+    if: github.event_name == 'push' &amp;&amp; github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: target
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/shipping-app:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/shipping-app:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max</code></pre>
+  <ul>
+    <li><code>needs: build</code> — wait for <code>build</code> and run only if it was green.</li>
+    <li><code>if:</code> — skip for pull requests; only real pushes to <code>main</code> publish images.</li>
+    <li><code>download-artifact</code> puts <code>app.jar</code> back into <code>target/</code>, where the Dockerfile expects it.</li>
+    <li><code>context: .</code> — build from the checked-out folder (including the downloaded jar).</li>
+    <li><code>cache-from/to: type=gha</code> — store Docker layer cache in GitHub's cache for faster rebuilds.</li>
+  </ul>
+
+  <h3>4.5 <code>ci.yml</code> — the deploy job</h3>
+  <pre><span class="file">.github/workflows/ci.yml (part 3)</span><code class="lang-yaml">  deploy:
+    name: Deploy to production
+    needs: docker
+    if: github.event_name == 'push' &amp;&amp; github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy (placeholder)
+        run: |
+          echo "Here you would deploy image shipping-app:${{ github.sha }}"</code></pre>
+  <p>A placeholder — in topic 69 you'll learn what a real deploy command (<code>kubectl set image ...</code>) looks like. Because of <code>environment: production</code>, adding required reviewers turns this into a manual approval gate.</p>
+
+  <h3>4.6 The <code>.dockerignore</code> trick</h3>
+  <pre><span class="file">.dockerignore</span><code>target/*
+!target/app.jar</code></pre>
+  <p>"Ignore everything in <code>target/</code> — except the jar". Keeps the build context tiny.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 Locally: run exactly what CI runs</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\68-CI-CD-With-GitHub-Actions"
+mvn -B verify</code></pre>
+  <pre class="terminal"><code>[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0 -- in com.course.cicd.shipping.ShippingControllerTest
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0 -- in com.course.cicd.shipping.ShippingServiceTest
+[INFO] Tests run: 13, Failures: 0, Errors: 0, Skipped: 0
+[INFO] --- jacoco:0.8.12:report (report) @ shipping-app ---
+[INFO] BUILD SUCCESS</code></pre>
+  <p>Open <code>target\site\jacoco\index.html</code> in your browser to see coverage. Then try the app:</p>
+  <pre class="terminal"><code>mvn spring-boot:run
+curl "http://localhost:8080/api/shipping/quote?weightKg=2.5&amp;express=true"
+{"weightKg":2.5,"express":true,"cost":15.00}</code></pre>
+  <p>(In PowerShell use <code>curl.exe</code>, or the <code>requests.http</code> file in VS Code.)</p>
+
+  <h3>5.2 Break it on purpose</h3>
+  <p>Change <code>PRICE_PER_KG</code> to <code>"3.00"</code> and run <code>mvn -B verify</code> again:</p>
+  <pre class="terminal"><code>[ERROR] Failures:
+[ERROR]   ShippingServiceTest.standardDelivery
+expected: 10.00
+ but was: 12.50
+...
+[ERROR] Tests run: 13, Failures: 8, Errors: 0, Skipped: 0
+[INFO] BUILD FAILURE</code></pre>
+  <p>That red result is exactly what GitHub would show on the pull request. Change it back.</p>
+
+  <h3>5.3 On GitHub (step by step)</h3>
+  <ol>
+    <li>Create a new <strong>empty</strong> repository on GitHub, e.g. <code>shipping-app</code> (no README, so it stays empty).</li>
+    <li>Copy this topic folder somewhere outside the course (GitHub needs <code>.github/</code> at the repo root), e.g. <code>D:\work\shipping-app</code>.</li>
+    <li>Push it:
+      <pre class="terminal"><code>cd D:\work\shipping-app
+git init
+git add .
+git commit -m "Shipping app with CI pipeline"
+git branch -M main
+git remote add origin https://github.com/&lt;your-user&gt;/shipping-app.git
+git push -u origin main</code></pre></li>
+    <li>Open the <strong>Actions</strong> tab: the "CI" workflow runs. Click it to see each job and the live logs of each step.</li>
+    <li>Without Docker Hub secrets, the <code>docker</code> job fails at login — expected. Add secrets <code>DOCKERHUB_USERNAME</code> and <code>DOCKERHUB_TOKEN</code> (see 3.8) and click <em>Re-run jobs</em>. After success, your image is on <code>hub.docker.com/r/&lt;your-user&gt;/shipping-app</code>:
+      <pre class="terminal"><code>docker run --rm -p 8080:8080 &lt;your-user&gt;/shipping-app:latest</code></pre></li>
+    <li>Try the PR flow: <code>git switch -c feature/cheaper-express</code>, change something, push the branch, open a PR on GitHub and watch the checks appear at the bottom of the PR.</li>
+    <li>Add the branch protection rule from 3.11 and see the "Merge" button blocked while checks fail.</li>
+  </ol>
+  <div class="callout tip"><strong>💡 VS Code tip</strong>
+    Install the <strong>GitHub Actions</strong> extension (by GitHub): it validates <code>ci.yml</code> as you type, autocompletes action inputs, and shows your runs inside VS Code. The built-in Source Control panel (Ctrl+Shift+G) does <code>add</code>/<code>commit</code>/<code>push</code> with clicks.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: the workflow never runs</strong>
+    The file is not at <code>&lt;repo-root&gt;/.github/workflows/</code>, has the wrong extension, or the branch in <code>on.push.branches</code> is <code>master</code> while yours is <code>main</code>.<br><strong>Fix:</strong> check the path and branch names exactly.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting <code>actions/checkout</code></strong>
+    Maven says <em>"The goal you specified requires a project to execute but there is no POM in this directory"</em>.<br><strong>Fix:</strong> first step of every job that needs the code: <code>uses: actions/checkout@v4</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: YAML indentation</strong>
+    <em>"Invalid workflow file … unexpected value 'steps'"</em>.<br><strong>Fix:</strong> spaces only; <code>steps</code> must be inside the job; the GitHub Actions VS Code extension highlights these errors.</div>
+  <div class="callout danger"><strong>🚫 Mistake: secrets in the YAML or in logs</strong>
+    Writing <code>password: myRealPassword</code> or <code>run: echo $TOKEN</code> with a token built in a way GitHub can't mask.<br><strong>Fix:</strong> always <code>${{ secrets.X }}</code>; use access tokens, not passwords; rotate a leaked token immediately.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "works on my machine" differences</strong>
+    Tests depend on your timezone, file paths with <code>\</code>, a local MySQL, or test order.<br><strong>Fix:</strong> make tests self-contained (H2 / Testcontainers, fixed clocks, <code>Path.of</code>), run <code>mvn -B verify</code> from a clean clone.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: skipping tests to "make CI green"</strong>
+    <code>mvn -DskipTests</code> or <code>@Disabled</code> everywhere.<br><strong>Fix:</strong> a red build is information — fix the cause. A pipeline without tests only proves that the code compiles.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: Docker job fails with "denied: requested access to the resource is denied"</strong>
+    The image name's first part doesn't match your Docker Hub user, or the token is read-only.<br><strong>Fix:</strong> tag as <code>&lt;your-user&gt;/shipping-app</code>, create a Read &amp; Write token.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: only using <code>latest</code></strong>
+    You can't tell which code is running or roll back.<br><strong>Fix:</strong> tag with the commit SHA (or a version like <code>1.4.2</code>) as well.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Keep the pipeline fast</strong> (aim &lt; 10 minutes): Maven cache, fast unit tests, run slow tests separately or nightly.</li>
+    <li><strong>Fail fast</strong>: compile and unit tests first; expensive steps (Docker, deploy) later and only on main.</li>
+    <li><strong>Same command locally and in CI</strong> (<code>mvn -B verify</code>). Consider the Maven Wrapper (<code>./mvnw</code>) so everyone uses the same Maven version.</li>
+    <li><strong>Protect main</strong>: PRs only, required status checks, at least one review.</li>
+    <li><strong>Small PRs, merged often</strong> — the real meaning of "continuous integration".</li>
+    <li><strong>Build once, deploy many</strong>: the same tested artifact/image goes to staging and then production; only configuration differs.</li>
+    <li><strong>Immutable, traceable tags</strong>: commit SHA or semantic version.</li>
+    <li><strong>Least privilege</strong>: <code>permissions:</code> block, scoped tokens, environment-specific secrets, pin action versions.</li>
+    <li><strong>Automate updates and scanning</strong>: Dependabot, CodeQL, image scanning (e.g. Trivy), SonarCloud quality gate.</li>
+    <li><strong>Make failures easy to read</strong>: upload test reports, name steps clearly.</li>
+    <li><strong>Deployment needs a safety net</strong>: health checks, readiness probes and easy rollback (topic 69).</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>CI = build + test every change automatically; Continuous Delivery = always releasable, human approves production; Continuous Deployment = fully automatic.</li>
+    <li>A GitHub Actions <strong>workflow</strong> (YAML in <code>.github/workflows/</code>) is triggered by <strong>events</strong> and contains <strong>jobs</strong> of <strong>steps</strong> running on <strong>runners</strong>.</li>
+    <li><code>actions/checkout</code> + <code>actions/setup-java</code> (with <code>cache: maven</code>) + <code>mvn -B verify</code> is the standard Java CI recipe.</li>
+    <li>Jobs run on separate machines: use <code>needs:</code> for order and artifacts to share files.</li>
+    <li>Secrets live in repository settings and are read with <code>${{ secrets.NAME }}</code>.</li>
+    <li><code>docker/login-action</code> + <code>docker/build-push-action</code> publish images; tag with the commit SHA.</li>
+    <li>Branch protection with required checks is what actually stops broken code.</li>
+    <li>Add quality tools: JaCoCo, Dependabot, SonarQube/SonarCloud, CodeQL.</li>
+  </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Hello workflow.</strong> Add a second workflow file <code>.github/workflows/hello.yml</code> that runs only with the manual button and prints the branch name and the commit SHA.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-yaml">name: Hello
+on:
+  workflow_dispatch:
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Branch ${{ github.ref_name }}, commit ${{ github.sha }}"
+      - run: java -version</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Add a test and see CI catch a bug.</strong> Add a rule "orders of exactly 0.1 kg cost 5.20" as a test, push on a branch and open a PR. Then introduce a bug and watch the PR turn red.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Test
+void tinyParcel() {
+    assertThat(service.quote(0.1, false).cost()).isEqualByComparingTo("5.20");
+}</code></pre><p>Because we use <code>BigDecimal.valueOf(0.1)</code>, the result is exactly <code>5.20</code>. With plain <code>double</code> math you could get <code>5.2000000000000002</code> — a nice reminder why money uses BigDecimal.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Matrix build.</strong> Run the <code>build</code> job on Java 17 <em>and</em> Java 21 to check your app works on the next LTS.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-yaml">  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java: [ '17', '21' ]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+      - run: mvn -B verify</code></pre><p>GitHub starts two jobs in parallel: "build (17)" and "build (21)". Note: the artifact names must then be unique, e.g. <code>name: test-reports-${{ matrix.java }}</code>.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Enforce coverage.</strong> Make <code>mvn verify</code> fail if line coverage drops below 80%.</p>
+    <details><summary>Hint / solution</summary><p>Add a third execution to the JaCoCo plugin:</p><pre><code class="lang-xml">&lt;execution&gt;
+    &lt;id&gt;check&lt;/id&gt;
+    &lt;phase&gt;verify&lt;/phase&gt;
+    &lt;goals&gt;&lt;goal&gt;check&lt;/goal&gt;&lt;/goals&gt;
+    &lt;configuration&gt;
+        &lt;rules&gt;
+            &lt;rule&gt;
+                &lt;element&gt;BUNDLE&lt;/element&gt;
+                &lt;limits&gt;
+                    &lt;limit&gt;
+                        &lt;counter&gt;LINE&lt;/counter&gt;
+                        &lt;value&gt;COVEREDRATIO&lt;/value&gt;
+                        &lt;minimum&gt;0.80&lt;/minimum&gt;
+                    &lt;/limit&gt;
+                &lt;/limits&gt;
+            &lt;/rule&gt;
+        &lt;/rules&gt;
+    &lt;/configuration&gt;
+&lt;/execution&gt;</code></pre><p>Now CI fails automatically when someone adds code without tests.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Push to GitHub Container Registry instead.</strong> Change the <code>docker</code> job to push to <code>ghcr.io/&lt;owner&gt;/shipping-app</code> using the automatic <code>GITHUB_TOKEN</code> (no Docker Hub secrets needed).</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-yaml">  docker:
+    needs: build
+    if: github.event_name == 'push' &amp;&amp; github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write          # allow pushing to ghcr.io
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: app-jar, path: target }
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/shipping-app:${{ github.sha }}</code></pre><p>Note: ghcr.io image names must be lowercase.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Release on tags.</strong> Create a workflow that runs when you push a tag like <code>v1.2.0</code> and tags the Docker image with <code>1.2.0</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-yaml">on:
+  push:
+    tags: [ 'v*' ]
+...
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/shipping-app
+          tags: type=semver,pattern={{version}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}</code></pre><pre class="terminal"><code>git tag v1.2.0
+git push origin v1.2.0</code></pre><p><code>docker/metadata-action</code> turns the git tag <code>v1.2.0</code> into the image tag <code>1.2.0</code>.</p></details>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between Continuous Integration, Continuous Delivery and Continuous Deployment?</summary><p>CI: every change is merged frequently and automatically built and tested. Continuous Delivery: in addition, every green build is packaged and kept deployable (often auto-deployed to staging); production release is a manual decision. Continuous Deployment: every green change goes to production automatically, with no manual gate.</p></details>
+  <details><summary>Q2. Explain workflow, job, step, runner and action in GitHub Actions.</summary><p>A workflow is a YAML file in <code>.github/workflows</code> triggered by events. It contains jobs; each job runs on a runner (a VM/container) and consists of ordered steps. A step either runs a shell command (<code>run</code>) or uses an action (<code>uses</code>), a reusable published component like <code>actions/setup-java</code>. Jobs run in parallel unless linked with <code>needs</code>.</p></details>
+  <details><summary>Q3. How do you speed up a Maven build in CI?</summary><p>Cache the local repository (<code>setup-java</code> with <code>cache: maven</code>), use <code>-B</code> and maybe <code>-T 1C</code> for parallel modules, keep unit tests fast, split slow integration tests into another job or schedule, use <code>concurrency</code> to cancel outdated runs, and cache Docker layers (<code>type=gha</code>).</p></details>
+  <details><summary>Q4. How do you handle secrets in a pipeline?</summary><p>Store them in the CI system's encrypted secrets (repository/environment secrets), reference them as <code>${{ secrets.NAME }}</code>, never in code or logs. Use scoped, revocable tokens, least-privilege <code>permissions</code>, environment-specific secrets with approvals, and ideally short-lived credentials via OIDC to clouds instead of long-lived keys.</p></details>
+  <details><summary>Q5. Why tag Docker images with the commit SHA instead of only <code>latest</code>?</summary><p><code>latest</code> is mutable and ambiguous. A SHA (or semantic version) tag is immutable and traceable: you know exactly which code runs, can reproduce it, and can roll back to a known image.</p></details>
+  <details><summary>Q6. What does "build once, deploy many" mean?</summary><p>Build and test the artifact (jar/image) once, then promote that same artifact through environments (test → staging → prod), changing only configuration. Rebuilding per environment risks shipping something different from what was tested.</p></details>
+  <details><summary>Q7. How do you prevent broken code from reaching the main branch?</summary><p>Branch protection/rulesets: require pull requests, required status checks (CI must pass), required reviews, up-to-date branches, no force pushes. Combine with good automated tests and quality gates (coverage, static analysis).</p></details>
+  <details><summary>Q8. Why use <code>mvn verify</code> rather than <code>mvn package</code> or <code>mvn install</code> in CI?</summary><p><code>verify</code> runs everything up to and including verification checks (integration tests via Failsafe, coverage checks, quality plugins) after packaging. <code>package</code> stops earlier and skips those checks; <code>install</code> additionally copies the artifact to the runner's local repo, which is pointless on a throw-away runner.</p></details>
+  <details><summary>Q9. What tools improve code quality and security in a pipeline?</summary><p>JaCoCo (coverage), SonarQube/SonarCloud (static analysis &amp; quality gate), Checkstyle/Spotless (style), Dependabot/Renovate (dependency updates), OWASP Dependency-Check or Snyk (vulnerable libraries), CodeQL (code security scanning), Trivy (container image scanning).</p></details>
+  <details><summary>Q10. Name other CI/CD tools besides GitHub Actions.</summary><p>Jenkins (Jenkinsfile, self-hosted), GitLab CI/CD, Azure DevOps Pipelines, CircleCI, Bitbucket Pipelines, TeamCity; for Kubernetes GitOps deployments Argo CD or Flux.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../67-Docker-Compose-Multi-Container-Apps/lesson.html"><small>← Previous</small>67. Docker Compose: Multi-Container Apps</a>
+    <a class="next" href="../69-Deployment-And-Kubernetes-Basics/lesson.html"><small>Next →</small>69. Deployment &amp; Kubernetes Basics</a>
+  </nav>
+</main>
+</body>
+</html>

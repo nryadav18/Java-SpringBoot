@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Topic 28 - Spring Boot Introduction
+  This pom.xml is almost exactly what start.spring.io generates for you.
+  Run the app:      mvn spring-boot:run
+  Build a jar:      mvn clean package      then   java -jar target/boot-intro-0.0.1-SNAPSHOT.jar
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- The Spring Boot "parent" gives us tested, matching versions of hundreds of libraries
+         (so we never write <version> for Spring dependencies) plus sensible plugin settings. -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.6</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.course</groupId>
+    <artifactId>boot-intro</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>boot-intro</name>
+    <description>Topic 28 - your first Spring Boot application</description>
+
+    <properties>
+        <java.version>17</java.version>
+    </properties>
+
+    <dependencies>
+        <!-- "Web" starter = Spring MVC + Jackson (JSON) + embedded Tomcat server. One line, many libraries. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Actuator = ready-made production endpoints such as /actuator/health -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- DevTools = automatic restart when you recompile. Only used during development,
+             never packaged into production (that is what "optional" + runtime scope mean here). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Test starter = JUnit 5 + Mockito + AssertJ + Spring test support -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Adds "mvn spring-boot:run" and makes "mvn package" build an executable "fat" jar -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

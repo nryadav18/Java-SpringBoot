@@ -1,0 +1,53 @@
+### Topic 61 - API Gateway
+### Start: eureka-server (8761) -> product-service (8081) -> order-service (8082) -> api-gateway (8080)
+### From now on the client only talks to port 8080!
+
+### 1. Route "product-route": /api/products/** -> lb://product-service
+###    Look at the response headers: X-Powered-By and X-Correlation-Id were added by the gateway
+GET http://localhost:8080/api/products
+
+### 2. One product through the gateway
+GET http://localhost:8080/api/products/1
+
+### 3. Which headers did the service receive through the gateway?
+GET http://localhost:8080/api/products/headers
+
+### 4. Same endpoint DIRECTLY (bypassing the gateway) - no gateway headers
+GET http://localhost:8081/api/products/headers
+
+### 5. Route "shop-products-rewrite": /shop/products/2 is rewritten to /api/products/2
+GET http://localhost:8080/shop/products/2
+
+### 6. Discovery locator: automatic route /<service-id>/** for every Eureka service
+GET http://localhost:8080/product-service/api/products/3
+
+### 7. Place an order WITHOUT the API key -> 401 Unauthorized (blocked by ApiKeyGlobalFilter)
+POST http://localhost:8080/api/orders
+Content-Type: application/json
+
+{
+  "productId": 1,
+  "quantity": 2
+}
+
+### 8. Place an order WITH the API key -> 201 Created
+POST http://localhost:8080/api/orders
+Content-Type: application/json
+X-API-KEY: course-secret-123
+
+{
+  "productId": 1,
+  "quantity": 2
+}
+
+### 9. List orders through the gateway (GET does not need the key)
+GET http://localhost:8080/api/orders
+
+### 10. No route matches -> 404 from the gateway itself
+GET http://localhost:8080/does-not-exist
+
+### 11. Gateway actuator: every route the gateway knows
+GET http://localhost:8080/actuator/gateway/routes
+
+### 12. External route (needs internet): /demo/get -> https://httpbin.org/get
+GET http://localhost:8080/demo/get

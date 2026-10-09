@@ -1,0 +1,36 @@
+# ------------------------------------------------------------------
+# order-service configuration (Topic 60)
+# ------------------------------------------------------------------
+# Look carefully: there is NO product-service URL in this file any more!
+# order-service finds product-service through Eureka by its NAME.
+spring:
+  application:
+    name: order-service
+  cloud:
+    loadbalancer:
+      cache:
+        # DEV ONLY: the load balancer caches the instance list for 35 s by default.
+        # 5 s means a newly started 2nd instance is used almost immediately.
+        ttl: 5s
+
+server:
+  port: 8082
+  error:
+    include-message: always      # show our error reason text in the JSON error body
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    registry-fetch-interval-seconds: 5      # DEV ONLY (default 30)
+  instance:
+    hostname: localhost
+    instance-id: ${spring.application.name}:${server.port}
+    lease-renewal-interval-in-seconds: 5     # DEV ONLY (default 30)
+    lease-expiration-duration-in-seconds: 15 # DEV ONLY (default 90)
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

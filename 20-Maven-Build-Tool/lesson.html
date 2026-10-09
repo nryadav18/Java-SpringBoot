@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>20 · Maven Build Tool</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 20</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>20. Maven Build Tool</h1>
+  <p class="subtitle">Understand every line of a <code>pom.xml</code>, add libraries in seconds, and build, test and package any Java (and Spring Boot) project with one command.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="20-Maven-Build-Tool"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Why build tools exist and what problems Maven solves.</li>
+      <li>Maven's standard directory layout (<code>src/main/java</code>, <code>src/test/java</code>, <code>target</code>...).</li>
+      <li><code>pom.xml</code> explained element by element; GAV coordinates.</li>
+      <li>Dependencies, <b>scopes</b>, <b>transitive</b> dependencies, <code>mvn dependency:tree</code>.</li>
+      <li>Repositories: your local <code>~/.m2</code> and Maven Central.</li>
+      <li>The build <b>lifecycle</b>: <code>clean</code>, <code>compile</code>, <code>test</code>, <code>package</code>, <code>install</code>; phases vs plugin goals.</li>
+      <li>Building a runnable "fat" JAR with the shade plugin; running with the exec plugin.</li>
+      <li>Properties, parent POMs and BOMs — the key to understanding the Spring Boot parent.</li>
+      <li>The Maven Wrapper (<code>mvnw</code>) — and a quick word on Gradle.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../9-Packages-Access-Modifiers-Static-Final/lesson.html">Topic 9 · Packages, javac -d and -cp</a>. You already <i>ran</i> a Maven project in <a href="../19-JDBC-Basics/lesson.html">Topic 19</a>; now you'll understand it.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>In Topic 9 you compiled a small project by hand: <code>javac -d out src/com/shop/...java</code>, then <code>java -cp out ...</code>. Now imagine a real Spring Boot project:</p>
+  <ul>
+    <li>It uses <b>100+ libraries</b> (JAR files): Spring, Jackson, Hibernate, Tomcat, logging, database drivers...</li>
+    <li>Each library needs <b>other</b> libraries, in compatible versions.</li>
+    <li>You must compile, run hundreds of tests, and package everything into one deployable file.</li>
+    <li>Five developers and a CI server (Topic 68) must all build it <b>exactly the same way</b>.</li>
+  </ul>
+  <p>Downloading JARs by hand and typing long <code>javac -cp a.jar;b.jar;c.jar...</code> commands is impossible at that size. A <b>build tool</b> automates all of it. <b>Maven</b> is the most widely used build tool in the Java world (Gradle is the other big one). Every project from Topic 21 to the capstone is a Maven project, and when you create a project on <code>start.spring.io</code> you get a <code>pom.xml</code>.</p>
+  <p>In job interviews and at work you'll constantly hear: "add the dependency", "run <code>mvn clean install</code>", "check the dependency tree", "the build is failing in the test phase". This lesson makes all of that clear.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🍰 A recipe card and a smart kitchen</strong>
+    <ul>
+      <li><code>pom.xml</code> is a <b>recipe card</b>: the dish's name and version (GAV), the <b>ingredients</b> (dependencies), and the <b>cooking steps</b> (plugins).</li>
+      <li><b>Maven</b> is a <b>smart kitchen robot</b> that reads the card and does everything: shops for ingredients, prepares, cooks, tastes, and packs the dish in a box.</li>
+      <li><b>Maven Central</b> is the giant <b>supermarket</b> where every ingredient is sold, with an exact label (groupId, artifactId, version).</li>
+      <li><code>~/.m2/repository</code> is your <b>home pantry</b>. Once bought, an ingredient is kept there, so the next recipe that needs it doesn't go shopping again.</li>
+      <li><b>Transitive dependencies</b>: you buy "cake mix", and it already contains flour and sugar — you didn't list them, but you get them.</li>
+      <li>The <b>lifecycle</b> is the fixed order of cooking: prepare → cook → taste (test) → pack (package) → put in the fridge (install). Asking for "pack" automatically does all the steps before it.</li>
+      <li>A <b>parent POM</b> is a <b>family cookbook</b>: shared rules ("always use these brands, in these quantities") that every recipe in the family inherits. The Spring Boot parent is exactly that.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 What a build tool does</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Job</th><th>Without a build tool</th><th>With Maven</th></tr>
+    <tr><td>Get libraries</td><td>Search websites, download JARs, put them in a folder</td><td>Add 4 lines to <code>pom.xml</code></td></tr>
+    <tr><td>Library's own libraries</td><td>Find and download each one, check versions</td><td>Automatic (transitive)</td></tr>
+    <tr><td>Compile</td><td><code>javac -cp ... -d ... (every file)</code></td><td><code>mvn compile</code></td></tr>
+    <tr><td>Run tests</td><td>Write your own script</td><td><code>mvn test</code></td></tr>
+    <tr><td>Create a JAR</td><td><code>jar cfm ...</code> + manifest</td><td><code>mvn package</code></td></tr>
+    <tr><td>Same build for everyone</td><td>"Works on my machine" 😩</td><td>Same <code>pom.xml</code> → same result</td></tr>
+  </table></div>
+  <p>Maven's philosophy is <b>"convention over configuration"</b>: if you put files in the standard places, Maven already knows what to do. You only configure the exceptions. (Spring Boot follows the same philosophy.)</p>
+
+  <h3>3.2 The standard directory layout</h3>
+  <pre class="terminal"><code>my-project/
+├── pom.xml                      ← the recipe (project description)
+├── mvnw, mvnw.cmd, .mvn/        ← Maven Wrapper (optional, recommended)
+├── src/
+│   ├── main/
+│   │   ├── java/                ← your application code (packages inside)
+│   │   │   └── com/course/mavendemo/App.java
+│   │   └── resources/           ← non-Java files that go on the classpath
+│   │       └── app.properties       (Spring: application.properties, templates, static files)
+│   └── test/
+│       ├── java/                ← test code (same packages as main)
+│       │   └── com/course/mavendemo/LabelFormatterTest.java
+│       └── resources/           ← files only tests need
+└── target/                      ← EVERYTHING Maven generates (safe to delete!)
+    ├── classes/                     compiled main code + resources
+    ├── test-classes/                compiled tests
+    ├── surefire-reports/            test reports
+    └── maven-demo-1.0.0.jar         the packaged JAR</code></pre>
+  <div class="callout tip"><strong>💡 Rules of thumb</strong>
+    Never put your own files in <code>target/</code> — <code>mvn clean</code> deletes it. Never commit <code>target/</code> to Git (add it to <code>.gitignore</code>). Package folders in <code>src/main/java</code> must match the <code>package</code> line, just like in Topic 9.</div>
+
+  <h3>3.3 GAV coordinates — every artifact's address</h3>
+  <p>Every Maven project and every library is identified by three values, called <b>GAV</b>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Element</th><th>Meaning</th><th>Our project</th><th>A library</th></tr>
+    <tr><td><code>groupId</code></td><td>Who makes it — usually a reversed domain name</td><td><code>com.course</code></td><td><code>org.apache.commons</code></td></tr>
+    <tr><td><code>artifactId</code></td><td>The project/library name</td><td><code>maven-demo</code></td><td><code>commons-lang3</code></td></tr>
+    <tr><td><code>version</code></td><td>Which release</td><td><code>1.0.0</code></td><td><code>3.17.0</code></td></tr>
+  </table></div>
+  <p>Written in one line: <code>org.apache.commons:commons-lang3:3.17.0</code>. The JAR file name is <code>artifactId-version.jar</code> → <code>commons-lang3-3.17.0.jar</code>.</p>
+  <p><b>Versions:</b> most libraries use <i>semantic versioning</i> <code>MAJOR.MINOR.PATCH</code> (major = breaking changes, minor = new features, patch = bug fixes). A version ending in <code>-SNAPSHOT</code> (e.g. <code>1.1.0-SNAPSHOT</code>) means "work in progress, may change"; a version without it is a fixed <b>release</b> that never changes.</p>
+
+  <h3>3.4 pom.xml element by element</h3>
+  <pre><span class="file">pom.xml (skeleton)</span><code class="lang-xml">&lt;project ...&gt;
+    &lt;modelVersion&gt;4.0.0&lt;/modelVersion&gt;          &lt;!-- POM format version, always 4.0.0 --&gt;
+
+    &lt;parent&gt;...&lt;/parent&gt;                        &lt;!-- optional: inherit settings (3.10) --&gt;
+
+    &lt;groupId&gt;com.course&lt;/groupId&gt;               &lt;!-- G --&gt;
+    &lt;artifactId&gt;maven-demo&lt;/artifactId&gt;         &lt;!-- A --&gt;
+    &lt;version&gt;1.0.0&lt;/version&gt;                    &lt;!-- V --&gt;
+    &lt;packaging&gt;jar&lt;/packaging&gt;                  &lt;!-- jar (default) | war | pom --&gt;
+    &lt;name&gt;...&lt;/name&gt; &lt;description&gt;...&lt;/description&gt;
+
+    &lt;properties&gt;...&lt;/properties&gt;               &lt;!-- named values, used as ${name} --&gt;
+    &lt;dependencyManagement&gt;...&lt;/dependencyManagement&gt;  &lt;!-- version rules (3.10) --&gt;
+    &lt;dependencies&gt;...&lt;/dependencies&gt;           &lt;!-- the libraries you use --&gt;
+
+    &lt;build&gt;
+        &lt;resources&gt;...&lt;/resources&gt;             &lt;!-- optional: resource settings --&gt;
+        &lt;plugins&gt;...&lt;/plugins&gt;                 &lt;!-- the tools that do the work --&gt;
+    &lt;/build&gt;
+&lt;/project&gt;</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Element</th><th>What it is for</th></tr>
+    <tr><td><code>modelVersion</code></td><td>Version of the POM format. Always <code>4.0.0</code>.</td></tr>
+    <tr><td><code>parent</code></td><td>Inherit configuration from another POM (e.g. <code>spring-boot-starter-parent</code>).</td></tr>
+    <tr><td><code>groupId / artifactId / version</code></td><td>This project's coordinates.</td></tr>
+    <tr><td><code>packaging</code></td><td>What to produce: <code>jar</code> (normal, Spring Boot), <code>war</code> (old-style web app for an external Tomcat), <code>pom</code> (parent/aggregator project, no code).</td></tr>
+    <tr><td><code>properties</code></td><td>Key/value settings. Some are read by plugins (<code>maven.compiler.release</code>, <code>project.build.sourceEncoding</code>); you can add your own (<code>commons-lang3.version</code>).</td></tr>
+    <tr><td><code>dependencies</code></td><td>Libraries this project needs, with optional <code>scope</code>.</td></tr>
+    <tr><td><code>dependencyManagement</code></td><td>Declares versions <i>without</i> adding the dependency — a rulebook (BOMs live here).</td></tr>
+    <tr><td><code>build/plugins</code></td><td>Configure the plugins that compile, test, package, run...</td></tr>
+    <tr><td><code>modules</code></td><td>For multi-module projects: list of sub-projects to build together.</td></tr>
+    <tr><td><code>repositories</code></td><td>Extra places to download from (rarely needed — Central is the default).</td></tr>
+  </table></div>
+
+  <h3>3.5 Dependencies and scopes</h3>
+  <p>Adding a library = adding its GAV in <code>&lt;dependencies&gt;</code>. Where do you find the GAV? On the library's website, or by searching <code>central.sonatype.com</code> / <code>mvnrepository.com</code>, which show a ready-to-copy snippet.</p>
+  <pre><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.apache.commons&lt;/groupId&gt;
+    &lt;artifactId&gt;commons-lang3&lt;/artifactId&gt;
+    &lt;version&gt;3.17.0&lt;/version&gt;
+    &lt;!-- no scope = compile --&gt;
+&lt;/dependency&gt;</code></pre>
+  <p>The <b>scope</b> says <i>when</i> a dependency is on the classpath:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Scope</th><th>Compile main</th><th>Compile/run tests</th><th>Runtime / inside final app</th><th>Typical example</th></tr>
+    <tr><td><code>compile</code> (default)</td><td>✅</td><td>✅</td><td>✅</td><td>Spring, Jackson, commons-lang3</td></tr>
+    <tr><td><code>test</code></td><td>❌</td><td>✅</td><td>❌</td><td>JUnit, Mockito, AssertJ</td></tr>
+    <tr><td><code>runtime</code></td><td>❌</td><td>✅</td><td>✅</td><td>JDBC drivers (MySQL, H2) — code uses only <code>java.sql</code> interfaces</td></tr>
+    <tr><td><code>provided</code></td><td>✅</td><td>✅</td><td>❌ (the server/JDK provides it)</td><td>Servlet API for a WAR, Lombok</td></tr>
+    <tr><td><code>import</code></td><td colspan="3">Only in <code>&lt;dependencyManagement&gt;</code> to import a BOM (3.10)</td><td>Spring Cloud BOM</td></tr>
+  </table></div>
+  <p>Scope <code>test</code> is a safety feature: if someone accidentally imports JUnit in <code>src/main/java</code>, the build fails instead of shipping test libraries to production.</p>
+
+  <h3>3.6 Transitive dependencies</h3>
+  <p>Libraries have their own dependencies (declared in <i>their</i> POMs). Maven downloads them automatically — these are <b>transitive dependencies</b>. You can see the whole tree:</p>
+  <pre class="terminal"><code>mvn dependency:tree
+
+[INFO] com.course:maven-demo:jar:1.0.0
+[INFO] +- org.apache.commons:commons-lang3:jar:3.17.0:compile
+[INFO] \- org.junit.jupiter:junit-jupiter:jar:5.11.4:test
+[INFO]    +- org.junit.jupiter:junit-jupiter-api:jar:5.11.4:test
+[INFO]    |  +- org.opentest4j:opentest4j:jar:1.3.0:test
+[INFO]    |  +- org.junit.platform:junit-platform-commons:jar:1.11.4:test
+[INFO]    |  \- org.apiguardian:apiguardian-api:jar:1.1.2:test
+[INFO]    +- org.junit.jupiter:junit-jupiter-params:jar:5.11.4:test
+[INFO]    \- org.junit.jupiter:junit-jupiter-engine:jar:5.11.4:test
+[INFO]       \- org.junit.platform:junit-platform-engine:jar:1.11.4:test</code></pre>
+  <p>We declared 2 dependencies; Maven resolved 9. A Spring Boot web project declares ~3 and gets ~40. When two paths bring <b>different versions</b> of the same library, Maven picks the one <b>nearest</b> to your project in the tree ("nearest wins"; if equal depth, the first declared). If that causes trouble, you can:</p>
+  <ul>
+    <li>declare the version you want directly (direct dependencies are always nearest), or pin it in <code>&lt;dependencyManagement&gt;</code>;</li>
+    <li>remove an unwanted transitive dependency with <code>&lt;exclusions&gt;</code>:</li>
+  </ul>
+  <pre><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-web&lt;/artifactId&gt;
+    &lt;exclusions&gt;
+        &lt;exclusion&gt;                              &lt;!-- e.g. use Jetty instead of Tomcat --&gt;
+            &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+            &lt;artifactId&gt;spring-boot-starter-tomcat&lt;/artifactId&gt;
+        &lt;/exclusion&gt;
+    &lt;/exclusions&gt;
+&lt;/dependency&gt;</code></pre>
+
+  <h3>3.7 Repositories: local and remote</h3>
+  <div class="flow">
+    <span class="box alt">pom.xml needs commons-lang3:3.17.0</span><span class="arrow">→</span>
+    <span class="box info">In ~/.m2/repository? → use it</span><span class="arrow">→ else →</span>
+    <span class="box">Download from Maven Central</span><span class="arrow">→</span>
+    <span class="box info">Save in ~/.m2 for next time</span>
+  </div>
+  <ul>
+    <li><b>Local repository</b>: <code>C:\Users\&lt;you&gt;\.m2\repository</code> — a cache of everything you've ever downloaded, organised by GAV: <code>.m2\repository\org\apache\commons\commons-lang3\3.17.0\commons-lang3-3.17.0.jar</code>. Shared by all your projects.</li>
+    <li><b>Maven Central</b> (<code>https://repo.maven.apache.org/maven2</code>): the default public remote repository with millions of artifacts.</li>
+    <li><b>Company repositories</b> (Nexus, Artifactory, GitHub Packages): private servers for internal libraries; configured in <code>~/.m2/settings.xml</code>.</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ Offline and broken downloads</strong>
+    The first build needs internet; later builds work offline (<code>mvn -o ...</code>). If a download was interrupted, you may get strange "invalid LOC header" or "zip END header not found" errors — delete that library's folder in <code>.m2\repository</code> and build again.</div>
+
+  <h3>3.8 The build lifecycle, phases and goals</h3>
+  <p>Maven's <b>default lifecycle</b> is an ordered list of <b>phases</b>. When you run a phase, Maven runs <b>every phase before it</b>, in order:</p>
+  <div class="flow">
+    <span class="box info">validate</span><span class="arrow">→</span>
+    <span class="box">compile</span><span class="arrow">→</span>
+    <span class="box">test</span><span class="arrow">→</span>
+    <span class="box alt">package</span><span class="arrow">→</span>
+    <span class="box">verify</span><span class="arrow">→</span>
+    <span class="box alt">install</span><span class="arrow">→</span>
+    <span class="box">deploy</span>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th>Command</th><th>What happens</th><th>Result</th></tr>
+    <tr><td><code>mvn clean</code></td><td>Separate "clean" lifecycle: deletes <code>target/</code></td><td>Fresh start</td></tr>
+    <tr><td><code>mvn compile</code></td><td>Copy resources, compile <code>src/main/java</code></td><td><code>target/classes</code></td></tr>
+    <tr><td><code>mvn test</code></td><td>compile + compile tests + run tests (surefire)</td><td><code>target/surefire-reports</code></td></tr>
+    <tr><td><code>mvn package</code></td><td>... + build the JAR/WAR</td><td><code>target/maven-demo-1.0.0.jar</code></td></tr>
+    <tr><td><code>mvn verify</code></td><td>... + integration tests/quality checks (used in CI)</td><td></td></tr>
+    <tr><td><code>mvn install</code></td><td>... + copy the JAR into your local <code>~/.m2</code></td><td>Other local projects can depend on it</td></tr>
+    <tr><td><code>mvn deploy</code></td><td>... + upload to a remote repository</td><td>Shared with your team</td></tr>
+  </table></div>
+  <p>You can combine them: <code>mvn clean package</code> = "delete old output, then build fresh". Skip tests (only when you really must): <code>mvn package -DskipTests</code>.</p>
+  <p><b>Plugins and goals.</b> Phases are just names — the real work is done by <b>plugins</b>. Each plugin has <b>goals</b> (tasks), and goals are <i>bound</i> to phases:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Phase</th><th>Plugin:goal bound to it (for jar packaging)</th></tr>
+    <tr><td>process-resources</td><td><code>resources:resources</code></td></tr>
+    <tr><td>compile</td><td><code>compiler:compile</code></td></tr>
+    <tr><td>test</td><td><code>surefire:test</code></td></tr>
+    <tr><td>package</td><td><code>jar:jar</code> (+ <code>shade:shade</code> in our pom)</td></tr>
+    <tr><td>install</td><td><code>install:install</code></td></tr>
+  </table></div>
+  <p>You can also run a goal directly, outside the lifecycle: <code>mvn dependency:tree</code>, <code>mvn exec:java</code>, <code>mvn spring-boot:run</code> (later!). Look at real build output — each <code>---</code> line is one plugin goal running:</p>
+  <pre class="terminal"><code>[INFO] --- clean:3.2.0:clean (default-clean) @ maven-demo ---
+[INFO] --- resources:3.3.1:resources (default-resources) @ maven-demo ---
+[INFO] --- compiler:3.13.0:compile (default-compile) @ maven-demo ---
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ maven-demo ---
+[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ maven-demo ---
+[INFO] --- surefire:3.5.2:test (default-test) @ maven-demo ---
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+[INFO] --- jar:3.4.1:jar (default-jar) @ maven-demo ---
+[INFO] Building jar: D:\Java-SpringBoot\20-Maven-Build-Tool\target\maven-demo-1.0.0.jar
+[INFO] --- shade:3.6.0:shade (default) @ maven-demo ---
+[INFO] BUILD SUCCESS</code></pre>
+
+  <h3>3.9 Runnable JARs: thin vs fat</h3>
+  <p>A normal <code>mvn package</code> produces a <b>thin JAR</b>: only <i>your</i> classes. Running it with <code>java -jar</code> fails because (1) the JAR doesn't say which class has <code>main</code>, and (2) the libraries (commons-lang3) are not inside.</p>
+  <p>Solutions:</p>
+  <ul>
+    <li><b>exec-maven-plugin</b> — run through Maven during development: <code>mvn compile exec:java</code>. Maven builds the classpath for you.</li>
+    <li><b>maven-shade-plugin</b> — builds a <b>fat JAR</b> (also called <i>uber JAR</i>): your classes + all runtime dependencies unpacked into one file, with <code>Main-Class</code> in <code>META-INF/MANIFEST.MF</code>. Then <code>java -jar target/maven-demo-1.0.0.jar</code> works anywhere Java is installed.</li>
+    <li><b>spring-boot-maven-plugin</b> — Spring Boot's own version: an executable JAR with dependencies nested inside (Topic 28). Same idea, smarter format.</li>
+  </ul>
+
+  <h3>3.10 Properties, parent POMs and BOMs (→ Spring Boot parent)</h3>
+  <p><b>Properties</b> are named values. Define once, use as <code>${name}</code> anywhere in the POM (and in filtered resources):</p>
+  <pre><code class="lang-xml">&lt;properties&gt;
+    &lt;maven.compiler.release&gt;17&lt;/maven.compiler.release&gt;   &lt;!-- read by the compiler plugin --&gt;
+    &lt;commons-lang3.version&gt;3.17.0&lt;/commons-lang3.version&gt;  &lt;!-- our own --&gt;
+&lt;/properties&gt;
+...
+&lt;version&gt;${commons-lang3.version}&lt;/version&gt;</code></pre>
+  <p>Built-in ones include <code>${project.version}</code>, <code>${project.artifactId}</code>, <code>${java.version}</code> (Spring Boot defines this one).</p>
+  <p><b>Parent POM.</b> A POM can inherit from another with <code>&lt;parent&gt;</code> — it receives the parent's properties, plugin configuration and dependency versions. This is what every Spring Boot project does:</p>
+  <pre><code class="lang-xml">&lt;parent&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-parent&lt;/artifactId&gt;
+    &lt;version&gt;3.5.6&lt;/version&gt;
+&lt;/parent&gt;
+
+&lt;dependencies&gt;
+    &lt;dependency&gt;
+        &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+        &lt;artifactId&gt;spring-boot-starter-web&lt;/artifactId&gt;
+        &lt;!-- NO version! The parent knows the right one. --&gt;
+    &lt;/dependency&gt;
+&lt;/dependencies&gt;</code></pre>
+  <p>The Spring Boot parent gives you: tested-together versions of ~hundreds of libraries, UTF-8 encoding, Java version via <code>&lt;java.version&gt;</code>, sensible plugin settings, resource filtering for <code>application.properties</code>. That's why Spring Boot POMs are so short.</p>
+  <p><b>dependencyManagement and BOMs.</b> <code>&lt;dependencyManagement&gt;</code> lists versions as <i>rules</i> without adding the dependencies. A <b>BOM</b> (Bill of Materials) is a special POM that contains only such a list — "these 50 libraries work together in these versions". You import a BOM with scope <code>import</code>:</p>
+  <pre><code class="lang-xml">&lt;dependencyManagement&gt;
+    &lt;dependencies&gt;
+        &lt;dependency&gt;
+            &lt;groupId&gt;org.springframework.cloud&lt;/groupId&gt;
+            &lt;artifactId&gt;spring-cloud-dependencies&lt;/artifactId&gt;
+            &lt;version&gt;2025.0.0&lt;/version&gt;
+            &lt;type&gt;pom&lt;/type&gt;
+            &lt;scope&gt;import&lt;/scope&gt;
+        &lt;/dependency&gt;
+    &lt;/dependencies&gt;
+&lt;/dependencyManagement&gt;</code></pre>
+  <p>You will use exactly this for the microservices topics (59+). Unlike a parent (you can have only one), you can import <b>many</b> BOMs.</p>
+
+  <h3>3.11 Resource filtering</h3>
+  <p>Files in <code>src/main/resources</code> are copied to <code>target/classes</code> (so they end up on the classpath and inside the JAR). With <code>&lt;filtering&gt;true&lt;/filtering&gt;</code>, Maven also replaces <code>${...}</code> placeholders in them. Our <code>app.properties</code> contains <code>app.version=${project.version}</code>, which becomes <code>app.version=1.0.0</code>. Spring Boot's parent enables filtering with <code>@...@</code> delimiters (because Spring itself uses <code>${...}</code>).</p>
+
+  <h3>3.12 The Maven Wrapper (mvnw)</h3>
+  <p>Different Maven versions can behave differently. The <b>Maven Wrapper</b> pins a version per project. It consists of <code>mvnw</code> (Linux/macOS), <code>mvnw.cmd</code> (Windows) and <code>.mvn/wrapper/maven-wrapper.properties</code>. The first time you run <code>mvnw</code>, it downloads the exact Maven version written in the properties file (into <code>~/.m2/wrapper</code>) and then uses it.</p>
+  <pre class="terminal"><code>.\mvnw.cmd clean package       # Windows (PowerShell)
+./mvnw clean package           # Linux / macOS / Git Bash</code></pre>
+  <p>Benefits: nobody needs Maven installed, CI servers and teammates use the identical version. Projects from <code>start.spring.io</code> include the wrapper. You can add it to any project with <code>mvn wrapper:wrapper</code> — that's how this folder's wrapper was created.</p>
+
+  <h3>3.13 Gradle in one minute</h3>
+  <p><b>Gradle</b> is the other popular build tool (default for Android). It uses the same Maven Central repository and the same GAV coordinates, but the build file is code (Groovy or Kotlin) instead of XML, and it's often faster thanks to caching:</p>
+  <pre><span class="file">build.gradle.kts (Gradle, for comparison only)</span><code class="lang-java">dependencies {
+    implementation("org.apache.commons:commons-lang3:3.17.0")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+}</code></pre>
+  <p>Concepts you learned here (dependencies, scopes ≈ configurations, repositories, wrapper) transfer directly. This course uses Maven everywhere.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>Every element commented: GAV, properties, two dependencies with different scopes, four plugins, resource filtering</td></tr>
+    <tr><td><code>src/main/java/com/course/mavendemo/App.java</code></td><td>Main class: loads <code>app.properties</code> from the classpath and prints shop labels</td></tr>
+    <tr><td><code>src/main/java/com/course/mavendemo/LabelFormatter.java</code></td><td>Uses <code>StringUtils</code> from commons-lang3 (a downloaded library)</td></tr>
+    <tr><td><code>src/main/resources/app.properties</code></td><td>Resource file with a <code>${project.version}</code> placeholder</td></tr>
+    <tr><td><code>src/test/java/com/course/mavendemo/LabelFormatterTest.java</code></td><td>4 JUnit tests that run during <code>mvn test</code> / <code>mvn package</code></td></tr>
+    <tr><td><code>mvnw</code>, <code>mvnw.cmd</code>, <code>.mvn/wrapper/maven-wrapper.properties</code></td><td>Maven Wrapper pinned to Maven 3.9.11</td></tr>
+  </table></div>
+
+  <h3>pom.xml — dependencies and plugins</h3>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;properties&gt;
+    &lt;maven.compiler.release&gt;17&lt;/maven.compiler.release&gt;
+    &lt;project.build.sourceEncoding&gt;UTF-8&lt;/project.build.sourceEncoding&gt;
+    &lt;commons-lang3.version&gt;3.17.0&lt;/commons-lang3.version&gt;
+    &lt;junit.version&gt;5.11.4&lt;/junit.version&gt;
+    &lt;main.class&gt;com.course.mavendemo.App&lt;/main.class&gt;
+&lt;/properties&gt;
+
+&lt;dependencies&gt;
+    &lt;dependency&gt;
+        &lt;groupId&gt;org.apache.commons&lt;/groupId&gt;
+        &lt;artifactId&gt;commons-lang3&lt;/artifactId&gt;
+        &lt;version&gt;${commons-lang3.version}&lt;/version&gt;
+    &lt;/dependency&gt;
+    &lt;dependency&gt;
+        &lt;groupId&gt;org.junit.jupiter&lt;/groupId&gt;
+        &lt;artifactId&gt;junit-jupiter&lt;/artifactId&gt;
+        &lt;version&gt;${junit.version}&lt;/version&gt;
+        &lt;scope&gt;test&lt;/scope&gt;
+    &lt;/dependency&gt;
+&lt;/dependencies&gt;</code></pre>
+  <ul>
+    <li><code>maven.compiler.release=17</code> → the compiler plugin compiles for Java 17 (like <code>javac --release 17</code>).</li>
+    <li><code>project.build.sourceEncoding=UTF-8</code> → avoids broken characters on Windows (whose default is Cp1252).</li>
+    <li>Version numbers are kept in properties — one place to update.</li>
+    <li>JUnit has <code>test</code> scope: available in <code>src/test/java</code>, absent from the final JAR.</li>
+  </ul>
+  <pre><span class="file">pom.xml — shade plugin</span><code class="lang-xml">&lt;plugin&gt;
+    &lt;groupId&gt;org.apache.maven.plugins&lt;/groupId&gt;
+    &lt;artifactId&gt;maven-shade-plugin&lt;/artifactId&gt;
+    &lt;version&gt;3.6.0&lt;/version&gt;
+    &lt;executions&gt;
+        &lt;execution&gt;
+            &lt;phase&gt;package&lt;/phase&gt;              &lt;!-- WHEN: during package --&gt;
+            &lt;goals&gt;&lt;goal&gt;shade&lt;/goal&gt;&lt;/goals&gt;   &lt;!-- WHAT: the shade goal --&gt;
+            &lt;configuration&gt;
+                &lt;transformers&gt;
+                    &lt;transformer implementation="...ManifestResourceTransformer"&gt;
+                        &lt;mainClass&gt;${main.class}&lt;/mainClass&gt;   &lt;!-- Main-Class in MANIFEST.MF --&gt;
+                    &lt;/transformer&gt;
+                &lt;/transformers&gt;
+                ...
+            &lt;/configuration&gt;
+        &lt;/execution&gt;
+    &lt;/executions&gt;
+&lt;/plugin&gt;</code></pre>
+  <p>An <code>&lt;execution&gt;</code> binds a plugin goal to a lifecycle phase. After <code>mvn package</code> you'll find two JARs: <code>maven-demo-1.0.0.jar</code> (the fat, runnable one) and <code>original-maven-demo-1.0.0.jar</code> (the thin one, kept for reference).</p>
+
+  <h3>LabelFormatter.java — using a library</h3>
+  <pre><span class="file">src/main/java/com/course/mavendemo/LabelFormatter.java</span><code class="lang-java">import org.apache.commons.lang3.StringUtils;   // comes from the downloaded JAR
+
+public String toSlug(String productName) {
+    if (StringUtils.isBlank(productName)) {       // null-safe: null, "", "   " -&gt; true
+        return "";
+    }
+    String lower = StringUtils.lowerCase(productName.strip());
+    String lettersAndDigits = lower.replaceAll("[^a-z0-9]+", "-");
+    return StringUtils.strip(lettersAndDigits, "-");
+}
+
+public String productCode(String productName, int id) {
+    String prefix = StringUtils.upperCase(StringUtils.left(StringUtils.deleteWhitespace(productName), 3));
+    return prefix + "-" + StringUtils.leftPad(String.valueOf(id), 5, '0');   // MOU-00042
+}</code></pre>
+  <p>Nothing special in the Java code: you just <code>import</code> the class. Maven made sure the JAR was on the classpath at compile time, test time and run time.</p>
+
+  <h3>App.java — reading a classpath resource</h3>
+  <pre><span class="file">src/main/java/com/course/mavendemo/App.java</span><code class="lang-java">try (InputStream in = App.class.getResourceAsStream("/app.properties")) {
+    if (in != null) {
+        props.load(in);
+    }
+}</code></pre>
+  <p><code>/app.properties</code> means "at the root of the classpath". Maven copied it from <code>src/main/resources</code> to <code>target/classes</code> (and into the JAR), replacing <code>${project.version}</code> with <code>1.0.0</code>. Spring Boot loads <code>application.properties</code> from the same place.</p>
+
+  <h3>LabelFormatterTest.java</h3>
+  <p>Four small tests check the formatter. The surefire plugin finds test classes whose names end in <code>Test</code> and runs them. If one fails, <code>mvn package</code> stops with <code>BUILD FAILURE</code> — so a broken JAR is never produced. Topic 21 explains <code>@Test</code> and <code>assertEquals</code> in depth.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <p><b>From the terminal</b>:</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\20-Maven-Build-Tool"
+
+mvn -q compile exec:java                 # 1) run via the exec plugin
+mvn clean package                        # 2) clean, compile, test, build the fat JAR
+java -jar target/maven-demo-1.0.0.jar    # 3) run the JAR - no Maven needed
+mvn dependency:tree                      # 4) see all dependencies
+.\mvnw.cmd -v                            # 5) the wrapper (downloads Maven 3.9.11 on first use)
+mvn clean                                # 6) delete target/</code></pre>
+  <p>Expected output of steps 1 and 3:</p>
+  <pre class="terminal"><code>=== Shop Label Printer v1.0.0 ===
+Slug        : ergonomic-wireless-mouse-black
+Short title : Ergonomic wi...
+Code        : MOU-00042
+Receipt:
+  Wireless Mouse        799.00
+  USB-C Charging C...   349.00
+  Laptop Stand         1299.00</code></pre>
+  <p><b>In VS Code:</b> open the folder <code>20-Maven-Build-Tool</code>. The Java extension imports <code>pom.xml</code> automatically. In the Explorer side bar you'll find a <b>MAVEN</b> panel: expand the project → <b>Lifecycle</b> and click <code>clean</code>, <code>package</code>, etc. to run phases without typing. Open <code>App.java</code> and click <b>▶ Run</b>, or open the test file and click the green ▶ next to a test. After you edit <code>pom.xml</code>, VS Code may ask to "synchronize the Java classpath" — click <b>Yes</b> (or run "Java: Reload Projects").</p>
+  <div class="callout tip"><strong>💡 Look inside the JAR</strong>
+    A JAR is just a ZIP file. Run <code>jar tf target/maven-demo-1.0.0.jar</code> to list its content — you'll see <code>com/course/mavendemo/App.class</code>, <code>app.properties</code> and all the <code>org/apache/commons/lang3/...</code> classes. Compare with <code>jar tf target/original-maven-demo-1.0.0.jar</code>.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: "package org.apache.commons.lang3 does not exist"</strong>
+    The dependency is missing, misspelled, or VS Code hasn't reloaded the POM. <br><strong>Fix:</strong> check the GAV, run <code>mvn compile</code> in the terminal, then "Java: Reload Projects" in VS Code.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "no main manifest attribute, in target/xyz.jar"</strong>
+    You ran <code>java -jar</code> on a thin JAR. <br><strong>Fix:</strong> configure the shade plugin (or <code>spring-boot-maven-plugin</code> for Spring Boot) with the main class.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: NoClassDefFoundError when running the JAR</strong>
+    The JAR has a Main-Class but not the libraries. <br><strong>Fix:</strong> build a fat JAR (shade) or run via <code>mvn exec:java</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: running <code>mvn package</code> twice without clean with the shade plugin</strong>
+    The second run shades an already-shaded JAR and prints many "overlapping classes" warnings. <br><strong>Fix:</strong> use <code>mvn clean package</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: using a test library in main code</strong>
+    "package org.junit.jupiter.api does not exist" in <code>src/main/java</code>. <br><strong>Fix:</strong> tests belong in <code>src/test/java</code>; test-scoped libraries are invisible to main code on purpose.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: putting code in the wrong folder</strong>
+    A <code>.java</code> file directly in <code>src/</code> or in <code>src/main/resources</code> is ignored by the compiler. <br><strong>Fix:</strong> follow the standard layout — <code>src/main/java/&lt;package folders&gt;</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "invalid target release: 17" / "release version 17 not supported"</strong>
+    Maven is running with an older JDK. <br><strong>Fix:</strong> <code>mvn -v</code> shows which Java Maven uses; set <code>JAVA_HOME</code> to your JDK 17 (Topic 1).</div>
+  <div class="callout danger"><strong>🚫 Mistake: always building with -DskipTests</strong>
+    It "saves time" until broken code reaches production. <br><strong>Fix:</strong> keep tests fast and let them run; CI should always run them.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><b>Follow the standard layout</b> — every Java developer and tool understands it.</li>
+    <li><b>Pin versions</b> of dependencies and plugins (no <code>LATEST</code>, no version ranges) for repeatable builds. Use properties to keep them in one place.</li>
+    <li><b>Use the right scope</b>: <code>test</code> for test libraries, <code>runtime</code> for JDBC drivers.</li>
+    <li><b>Prefer a parent or BOM</b> (like Spring Boot's) to managing dozens of versions yourself — and don't override managed versions without a reason.</li>
+    <li><b>Check the dependency tree</b> when something odd happens (two versions of a library, unexpected classes).</li>
+    <li><b>Commit the Maven Wrapper</b> and use <code>./mvnw</code> in CI.</li>
+    <li><b>Never commit <code>target/</code></b>; add it to <code>.gitignore</code>.</li>
+    <li><b>Use <code>mvn clean verify</code> (or <code>package</code>) before pushing</b> — it's what CI will run (Topic 68).</li>
+    <li><b>Keep dependencies minimal and up to date</b>: each library is code you ship and a possible security risk (tools like Dependabot help).</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Maven automates downloading libraries, compiling, testing and packaging, using <code>pom.xml</code> as the recipe.</li>
+    <li>Standard layout: <code>src/main/java</code>, <code>src/main/resources</code>, <code>src/test/java</code>; output in <code>target/</code>.</li>
+    <li>Every artifact has GAV coordinates: <code>groupId:artifactId:version</code>.</li>
+    <li>Scopes: <code>compile</code> (default), <code>test</code>, <code>runtime</code>, <code>provided</code>, <code>import</code>.</li>
+    <li>Transitive dependencies are resolved automatically; inspect with <code>mvn dependency:tree</code>.</li>
+    <li>Downloads are cached in <code>~/.m2/repository</code>; the default remote is Maven Central.</li>
+    <li>Lifecycle: <code>validate → compile → test → package → verify → install → deploy</code>; running a phase runs all earlier ones. Plugins' goals do the actual work.</li>
+    <li>Fat JARs (shade / Spring Boot plugin) contain all dependencies and run with <code>java -jar</code>.</li>
+    <li>Parent POMs and BOMs manage versions — that's what <code>spring-boot-starter-parent</code> does for you.</li>
+    <li>The Maven Wrapper (<code>mvnw</code>) pins the Maven version for everyone.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Explore the lifecycle.</b> Run <code>mvn clean</code>, then <code>mvn compile</code>, and look inside <code>target/</code>. Then run <code>mvn test</code> and open <code>target/surefire-reports</code>. Finally run <code>mvn package</code>. Write down which new folders/files appear after each command.</p>
+    <details><summary>Hint / solution</summary>
+    <p>After <code>compile</code>: <code>target/classes</code> (App.class, LabelFormatter.class, app.properties with <code>1.0.0</code>). After <code>test</code>: also <code>target/test-classes</code> and <code>target/surefire-reports</code> (a .txt and an .xml report). After <code>package</code>: <code>maven-demo-1.0.0.jar</code>, <code>original-maven-demo-1.0.0.jar</code>, <code>maven-archiver/</code>.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Change the version.</b> Change <code>&lt;version&gt;</code> to <code>1.1.0-SNAPSHOT</code>, run <code>mvn clean package</code> and the JAR. What changes in the JAR's name and in the program's first output line? Why?</p>
+    <details><summary>Hint / solution</summary>
+    <p>The JAR becomes <code>target/maven-demo-1.1.0-SNAPSHOT.jar</code> and the program prints <code>=== Shop Label Printer v1.1.0-SNAPSHOT ===</code>, because resource filtering replaced <code>${project.version}</code> in <code>app.properties</code>.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Add a library.</b> Add Jackson (<code>com.fasterxml.jackson.core:jackson-databind:2.19.2</code>) and print a product as JSON: create a record <code>Product(String code, String name, double price)</code> and use <code>new ObjectMapper().writeValueAsString(product)</code>. Then look at <code>mvn dependency:tree</code> — which transitive dependencies did Jackson bring?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;com.fasterxml.jackson.core&lt;/groupId&gt;
+    &lt;artifactId&gt;jackson-databind&lt;/artifactId&gt;
+    &lt;version&gt;2.19.2&lt;/version&gt;
+&lt;/dependency&gt;</code></pre>
+    <pre><code class="lang-java">record Product(String code, String name, double price) { }
+
+ObjectMapper mapper = new ObjectMapper();
+String json = mapper.writeValueAsString(new Product("MOU-00042", "Mouse", 799.0));
+System.out.println(json);   // {"code":"MOU-00042","name":"Mouse","price":799.0}</code></pre>
+    <p>The tree shows <code>jackson-annotations</code> and <code>jackson-core</code> as transitive dependencies. (<code>main</code> must declare <code>throws Exception</code> or catch <code>JsonProcessingException</code>.) Spring Boot includes Jackson automatically — this is how it turns your objects into JSON (Topic 31).</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Break the build on purpose.</b> Change one expected value in <code>LabelFormatterTest</code> so the test fails. Run <code>mvn package</code>. What happens to the JAR? Read the failure message. Then try <code>mvn package -DskipTests</code>.</p>
+    <details><summary>Hint / solution</summary>
+    <p><code>mvn package</code> stops in the <code>test</code> phase with <code>BUILD FAILURE</code> and an <code>expected: &lt;...&gt; but was: &lt;...&gt;</code> message; no new JAR is built. With <code>-DskipTests</code> the JAR is built anyway — which shows why skipping tests is dangerous. Fix the test afterwards!</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>Multi-module project.</b> Create a parent project <code>shop-parent</code> (<code>packaging</code> = <code>pom</code>) with two modules: <code>shop-core</code> (contains <code>LabelFormatter</code>) and <code>shop-app</code> (contains <code>App</code> and depends on <code>shop-core</code>). Build both with one <code>mvn clean install</code> from the parent folder.</p>
+    <details><summary>Hint / solution</summary><pre><span class="file">shop-parent/pom.xml</span><code class="lang-xml">&lt;groupId&gt;com.course&lt;/groupId&gt;
+&lt;artifactId&gt;shop-parent&lt;/artifactId&gt;
+&lt;version&gt;1.0.0&lt;/version&gt;
+&lt;packaging&gt;pom&lt;/packaging&gt;
+&lt;modules&gt;
+    &lt;module&gt;shop-core&lt;/module&gt;
+    &lt;module&gt;shop-app&lt;/module&gt;
+&lt;/modules&gt;
+&lt;properties&gt;&lt;maven.compiler.release&gt;17&lt;/maven.compiler.release&gt;&lt;/properties&gt;</code></pre>
+    <pre><span class="file">shop-app/pom.xml</span><code class="lang-xml">&lt;parent&gt;
+    &lt;groupId&gt;com.course&lt;/groupId&gt;
+    &lt;artifactId&gt;shop-parent&lt;/artifactId&gt;
+    &lt;version&gt;1.0.0&lt;/version&gt;
+&lt;/parent&gt;
+&lt;artifactId&gt;shop-app&lt;/artifactId&gt;
+&lt;dependencies&gt;
+    &lt;dependency&gt;
+        &lt;groupId&gt;com.course&lt;/groupId&gt;
+        &lt;artifactId&gt;shop-core&lt;/artifactId&gt;
+        &lt;version&gt;${project.version}&lt;/version&gt;
+    &lt;/dependency&gt;
+&lt;/dependencies&gt;</code></pre>
+    <p>Maven works out the build order (core first, because app depends on it) — this is called the <i>reactor</i>. <code>install</code> also puts both JARs into your <code>~/.m2</code>.</p></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is Maven and why do we use it?</summary>
+    <p>Maven is a build automation and dependency management tool for Java. It uses a declarative <code>pom.xml</code> to download dependencies (including transitive ones) from repositories, compile, test, package and deploy the project with a standard lifecycle and directory layout, giving reproducible builds across machines and CI.</p></details>
+  <details><summary>Q2. What are GAV coordinates?</summary>
+    <p>groupId (organisation/namespace), artifactId (project name) and version. Together they uniquely identify an artifact in a repository, e.g. <code>org.apache.commons:commons-lang3:3.17.0</code>. Packaging and classifier can further qualify it.</p></details>
+  <details><summary>Q3. Explain the Maven build lifecycle.</summary>
+    <p>The default lifecycle is an ordered sequence of phases: validate, compile, test, package, verify, install, deploy (plus intermediate ones like process-resources). Executing a phase executes all previous phases. Plugin goals are bound to phases and do the work (compiler:compile, surefire:test, jar:jar...). There are also the separate <code>clean</code> and <code>site</code> lifecycles.</p></details>
+  <details><summary>Q4. What is the difference between mvn package and mvn install?</summary>
+    <p><code>package</code> builds the artifact (e.g. JAR) into <code>target/</code>. <code>install</code> does everything package does plus verify, and then copies the artifact into the local repository (<code>~/.m2</code>) so other local projects can depend on it. <code>deploy</code> uploads it to a remote repository.</p></details>
+  <details><summary>Q5. What dependency scopes exist?</summary>
+    <p><code>compile</code> (default; available everywhere and packaged), <code>provided</code> (needed to compile but supplied at runtime by the container/JDK), <code>runtime</code> (not needed to compile but needed to run, e.g. JDBC drivers), <code>test</code> (only for tests), <code>system</code> (deprecated, local path), and <code>import</code> (only in dependencyManagement to import a BOM).</p></details>
+  <details><summary>Q6. What are transitive dependencies and how do you resolve version conflicts?</summary>
+    <p>Dependencies of your dependencies, pulled in automatically. Conflicts are resolved by "nearest definition wins" (then first declaration). You can control them by declaring the dependency directly, pinning versions in <code>dependencyManagement</code>/a BOM, or using <code>&lt;exclusions&gt;</code>. Use <code>mvn dependency:tree</code> to diagnose.</p></details>
+  <details><summary>Q7. dependencies vs dependencyManagement?</summary>
+    <p><code>&lt;dependencies&gt;</code> actually adds libraries to the project. <code>&lt;dependencyManagement&gt;</code> only declares versions (and scopes/exclusions) to be used if/when the dependency is added — in this POM or child POMs — so the version can be omitted. BOMs are imported into dependencyManagement.</p></details>
+  <details><summary>Q8. What does spring-boot-starter-parent give you?</summary>
+    <p>It's a parent POM that inherits from <code>spring-boot-dependencies</code> (a BOM with curated versions of hundreds of libraries), sets the Java version and UTF-8 encoding, configures resource filtering for application.properties/yml, and provides sensible plugin defaults (including spring-boot-maven-plugin configuration). So starters can be added without versions. Alternatively you can import the <code>spring-boot-dependencies</code> BOM if you need a different parent.</p></details>
+  <details><summary>Q9. What is the Maven Wrapper?</summary>
+    <p>Scripts (<code>mvnw</code>, <code>mvnw.cmd</code>) plus <code>.mvn/wrapper/maven-wrapper.properties</code> that download and use a specific Maven version for the project, so builds don't depend on a locally installed Maven and everyone (including CI) uses the same version.</p></details>
+  <details><summary>Q10. Maven vs Gradle?</summary>
+    <p>Both use the same repositories and coordinates. Maven uses declarative XML with a fixed lifecycle — very standardised and predictable. Gradle uses a Groovy/Kotlin DSL, is more flexible/programmable, and is often faster thanks to incremental builds and a build cache. Gradle is default for Android; both are fully supported by Spring Initializr.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../19-JDBC-Basics/lesson.html"><small>← Previous</small>19. JDBC Basics</a>
+    <a class="next" href="../21-Unit-Testing-With-JUnit5/lesson.html"><small>Next →</small>21. Unit Testing with JUnit 5</a>
+  </nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>61 · API Gateway with Spring Cloud Gateway</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part F · Microservices &amp; Spring Cloud › Topic 61</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag adv">Part F · Microservices &amp; Spring Cloud</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>61. API Gateway with Spring Cloud Gateway</h1>
+  <p class="subtitle">Give your whole system ONE front door: route requests to the right service, rewrite paths, add headers, log and protect every call in one place.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="61-API-Gateway-With-Spring-Cloud-Gateway"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Why every microservice system needs an <strong>API gateway</strong> (single entry point, routing, cross-cutting concerns).</li>
+      <li>How <strong>Spring Cloud Gateway</strong> works: <strong>routes</strong>, <strong>predicates</strong>, <strong>filters</strong> – and why it is <strong>reactive</strong> (WebFlux + Netty).</li>
+      <li>The correct artifact for Spring Cloud 2025.0: <code>spring-cloud-starter-gateway-server-webflux</code> and the new property prefix.</li>
+      <li>Built-in filters: <code>AddRequestHeader</code>, <code>AddResponseHeader</code>, <code>RewritePath</code>, <code>StripPrefix</code>.</li>
+      <li>Writing a custom <code>GlobalFilter</code> for <strong>logging/correlation ids</strong> and a simple <strong>API-key check</strong>.</li>
+      <li><code>lb://</code> URIs with Eureka, the discovery locator and the <code>/actuator/gateway/routes</code> endpoint.</li>
+      <li>Rate limiting (what it is and how the gateway supports it).</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../60-Service-Discovery-With-Eureka/lesson.html">Topic 60 · Eureka</a>. A quick look at
+    <a href="../55-Reactive-Programming-With-WebFlux/lesson.html">Topic 55 · WebFlux</a> (Mono) helps for the custom filters.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1. WHY -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>After Topic 60, services find <em>each other</em> by name. But what about the <strong>outside world</strong> – the React website, the Android app, a partner company?</p>
+  <ul>
+    <li>They would need to know <strong>every</strong> service address: products on 8081, orders on 8082, users on 8083… With 30 services that's 30 URLs, and they change.</li>
+    <li>Each service would have to implement <strong>authentication, CORS, logging, rate limiting</strong> itself – 30 copies of the same code, 30 chances for a security hole.</li>
+    <li>You can't freely <strong>reorganise</strong> services (split, merge, rename) without breaking every mobile app already installed on users' phones.</li>
+    <li>Internal services would be <strong>exposed</strong> directly to the internet.</li>
+  </ul>
+  <p>An <strong>API gateway</strong> fixes all of this: clients talk to <strong>one address</strong> (e.g. <code>https://api.myshop.com</code>), and the gateway forwards each request to the right service. Practically every microservice system in industry has one – Spring Cloud Gateway, Kong, NGINX, AWS API Gateway, Azure APIM… The ideas you learn here are the same everywhere.</p>
+
+  <!-- ===================================================== 2. ANALOGY -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏨 The hotel reception</strong>
+    <p>When you arrive at a big hotel, you don't walk into the kitchen, the laundry or the manager's office yourself. You go to <strong>reception</strong> (= the <strong>gateway</strong>), the single front door.</p>
+    <ul>
+      <li>You say "I'd like room service" – reception <strong>routes</strong> your request to the kitchen (= <strong>route + predicate</strong>: "requests about food go to the kitchen").</li>
+      <li>Reception <strong>checks your room key card</strong> before passing anything on (= <strong>authentication filter</strong>).</li>
+      <li>They <strong>write your request in the log book</strong> with a ticket number (= <strong>logging filter + correlation id</strong>).</li>
+      <li>They <strong>translate</strong> "I want breakfast in my room" into the kitchen's internal form "ORDER-RS-204" (= <strong>RewritePath / headers</strong>).</li>
+      <li>If one guest calls 200 times a minute, reception politely refuses (= <strong>rate limiting</strong>).</li>
+    </ul>
+    <p>The kitchen can move to another floor, hire more cooks or change its internal process – guests don't notice anything. They always talk to reception.</p>
+  </div>
+
+  <!-- ===================================================== 3. CONCEPTS -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The big picture</h3>
+  <figure class="diagram">
+    <svg viewBox="0 0 680 300" width="680" role="img" aria-label="Gateway architecture: clients call the API gateway on 8080; it consults Eureka and routes to product-service and order-service">
+      <rect x="10" y="60" width="110" height="40" rx="8" style="fill:var(--surface);stroke:var(--muted);stroke-width:2"/>
+      <text x="65" y="85" text-anchor="middle" style="fill:currentColor;font-size:13px;font-weight:600">Web app</text>
+      <rect x="10" y="130" width="110" height="40" rx="8" style="fill:var(--surface);stroke:var(--muted);stroke-width:2"/>
+      <text x="65" y="155" text-anchor="middle" style="fill:currentColor;font-size:13px;font-weight:600">Mobile app</text>
+      <rect x="10" y="200" width="110" height="40" rx="8" style="fill:var(--surface);stroke:var(--muted);stroke-width:2"/>
+      <text x="65" y="225" text-anchor="middle" style="fill:currentColor;font-size:13px;font-weight:600">curl / partner</text>
+      <g style="stroke:var(--muted);stroke-width:2">
+        <line x1="120" y1="80" x2="200" y2="140"/><line x1="120" y1="150" x2="200" y2="150"/><line x1="120" y1="220" x2="200" y2="160"/>
+      </g>
+      <rect x="200" y="95" width="170" height="110" rx="12" style="fill:var(--surface);stroke:var(--info);stroke-width:3"/>
+      <text x="285" y="122" text-anchor="middle" style="fill:currentColor;font-size:15px;font-weight:700">API Gateway :8080</text>
+      <text x="285" y="145" text-anchor="middle" style="fill:var(--muted);font-size:12px">routes · predicates</text>
+      <text x="285" y="163" text-anchor="middle" style="fill:var(--muted);font-size:12px">filters (log, auth, headers)</text>
+      <text x="285" y="181" text-anchor="middle" style="fill:var(--muted);font-size:12px">lb:// via Eureka</text>
+      <rect x="235" y="10" width="110" height="44" rx="8" style="fill:var(--surface);stroke:var(--info);stroke-width:2"/>
+      <text x="290" y="37" text-anchor="middle" style="fill:currentColor;font-size:13px;font-weight:600">Eureka :8761</text>
+      <line x1="290" y1="54" x2="290" y2="95" style="stroke:var(--info);stroke-width:2;stroke-dasharray:5 4"/>
+      <line x1="370" y1="130" x2="470" y2="85" style="stroke:var(--java);stroke-width:2.2"/>
+      <line x1="370" y1="170" x2="470" y2="215" style="stroke:var(--java);stroke-width:2.2"/>
+      <text x="380" y="95" style="fill:var(--java);font-size:11px">/api/products/**</text>
+      <text x="390" y="225" style="fill:var(--java);font-size:11px">/api/orders/**</text>
+      <rect x="470" y="60" width="190" height="50" rx="8" style="fill:var(--surface);stroke:var(--accent);stroke-width:2.5"/>
+      <text x="565" y="90" text-anchor="middle" style="fill:currentColor;font-size:14px;font-weight:600">product-service :8081</text>
+      <rect x="470" y="190" width="190" height="50" rx="8" style="fill:var(--surface);stroke:var(--accent);stroke-width:2.5"/>
+      <text x="565" y="220" text-anchor="middle" style="fill:currentColor;font-size:14px;font-weight:600">order-service :8082</text>
+      <line x1="565" y1="190" x2="565" y2="110" style="stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3"/>
+      <text x="572" y="155" style="fill:var(--muted);font-size:11px">internal call by name</text>
+      <text x="340" y="290" text-anchor="middle" style="fill:var(--muted);font-size:12px">clients know ONE address; services can move, scale, split without clients noticing</text>
+    </svg>
+    <figcaption>All external traffic enters through the gateway; the gateway finds instances through Eureka.</figcaption>
+  </figure>
+  <p>Typical gateway responsibilities (<strong>cross-cutting concerns</strong> = things every service needs, done once):</p>
+  <div class="table-wrap"><table>
+    <tr><th>Responsibility</th><th>Example</th></tr>
+    <tr><td>Routing</td><td><code>/api/products/**</code> → product-service</td></tr>
+    <tr><td>Load balancing</td><td><code>lb://product-service</code> picks one of 3 instances</td></tr>
+    <tr><td>Authentication</td><td>Validate the JWT once (Topic 49) and pass user info on in a header</td></tr>
+    <tr><td>Rate limiting</td><td>Max 100 requests/minute per user or API key</td></tr>
+    <tr><td>CORS</td><td>One CORS config for the browser front-end</td></tr>
+    <tr><td>Logging / tracing</td><td>Correlation id on every request, access logs</td></tr>
+    <tr><td>Request/response changes</td><td>Add/remove headers, rewrite paths, versioning</td></tr>
+    <tr><td>Resilience</td><td>Timeouts, retries, circuit breaker with fallback (Topic 64)</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ BFF – Backend For Frontend</strong>Some companies run <em>several</em> gateways: one for the mobile app, one for the website, one for partners. Each is tailored to its client. That pattern is called <strong>Backend for Frontend</strong>.</div>
+
+  <h3>3.2 Spring Cloud Gateway – reactive and servlet flavours</h3>
+  <p>Spring Cloud Gateway is built on <strong>Spring WebFlux</strong> and runs on <strong>Netty</strong> (non-blocking, Topic 55). A gateway mostly <em>waits</em> for other services, so a non-blocking server that handles thousands of connections with a few threads is a great fit.</p>
+  <p>Since Spring Cloud 2025.0 the artifacts were renamed to make the flavour explicit:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Artifact (2025.0)</th><th>Runs on</th><th>Notes</th></tr>
+    <tr><td><code>spring-cloud-starter-gateway-server-webflux</code></td><td>WebFlux / Netty (reactive)</td><td><strong>We use this</strong>. The classic, most-used gateway.</td></tr>
+    <tr><td><code>spring-cloud-starter-gateway-server-webmvc</code></td><td>Spring MVC / Tomcat (servlet)</td><td>Newer flavour, routes written differently (functional or YAML).</td></tr>
+    <tr><td><code>spring-cloud-starter-gateway</code></td><td>WebFlux</td><td>The <em>old</em> name – still resolves in 2025.0 but is <strong>deprecated</strong>.</td></tr>
+  </table></div>
+  <p>The configuration prefix also moved: <code>spring.cloud.gateway.<strong>server.webflux</strong>.routes</code>. Older tutorials show <code>spring.cloud.gateway.routes</code> – in 2025.0 that old prefix is <strong>deprecated</strong> (it is on its way out), so always use the new one in new projects.</p>
+  <div class="callout danger"><strong>🛑 Don't add spring-boot-starter-web to the gateway</strong>The reactive gateway needs WebFlux. If Spring MVC (<code>spring-boot-starter-web</code>) is also on the classpath, Boot starts a servlet app and the gateway fails with an error like <em>"Spring MVC found on classpath, which is incompatible with Spring Cloud Gateway"</em>.</div>
+
+  <h3>3.3 Routes, predicates and filters</h3>
+  <p>A gateway is configured with a list of <strong>routes</strong>. Each route has:</p>
+  <ul>
+    <li><strong>id</strong> – a unique name (for logs and the actuator).</li>
+    <li><strong>uri</strong> – where to send the request: <code>http://host:port</code>, <code>https://...</code> or <code>lb://service-name</code> (via the load balancer + Eureka).</li>
+    <li><strong>predicates</strong> – conditions: "does this request belong to this route?" All must be true. (A <em>predicate</em> is just a yes/no test – like <code>Predicate&lt;T&gt;</code> in Topic 13.)</li>
+    <li><strong>filters</strong> – changes applied to the request on the way in and/or the response on the way out.</li>
+  </ul>
+  <div class="flow">
+    <span class="box">Request</span><span class="arrow">→</span>
+    <span class="box info">Route predicate handler mapping<br><small>which route matches?</small></span><span class="arrow">→</span>
+    <span class="box alt">Filter chain (pre)<br><small>global + route filters</small></span><span class="arrow">→</span>
+    <span class="box">Proxied service</span><span class="arrow">→</span>
+    <span class="box alt">Filter chain (post)</span><span class="arrow">→</span>
+    <span class="box">Response</span>
+  </div>
+  <p>Common <strong>predicates</strong> (written as <code>Name=args</code> in YAML):</p>
+  <div class="table-wrap"><table>
+    <tr><th>Predicate</th><th>Example</th><th>Matches when…</th></tr>
+    <tr><td>Path</td><td><code>Path=/api/products/**</code></td><td>the path matches the pattern (<code>**</code> = anything below)</td></tr>
+    <tr><td>Method</td><td><code>Method=GET,POST</code></td><td>the HTTP method is one of these</td></tr>
+    <tr><td>Header</td><td><code>Header=X-Beta-User, true</code></td><td>the header exists and matches the regex</td></tr>
+    <tr><td>Query</td><td><code>Query=version, v2</code></td><td>the query parameter matches</td></tr>
+    <tr><td>Host</td><td><code>Host=**.myshop.com</code></td><td>the Host header matches</td></tr>
+    <tr><td>Cookie</td><td><code>Cookie=session, .+</code></td><td>the cookie matches</td></tr>
+    <tr><td>After / Before / Between</td><td><code>After=2026-12-01T00:00:00+05:30[Asia/Kolkata]</code></td><td>the time is in the range (great for launches)</td></tr>
+    <tr><td>Weight</td><td><code>Weight=group1, 90</code></td><td>sends 90% to one route, 10% to another (canary release)</td></tr>
+    <tr><td>RemoteAddr</td><td><code>RemoteAddr=192.168.1.0/24</code></td><td>the caller IP is in the range</td></tr>
+  </table></div>
+  <p>Common built-in <strong>filters</strong>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Filter</th><th>Example</th><th>Effect</th></tr>
+    <tr><td>AddRequestHeader</td><td><code>AddRequestHeader=X-Request-Source, api-gateway</code></td><td>adds a header before forwarding</td></tr>
+    <tr><td>AddResponseHeader</td><td><code>AddResponseHeader=X-Powered-By, course-api-gateway</code></td><td>adds a header to the response</td></tr>
+    <tr><td>RewritePath</td><td><code>RewritePath=/shop/(?&lt;segment&gt;.*), /api/$\{segment}</code></td><td>changes the path with a regex</td></tr>
+    <tr><td>StripPrefix</td><td><code>StripPrefix=1</code></td><td>removes N path parts: <code>/demo/get</code> → <code>/get</code></td></tr>
+    <tr><td>PrefixPath</td><td><code>PrefixPath=/api</code></td><td>adds a prefix</td></tr>
+    <tr><td>SetStatus</td><td><code>SetStatus=401</code></td><td>forces the response status</td></tr>
+    <tr><td>RemoveRequestHeader</td><td><code>RemoveRequestHeader=Cookie</code></td><td>removes a header</td></tr>
+    <tr><td>Retry</td><td><code>name: Retry, args: {retries: 3}</code></td><td>retries failed GETs</td></tr>
+    <tr><td>CircuitBreaker</td><td><code>name: CircuitBreaker, args: {name: products, fallbackUri: forward:/fallback}</code></td><td>Resilience4j around the route (Topic 64)</td></tr>
+    <tr><td>RequestRateLimiter</td><td>see 3.6</td><td>limits requests per key (needs Redis)</td></tr>
+  </table></div>
+
+  <h3>3.4 <code>lb://</code> and the discovery locator</h3>
+  <p><code>uri: lb://product-service</code> means: "ask Spring Cloud LoadBalancer (which asks Eureka) for an instance of <code>product-service</code>". So the gateway also gets load balancing for free. This needs the Eureka client starter in the gateway.</p>
+  <p>The <strong>discovery locator</strong> (<code>discovery.locator.enabled: true</code>) goes one step further: it automatically creates a route for <em>every</em> registered service, using the service id as the first path part:</p>
+  <pre><code>http://localhost:8080/product-service/api/products/3   →   product-service  /api/products/3</code></pre>
+  <p>Great for learning and quick tests. In production most teams prefer <strong>explicit routes</strong> so they control exactly what is public.</p>
+
+  <h3>3.5 Global filters vs route filters, and the reactive style</h3>
+  <ul>
+    <li><strong>Route filters</strong> (<code>GatewayFilter</code>) apply only to the routes where you list them.</li>
+    <li><strong>Global filters</strong> (<code>GlobalFilter</code> beans) apply to <strong>every</strong> route. Perfect for logging, auth, correlation ids. The order is set with <code>Ordered.getOrder()</code> – lower numbers run first (on the way in) and last (on the way out).</li>
+  </ul>
+  <p>A filter has one method: <code>Mono&lt;Void&gt; filter(ServerWebExchange exchange, GatewayFilterChain chain)</code>.</p>
+  <ul>
+    <li><code>ServerWebExchange</code> – holds the <strong>request and the response</strong> (the reactive cousin of <code>HttpServletRequest/Response</code>).</li>
+    <li><code>chain.filter(exchange)</code> – "pass it on to the next filter / the service".</li>
+    <li><code>Mono&lt;Void&gt;</code> – "a promise that this work finishes later, with no value". You <strong>return</strong> it; you never block on it.</li>
+    <li>Code <em>before</em> <code>chain.filter(...)</code> = "pre" (on the way in); code in <code>.then(...)</code> = "post" (on the way out).</li>
+    <li>To stop a request: set a status on the response and <code>return exchange.getResponse().setComplete();</code> – the service is never called.</li>
+  </ul>
+  <div class="callout warn"><strong>⚠️ Never block in a gateway filter</strong>No <code>Thread.sleep</code>, no JDBC call, no blocking <code>RestClient</code>. The gateway has only a few event-loop threads; blocking one freezes many requests. Use reactive APIs (<code>WebClient</code>, reactive Redis).</div>
+
+  <h3>3.6 Rate limiting (mention)</h3>
+  <p><strong>Rate limiting</strong> = "each client may only make N requests per time unit". It protects services from abuse and accidental floods (a buggy app in a retry loop). Spring Cloud Gateway has the <code>RequestRateLimiter</code> filter using a <strong>token bucket</strong> algorithm stored in <strong>Redis</strong> (so all gateway instances share the counters):</p>
+  <pre><code class="lang-yaml"># needs spring-boot-starter-data-redis-reactive + a running Redis (Topic 51)
+filters:
+  - name: RequestRateLimiter
+    args:
+      redis-rate-limiter.replenishRate: 10    # 10 tokens added per second
+      redis-rate-limiter.burstCapacity: 20    # bucket size (short bursts allowed)
+      key-resolver: "#{@userKeyResolver}"     # a KeyResolver bean: who is "the client"?</code></pre>
+  <p>When the bucket is empty the gateway answers <strong>429 Too Many Requests</strong>. We don't run it in this project to avoid needing Redis – Exercise 6 lets you try it.</p>
+
+  <!-- ===================================================== 4. CODE -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>eureka-server/</code></td><td>Same registry as Topic 60 (port 8761)</td></tr>
+    <tr><td><code>api-gateway/pom.xml</code></td><td><code>spring-cloud-starter-gateway-server-webflux</code> + Eureka client + actuator (no starter-web!)</td></tr>
+    <tr><td><code>api-gateway/.../application.yml</code></td><td>4 routes, discovery locator, API key, actuator <code>gateway</code> endpoint</td></tr>
+    <tr><td><code>api-gateway/.../LoggingGlobalFilter.java</code></td><td>Correlation id + request timing for every request</td></tr>
+    <tr><td><code>api-gateway/.../ApiKeyGlobalFilter.java</code></td><td>Blocks <code>POST /api/orders</code> without a valid <code>X-API-KEY</code> (401)</td></tr>
+    <tr><td><code>product-service/</code></td><td>Products (port 8081) + <code>/api/products/headers</code> to inspect gateway headers</td></tr>
+    <tr><td><code>order-service/</code></td><td>Minimal orders (port 8082), calls product-service by name; records <code>X-Request-Source</code></td></tr>
+    <tr><td><code>requests.http</code></td><td>All demo requests</td></tr>
+  </table></div>
+
+  <h3>4.1 The gateway pom</h3>
+  <pre><span class="file">api-gateway/pom.xml (dependencies)</span><code class="lang-xml">&lt;!-- reactive Spring Cloud Gateway (2025.0 artifact name) --&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.cloud&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-cloud-starter-gateway-server-webflux&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;!-- resolve lb://service-name through Eureka --&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.cloud&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-cloud-starter-netflix-eureka-client&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-actuator&lt;/artifactId&gt;
+&lt;/dependency&gt;
+&lt;!-- plus the spring-cloud-dependencies 2025.0.0 BOM in dependencyManagement --&gt;</code></pre>
+  <p>The main class is a plain <code>@SpringBootApplication</code> – no extra annotation is needed.</p>
+
+  <h3>4.2 The routes (application.yml)</h3>
+  <pre><span class="file">api-gateway/src/main/resources/application.yml</span><code class="lang-yaml">server:
+  port: 8080
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: product-route
+              uri: lb://product-service           # Eureka + load balancer
+              predicates:
+                - Path=/api/products/**
+              filters:
+                - AddRequestHeader=X-Request-Source, api-gateway
+                - AddResponseHeader=X-Powered-By, course-api-gateway
+
+            - id: order-route
+              uri: lb://order-service
+              predicates:
+                - Path=/api/orders/**
+              filters:
+                - AddRequestHeader=X-Request-Source, api-gateway
+
+            - id: shop-products-rewrite             # public URL -&gt; internal URL
+              uri: lb://product-service
+              predicates:
+                - Path=/shop/products, /shop/products/**
+              filters:
+                - RewritePath=/shop/(?&lt;segment&gt;.*), /api/$\{segment}
+                - AddRequestHeader=X-Request-Source, api-gateway-rewrite
+
+            - id: external-demo                     # any URL works as a target
+              uri: https://httpbin.org
+              predicates:
+                - Path=/demo/**
+              filters:
+                - StripPrefix=1                     # /demo/get -&gt; /get
+
+          discovery:
+            locator:
+              enabled: true                         # auto routes: /product-service/**
+              lower-case-service-id: true
+
+gateway:
+  api-key: course-secret-123                        # used by ApiKeyGlobalFilter
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway                # /actuator/gateway/routes
+  endpoint:
+    gateway:
+      access: read-only</code></pre>
+  <p>Some details:</p>
+  <ul>
+    <li><code>RewritePath=/shop/(?&lt;segment&gt;.*), /api/$\{segment}</code> – a Java regex with a <strong>named group</strong> <code>segment</code>. <code>/shop/products/2</code> → segment = <code>products/2</code> → new path <code>/api/products/2</code>. In YAML you write <code>$\{segment}</code> (with a backslash) so Spring doesn't treat <code>${...}</code> as a property placeholder.</li>
+    <li>The rewrite route lists two path patterns so <code>/shop/products</code> (no trailing part) also matches.</li>
+    <li>Routes are checked <strong>in order</strong>; the first match wins. Put specific routes before general ones.</li>
+    <li>No route matches → the gateway itself answers <strong>404</strong>.</li>
+  </ul>
+
+  <h3>4.3 LoggingGlobalFilter – correlation id and timing</h3>
+  <pre><span class="file">api-gateway/src/main/java/com/course/gateway/apigateway/LoggingGlobalFilter.java</span><code class="lang-java">@Component
+public class LoggingGlobalFilter implements GlobalFilter, Ordered {
+
+    private static final Logger log = LoggerFactory.getLogger(LoggingGlobalFilter.class);
+    public static final String CORRELATION_HEADER = "X-Correlation-Id";
+
+    @Override
+    public Mono&lt;Void&gt; filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        long start = System.currentTimeMillis();
+
+        // ---- ON THE WAY IN ----
+        String correlationId = exchange.getRequest().getHeaders().getFirst(CORRELATION_HEADER);
+        if (correlationId == null || correlationId.isBlank()) {
+            correlationId = UUID.randomUUID().toString();
+        }
+        final String id = correlationId;
+
+        // requests are immutable -&gt; build a modified copy
+        ServerHttpRequest requestWithId = exchange.getRequest().mutate()
+                .header(CORRELATION_HEADER, id)
+                .build();
+        ServerWebExchange newExchange = exchange.mutate().request(requestWithId).build();
+        newExchange.getResponse().getHeaders().add(CORRELATION_HEADER, id);
+
+        log.info("--&gt; {} {} (correlationId={})",
+                requestWithId.getMethod(), requestWithId.getURI().getPath(), id);
+
+        // ---- pass on, then ON THE WAY OUT ----
+        return chain.filter(newExchange).then(Mono.fromRunnable(() -&gt; {
+            long tookMs = System.currentTimeMillis() - start;
+            log.info("&lt;-- {} {} status={} took={}ms",
+                    requestWithId.getMethod(), requestWithId.getURI().getPath(),
+                    newExchange.getResponse().getStatusCode(), tookMs);
+        }));
+    }
+
+    @Override
+    public int getOrder() {
+        return Ordered.HIGHEST_PRECEDENCE;   // run first
+    }
+}</code></pre>
+  <p>Step by step:</p>
+  <ol>
+    <li>Read <code>X-Correlation-Id</code> from the request; create a UUID if the client didn't send one.</li>
+    <li>Request objects are <strong>immutable</strong>, so <code>mutate()</code> creates a copy with the extra header, and we build a new exchange around it.</li>
+    <li>We also put the id on the response so the client (and support team) can quote it.</li>
+    <li><code>chain.filter(newExchange)</code> continues the chain and returns a <code>Mono</code> that completes when the response is done. <code>.then(Mono.fromRunnable(...))</code> runs our "after" code at that moment.</li>
+  </ol>
+  <p>Log output looks like:</p>
+  <pre class="terminal"><code>INFO ... LoggingGlobalFilter : --&gt; GET /api/products/1 (correlationId=f6444f3e-122a-4468-b11d-a89a1f294be1)
+INFO ... LoggingGlobalFilter : &lt;-- GET /api/products/1 status=200 OK took=21ms</code></pre>
+  <p>In Topic 65 you'll replace this home-made id with real <strong>distributed tracing</strong> (trace ids propagated automatically).</p>
+
+  <h3>4.4 ApiKeyGlobalFilter – stopping a request</h3>
+  <pre><span class="file">api-gateway/src/main/java/com/course/gateway/apigateway/ApiKeyGlobalFilter.java</span><code class="lang-java">@Override
+public Mono&lt;Void&gt; filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+    ServerHttpRequest request = exchange.getRequest();
+    boolean isCreateOrder = HttpMethod.POST.equals(request.getMethod())
+            &amp;&amp; request.getURI().getPath().startsWith("/api/orders");
+
+    if (isCreateOrder) {
+        String givenKey = request.getHeaders().getFirst("X-API-KEY");
+        if (!expectedApiKey.equals(givenKey)) {
+            exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+            return exchange.getResponse().setComplete();   // stop: service never called
+        }
+    }
+    return chain.filter(exchange);                         // allowed: continue
+}
+
+@Override
+public int getOrder() {
+    return Ordered.HIGHEST_PRECEDENCE + 1;                 // right after logging
+}</code></pre>
+  <p>The key comes from <code>gateway.api-key</code> in <code>application.yml</code> (injected with <code>@Value</code>). In real life you would validate a <strong>JWT</strong> here (Spring Security for WebFlux with <code>oauth2-resource-server</code>, Topic 50) and forward the user id to the services in a header.</p>
+
+  <h3>4.5 product-service and order-service</h3>
+  <p>They are the Topic 60 services with small additions. product-service shows which headers arrived:</p>
+  <pre><span class="file">product-service/src/main/java/com/course/gateway/product/ProductController.java</span><code class="lang-java">@GetMapping("/headers")
+public Map&lt;String, String&gt; showGatewayHeaders(
+        @RequestHeader(value = "X-Request-Source", defaultValue = "(none - you called me directly)") String source,
+        @RequestHeader(value = "X-Correlation-Id", defaultValue = "(none)") String correlationId) {
+    Map&lt;String, String&gt; result = new LinkedHashMap&lt;&gt;();
+    result.put("servedBy", instanceName);
+    result.put("X-Request-Source", source);        // from AddRequestHeader
+    result.put("X-Correlation-Id", correlationId); // from LoggingGlobalFilter
+    return result;
+}</code></pre>
+  <p>order-service stores the <code>X-Request-Source</code> header in each order (<code>requestSource</code>), so you can see whether an order came through the gateway or directly. Note that order-service calls product-service <strong>directly by name</strong> (<code>@LoadBalanced</code> RestClient) – internal service-to-service calls usually don't go back out through the public gateway.</p>
+
+  <!-- ===================================================== 5. RUN -->
+  <h2 id="run">5. How to run</h2>
+  <p>Four apps, four terminals, in this order (gateway <strong>last</strong>):</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\61-API-Gateway-With-Spring-Cloud-Gateway\eureka-server"
+mvn spring-boot:run          # 1) registry       :8761
+
+cd "D:\Java-SpringBoot\61-API-Gateway-With-Spring-Cloud-Gateway\product-service"
+mvn spring-boot:run          # 2) products       :8081
+
+cd "D:\Java-SpringBoot\61-API-Gateway-With-Spring-Cloud-Gateway\order-service"
+mvn spring-boot:run          # 3) orders         :8082
+
+cd "D:\Java-SpringBoot\61-API-Gateway-With-Spring-Cloud-Gateway\api-gateway"
+mvn spring-boot:run          # 4) gateway        :8080</code></pre>
+  <p>The gateway log ends with <code>Netty started on port 8080</code> (not Tomcat – it's reactive!). Check <code>http://localhost:8761</code>: API-GATEWAY, ORDER-SERVICE and PRODUCT-SERVICE should be UP. Wait ~10–15 seconds, then use <strong>only port 8080</strong>:</p>
+  <pre class="terminal"><code>curl.exe -i http://localhost:8080/api/products/1
+HTTP/1.1 200 OK
+X-Correlation-Id: f6444f3e-122a-4468-b11d-a89a1f294be1
+Content-Type: application/json
+X-Powered-By: course-api-gateway
+
+{"id":1,"name":"Laptop","price":55000.0,"stock":10,"servedBy":"product-service:8081"}</code></pre>
+  <pre class="terminal"><code>curl.exe http://localhost:8080/api/products/headers
+{"servedBy":"product-service:8081","X-Request-Source":"api-gateway","X-Correlation-Id":"661dbd92-..."}
+
+curl.exe http://localhost:8081/api/products/headers          # direct, no gateway
+{"servedBy":"product-service:8081","X-Request-Source":"(none - you called me directly)","X-Correlation-Id":"(none)"}
+
+curl.exe http://localhost:8080/shop/products/2               # RewritePath
+{"id":2,"name":"Wireless Mouse","price":799.0,"stock":150,"servedBy":"product-service:8081"}
+
+curl.exe http://localhost:8080/product-service/api/products/3   # discovery locator
+{"id":3,"name":"Mechanical Keyboard","price":3499.0,"stock":40,"servedBy":"product-service:8081"}</code></pre>
+  <p>Orders – without and with the API key:</p>
+  <pre class="terminal"><code>curl.exe -i -X POST http://localhost:8080/api/orders -H "Content-Type: application/json" -d "{\"productId\":1,\"quantity\":2}"
+HTTP/1.1 401 Unauthorized
+
+curl.exe -X POST http://localhost:8080/api/orders -H "X-API-KEY: course-secret-123" -H "Content-Type: application/json" -d "{\"productId\":1,\"quantity\":2}"
+{"orderId":1,"productId":1,"productName":"Laptop","quantity":2,"totalPrice":110000.0,"productServedBy":"product-service:8081","requestSource":"api-gateway"}</code></pre>
+  <p>See all routes the gateway knows (yours + the auto-generated discovery ones):</p>
+  <pre class="terminal"><code>curl.exe http://localhost:8080/actuator/gateway/routes
+... "route_id":"product-route" ... "route_id":"order-route" ... "route_id":"shop-products-rewrite" ...
+... "route_id":"ReactiveCompositeDiscoveryClient_PRODUCT-SERVICE" ...</code></pre>
+  <p>Unknown path → <code>404</code> from the gateway. The <code>/demo/get</code> route needs internet access (it calls httpbin.org). Or open <code>requests.http</code> and click through all requests. Stop every app with <strong>Ctrl+C</strong>.</p>
+  <div class="callout tip"><strong>💡 Try this</strong>Start a second product-service with <code>"-Dspring-boot.run.arguments=--server.port=8091"</code> and call <code>http://localhost:8080/api/products/1</code> several times: <code>servedBy</code> alternates – the gateway load-balances through <code>lb://</code>.</div>
+
+  <!-- ===================================================== 6. MISTAKES -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>🛑 Mistake: adding spring-boot-starter-web to the gateway</strong>Startup fails ("Spring MVC found on classpath, which is incompatible with Spring Cloud Gateway") or the gateway doesn't route.<br><strong>Fix:</strong> the reactive gateway uses WebFlux only. Remove <code>starter-web</code> (or use the separate <code>gateway-server-webmvc</code> flavour on purpose).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: routes are ignored (every request is 404)</strong>You used an old tutorial's prefix <code>spring.cloud.gateway.routes</code>, or wrong YAML indentation.<br><strong>Fix:</strong> use <code>spring.cloud.gateway.server.webflux.routes</code> for 2025.0 and check <code>/actuator/gateway/routes</code> to see what was loaded.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: 503 Service Unavailable right after startup</strong>The gateway log says <code>No servers available for service: product-service</code> – the gateway's Eureka cache doesn't know the service yet.<br><strong>Fix:</strong> wait 10–30 s (or start the gateway last); check the Eureka dashboard.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>RewritePath</code> with <code>${segment}</code> in YAML</strong>Spring tries to resolve <code>${segment}</code> as a property and fails ("Could not resolve placeholder").<br><strong>Fix:</strong> write <code>$\{segment}</code> in YAML/properties.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: path doesn't match the service's path</strong><code>Path=/products/**</code> forwards <code>/products/1</code>, but the service expects <code>/api/products/1</code> → 404 from the service.<br><strong>Fix:</strong> keep paths aligned or add <code>RewritePath</code>/<code>PrefixPath</code>/<code>StripPrefix</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: blocking code in a filter</strong>Calling a JDBC repository or a blocking RestClient inside a <code>GlobalFilter</code> stalls the event loop; the whole gateway slows down.<br><strong>Fix:</strong> use reactive clients (<code>WebClient</code>, reactive Redis) and return <code>Mono</code>s.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: services still reachable directly</strong>The gateway checks the API key, but anyone who knows <code>:8082</code> can skip it.<br><strong>Fix:</strong> in production, put services in a private network (Docker network, Kubernetes, VPC) so <em>only</em> the gateway is public – and let services validate tokens too ("zero trust").</div>
+
+  <!-- ===================================================== 7. BEST -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li>Keep the gateway <strong>thin</strong>: routing and cross-cutting concerns only – <strong>no business logic</strong>.</li>
+    <li>Prefer <strong>explicit routes</strong> over the discovery locator in production; expose only what clients need.</li>
+    <li>Do <strong>authentication at the gateway</strong> (JWT/OAuth2) and pass identity downstream; services still authorize what the user may do.</li>
+    <li>Add <strong>timeouts</strong> (<code>spring.cloud.gateway.server.webflux.httpclient.connect-timeout</code>/<code>response-timeout</code>) and <strong>circuit breakers</strong> to routes.</li>
+    <li>Use <strong>rate limiting</strong> for public APIs (429 + <code>Retry-After</code>).</li>
+    <li>Generate or forward a <strong>correlation/trace id</strong> for every request (Topic 65).</li>
+    <li>Run <strong>several gateway instances</strong> behind a cloud load balancer – the gateway must not be a single point of failure.</li>
+    <li>Configure <strong>CORS once</strong> at the gateway (<code>globalcors</code>) instead of in every service.</li>
+    <li>Version public APIs (<code>/api/v1/...</code>) and use rewrite rules to evolve internal paths without breaking clients.</li>
+    <li>Watch <code>/actuator/gateway/routes</code> and gateway metrics (Micrometer) in your monitoring.</li>
+  </ul>
+
+  <!-- ===================================================== 8. SUMMARY -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>An <strong>API gateway</strong> is the single entry point: clients know one address, services stay hidden and free to change.</li>
+    <li>It centralises <strong>cross-cutting concerns</strong>: routing, load balancing, auth, rate limiting, CORS, logging.</li>
+    <li>Spring Cloud Gateway is <strong>reactive</strong> (WebFlux + Netty). For 2025.0 use <code>spring-cloud-starter-gateway-server-webflux</code> and the <code>spring.cloud.gateway.server.webflux.*</code> prefix.</li>
+    <li>A <strong>route</strong> = id + uri + <strong>predicates</strong> (when) + <strong>filters</strong> (what to change).</li>
+    <li><code>lb://service-name</code> resolves instances through Eureka and load-balances.</li>
+    <li>Built-in filters: <code>AddRequestHeader</code>, <code>AddResponseHeader</code>, <code>RewritePath</code>, <code>StripPrefix</code>, <code>Retry</code>, <code>CircuitBreaker</code>, <code>RequestRateLimiter</code>…</li>
+    <li>A custom <code>GlobalFilter</code> runs for every route; code before <code>chain.filter()</code> is "pre", <code>.then(...)</code> is "post"; <code>setComplete()</code> stops a request.</li>
+    <li>Never block inside the gateway; keep it free of business logic.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9. EXERCISES -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Versioned public path.</strong> Add a route so <code>GET /api/v1/products/1</code> reaches product-service's <code>/api/products/1</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-yaml">- id: products-v1
+  uri: lb://product-service
+  predicates:
+    - Path=/api/v1/products/**
+  filters:
+    - RewritePath=/api/v1/(?&lt;segment&gt;.*), /api/$\{segment}</code></pre>
+    <p>Put it <em>before</em> any route that would also match. Check it in <code>/actuator/gateway/routes</code>.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Method predicate.</strong> Make the <code>order-route</code> accept only <code>GET</code> and <code>POST</code>. What happens with <code>DELETE /api/orders/1</code>?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-yaml">predicates:
+  - Path=/api/orders/**
+  - Method=GET,POST</code></pre>
+    <p>Both predicates must be true. A DELETE matches no explicit route; the discovery locator only matches <code>/order-service/**</code>, so the gateway answers 404.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Response-time header.</strong> Extend <code>LoggingGlobalFilter</code> to add a response header <code>X-Response-Time-Ms</code>. Careful: headers can only be changed <em>before</em> the response is committed.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">newExchange.getResponse().beforeCommit(() -&gt; {
+    long took = System.currentTimeMillis() - start;
+    newExchange.getResponse().getHeaders().add("X-Response-Time-Ms", String.valueOf(took));
+    return Mono.empty();
+});
+return chain.filter(newExchange).then(...);</code></pre>
+    <p><code>beforeCommit</code> runs just before the status and headers are sent – the last safe moment to add headers.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Custom route filter.</strong> Write a <code>GatewayFilterFactory</code> named <code>BlockWeekend</code> that you can add to a single route (<code>- BlockWeekend</code>) and that returns <strong>503</strong> on Saturdays and Sundays.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Component
+public class BlockWeekendGatewayFilterFactory
+        extends AbstractGatewayFilterFactory&lt;Object&gt; {
+
+    @Override
+    public GatewayFilter apply(Object config) {
+        return (exchange, chain) -&gt; {
+            DayOfWeek day = LocalDate.now().getDayOfWeek();
+            if (day == DayOfWeek.SATURDAY || day == DayOfWeek.SUNDAY) {
+                exchange.getResponse().setStatusCode(HttpStatus.SERVICE_UNAVAILABLE);
+                return exchange.getResponse().setComplete();
+            }
+            return chain.filter(exchange);
+        };
+    }
+}</code></pre>
+    <p>The class name must end with <code>GatewayFilterFactory</code>; the part before it (<code>BlockWeekend</code>) is the name you use in YAML.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Canary release with Weight.</strong> Start product-service twice: 8081 (stable) and 8091 (the "new version"). Without Eureka-based <code>lb://</code>, route 80% of <code>/api/products/**</code> to 8081 and 20% to 8091 using the <code>Weight</code> predicate.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-yaml">- id: products-stable
+  uri: http://localhost:8081
+  predicates:
+    - Path=/api/products/**
+    - Weight=products, 8
+- id: products-canary
+  uri: http://localhost:8091
+  predicates:
+    - Path=/api/products/**
+    - Weight=products, 2</code></pre>
+    <p>Put these two routes <em>before</em> <code>product-route</code> (or remove it). Call the endpoint 20 times and count <code>servedBy</code> values – about 16 vs 4.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Rate limiting with Redis.</strong> Start Redis (<code>docker run -d -p 6379:6379 redis:7</code>), add <code>spring-boot-starter-data-redis-reactive</code> to the gateway and limit <code>/api/products/**</code> to 2 requests/second per client IP. Hammer it and look for <strong>429</strong>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Bean
+KeyResolver ipKeyResolver() {
+    return exchange -&gt; Mono.just(
+        exchange.getRequest().getRemoteAddress().getAddress().getHostAddress());
+}</code></pre>
+    <pre><code class="lang-yaml">filters:
+  - name: RequestRateLimiter
+    args:
+      redis-rate-limiter.replenishRate: 2
+      redis-rate-limiter.burstCapacity: 2
+      redis-rate-limiter.requestedTokens: 1
+      key-resolver: "#{@ipKeyResolver}"</code></pre>
+    <p>PowerShell: <code>1..10 | % { curl.exe -s -o NUL -w "%{http_code} " http://localhost:8080/api/products }</code> → some <code>429</code>s. Response headers <code>X-RateLimit-Remaining</code> show the bucket.</p></details>
+  </div>
+
+  <!-- ===================================================== 10. INTERVIEW -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is an API gateway and why do microservices need one?</summary>
+    <p>A server that is the single entry point for clients. It routes requests to backend services and handles cross-cutting concerns (authentication, rate limiting, CORS, logging, SSL termination, request/response transformation). It hides the internal topology, reduces client complexity and avoids duplicating these concerns in every service.</p></details>
+  <details><summary>Q2. Explain route, predicate and filter in Spring Cloud Gateway.</summary>
+    <p>A route is the basic building block: id, destination URI, predicates and filters. Predicates are conditions on the request (path, method, header, host, time…) that decide whether a route matches. Filters modify the request before it is sent downstream and/or the response afterwards (headers, path rewrite, retry, circuit breaker, rate limit).</p></details>
+  <details><summary>Q3. GlobalFilter vs GatewayFilter?</summary>
+    <p>A <code>GlobalFilter</code> applies to all routes automatically (ordered via <code>Ordered</code>). A <code>GatewayFilter</code> (usually created by a <code>GatewayFilterFactory</code>) is attached to specific routes in configuration. Both are merged into one ordered chain per request.</p></details>
+  <details><summary>Q4. Why is Spring Cloud Gateway reactive? What does that mean for your code?</summary>
+    <p>A gateway is I/O-bound: it mostly waits on downstream services. WebFlux/Netty handles many concurrent connections with a small number of event-loop threads. Consequently filters must be non-blocking, return <code>Mono&lt;Void&gt;</code>, and use reactive clients; blocking calls would starve the event loop. (Since 2023.0 there is also a servlet-based "Gateway Server MVC".)</p></details>
+  <details><summary>Q5. What does <code>lb://product-service</code> mean?</summary>
+    <p>The URI scheme <code>lb</code> tells the gateway to resolve the service id through Spring Cloud LoadBalancer, which gets instances from the discovery client (Eureka) and picks one (round-robin by default).</p></details>
+  <details><summary>Q6. How would you implement authentication at the gateway?</summary>
+    <p>Use Spring Security WebFlux with <code>oauth2-resource-server</code> in the gateway to validate JWTs (signature, expiry, issuer), reject invalid requests with 401, and forward the token or extracted user claims downstream. Or use the <code>TokenRelay</code> filter with an OAuth2 client login. Services should still verify authorization for their own resources.</p></details>
+  <details><summary>Q7. How does rate limiting work in Spring Cloud Gateway?</summary>
+    <p>The <code>RequestRateLimiter</code> filter with <code>RedisRateLimiter</code> implements a token bucket per key (resolved by a <code>KeyResolver</code>, e.g. user id, API key or IP). <code>replenishRate</code> tokens are added per second up to <code>burstCapacity</code>; each request consumes tokens; when empty it returns 429. Redis keeps counters consistent across gateway instances.</p></details>
+  <details><summary>Q8. API gateway vs load balancer vs service mesh?</summary>
+    <p>A load balancer (L4/L7) distributes traffic among instances of one service. An API gateway is an L7 entry point with routing across many services plus API concerns (auth, rate limiting, transformations) for north-south (client→system) traffic. A service mesh (Istio, Linkerd) handles east-west (service→service) traffic with sidecar proxies for mTLS, retries and observability.</p></details>
+  <details><summary>Q9. What is the discovery locator?</summary>
+    <p>A feature that automatically creates a route for each service in the discovery registry: <code>/{serviceId}/**</code> → <code>lb://{serviceId}</code> with the prefix stripped. Convenient, but it exposes every registered service, so production systems usually define explicit routes.</p></details>
+  <details><summary>Q10. Doesn't the gateway become a single point of failure / bottleneck?</summary>
+    <p>It can, so you run multiple stateless gateway instances behind a cloud/hardware load balancer, keep it free of heavy logic, use non-blocking I/O, set timeouts and circuit breakers so a slow service cannot exhaust it, and monitor it closely.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../60-Service-Discovery-With-Eureka/lesson.html"><small>← Previous</small>60. Service Discovery with Eureka</a>
+    <a class="next" href="../62-Centralized-Configuration-With-Config-Server/lesson.html"><small>Next →</small>62. Centralized Configuration with Config Server</a>
+  </nav>
+</main>
+</body>
+</html>

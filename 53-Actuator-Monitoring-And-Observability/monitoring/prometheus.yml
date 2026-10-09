@@ -1,0 +1,11 @@
+# Prometheus configuration: "every 5 seconds, read the metrics of our Spring Boot app".
+# Prometheus PULLS (scrapes) metrics - the application does not push them.
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: "order-service"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      # host.docker.internal = "the computer that runs Docker" (your Windows machine)
+      - targets: ["host.docker.internal:8080"]

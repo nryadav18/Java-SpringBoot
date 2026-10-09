@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>5 · Strings</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 5</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>5. Strings</h1>
+  <p class="subtitle">Work confidently with text in Java: compare it correctly, cut it, search it, format it, build it fast — and solve the string questions every interviewer asks.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="5-Strings"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What a <code>String</code> is and why it is <strong>immutable</strong> (it never changes).</li>
+      <li>The <strong>String Pool</strong> and why <code>==</code> and <code>equals()</code> give different answers.</li>
+      <li>The 20 or so String methods you will use every day (<code>substring</code>, <code>split</code>, <code>indexOf</code>, <code>strip</code>, <code>isBlank</code>, <code>join</code>, <code>repeat</code> …).</li>
+      <li>Formatting text with <code>String.format</code>, <code>formatted</code> and <code>printf</code>.</li>
+      <li>Text blocks (<code>"""</code>) for JSON, SQL and HTML.</li>
+      <li><code>StringBuilder</code> and <code>StringBuffer</code> — and why <code>+</code> in a loop is slow.</li>
+      <li>Working with single characters (<code>char</code>) and the <code>Character</code> class.</li>
+      <li>Classic interview programs: reverse, palindrome, vowels, anagram and more.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../4-Methods-And-Arrays/lesson.html">Topic 4 · Methods &amp; Arrays</a> (methods, loops, arrays).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- =========================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Look at any app you use: a shopping site, a banking app, WhatsApp. Almost everything you see is <strong>text</strong>.
+     Names, email addresses, passwords, product titles, addresses, chat messages, error messages. In Java, text is stored in a <code>String</code>.</p>
+  <p>As a backend developer you will work with Strings <em>all day</em>:</p>
+  <ul>
+    <li>Checking if a user typed a valid email (<code>contains("@")</code>, <code>isBlank()</code>).</li>
+    <li>Reading a CSV line like <code>Laptop,55000,Electronics</code> and cutting it into pieces (<code>split</code>).</li>
+    <li>Building log messages and error messages (<code>String.format</code>).</li>
+    <li>Writing SQL queries and JSON samples (text blocks).</li>
+    <li>Comparing a user's role: <code>"ADMIN".equals(role)</code>. Using <code>==</code> here instead is a famous bug!</li>
+  </ul>
+  <p>Later, in Spring Boot, every URL path, every request parameter, every JSON field arrives as text first.
+     If you are comfortable with Strings, the rest becomes much easier. And Strings are the <strong>number one interview topic</strong> for Java freshers.</p>
+
+  <!-- =========================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🪨 A String is like text carved in stone</strong>
+    Imagine a name carved on a stone plate: <em>"RAVI"</em>. You cannot change the letters on that stone.
+    If you want <em>"ravi"</em> in small letters, you must carve a <strong>new</strong> stone. The old stone is still there, unchanged.
+    That is <strong>immutability</strong>: a <code>String</code> object never changes; every "change" gives you a new String.
+    <br><br>
+    A <strong>StringBuilder</strong> is like a <strong>whiteboard</strong>. You can write, erase and add words on the same board again and again —
+    much cheaper than carving a new stone for every small change. When you are happy with the text, you "take a photo" of the board
+    (<code>toString()</code>) and get a normal String.
+    <br><br>
+    The <strong>String Pool</strong> is like the library's shared copy of a popular book. If 100 students ask for "Harry Potter",
+    the library does not print 100 copies; they all read the same copy. Java does the same with identical string literals.
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 What is a String?</h3>
+  <p>A <code>String</code> is a <strong>sequence of characters</strong> — letters, digits, spaces, symbols — written inside <strong>double quotes</strong>.</p>
+  <pre><code class="lang-java">String name = "Priya";           // 5 characters
+String empty = "";               // 0 characters - still a valid String
+String sentence = "I have 2 cats!";</code></pre>
+  <p>Important facts for beginners:</p>
+  <ul>
+    <li><code>String</code> starts with a capital <strong>S</strong>. It is a <strong>class</strong> (a type defined in Java's library), not a primitive like <code>int</code>.
+        You will learn properly what a class is in <a href="../6-OOP-Classes-And-Objects/lesson.html">Topic 6</a>; for now think of it as "a type of thing that has data and useful methods".</li>
+    <li>Because it is a class, a String variable holds a <strong>reference</strong> (an "address" or arrow) that points to the actual text object in memory.</li>
+    <li>Java gives Strings special treatment: you can write <code>"Priya"</code> directly instead of <code>new String("Priya")</code>, and you can join them with <code>+</code>.</li>
+    <li>Each character has a position called an <strong>index</strong>. Indexes start at <strong>0</strong>, just like arrays.</li>
+  </ul>
+  <div class="table-wrap"><table>
+    <tr><th>Index</th><td>0</td><td>1</td><td>2</td><td>3</td><td>4</td></tr>
+    <tr><th>Character</th><td>P</td><td>r</td><td>i</td><td>y</td><td>a</td></tr>
+  </table></div>
+  <p>So <code>"Priya".length()</code> is 5, but the last index is 4 (always <code>length() - 1</code>).</p>
+
+  <h3>3.2 Three ways to create a String</h3>
+  <pre><code class="lang-java">String city = "Hyderabad";                // 1. literal (most common, uses the String Pool)
+String country = new String("India");     // 2. with 'new' (always a brand-new object - rarely needed)
+char[] letters = {'J', 'a', 'v', 'a'};
+String language = new String(letters);    // 3. from a char array -&gt; "Java"</code></pre>
+  <div class="callout tip"><strong>💡 Tip</strong>In real code, use literals: <code>String s = "text";</code>. Writing <code>new String("text")</code> just wastes memory.</div>
+
+  <h3>3.3 Immutability — Strings never change</h3>
+  <p><strong>Immutable</strong> means "cannot be changed after it is created". Every String method that seems to "change" the text
+     actually <strong>returns a new String</strong> and leaves the original alone.</p>
+  <pre><code class="lang-java">String name = "ravi";
+name.toUpperCase();              // creates "RAVI" ... and throws it away!
+System.out.println(name);        // ravi   (unchanged)
+
+name = name.toUpperCase();       // keep the new String by assigning it
+System.out.println(name);        // RAVI</code></pre>
+  <p>What happens in memory on the last line? The variable <code>name</code> now points to a <strong>new</strong> object <code>"RAVI"</code>.
+     The old object <code>"ravi"</code> was not modified; it just has nobody pointing at it now.</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 560 170" width="560" role="img" aria-label="Variable name moves from old String ravi to new String RAVI">
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="20" y="60" width="110" height="44" rx="6"/>
+        <rect x="330" y="20" width="150" height="44" rx="6" stroke-dasharray="6 4"/>
+        <rect x="330" y="105" width="150" height="44" rx="6"/>
+        <path d="M130 75 L325 45" stroke-dasharray="6 4"/>
+        <path d="M130 90 L325 125"/>
+        <path d="M318 120 L326 125 L317 131"/>
+      </g>
+      <g fill="currentColor" font-family="Segoe UI, sans-serif" font-size="15">
+        <text x="40" y="88">name</text>
+        <text x="352" y="48">"ravi" (old)</text>
+        <text x="352" y="133">"RAVI" (new)</text>
+        <text x="175" y="45" font-size="12">before</text>
+        <text x="200" y="128" font-size="12">after</text>
+        <text x="20" y="160" font-size="12">Variable (stack)</text>
+        <text x="330" y="165" font-size="12">String objects (heap)</text>
+      </g>
+    </svg>
+    <figcaption>Reassigning a variable moves the arrow. The String objects themselves never change.</figcaption>
+  </figure>
+  <p><strong>Why did Java's designers make Strings immutable?</strong></p>
+  <ul>
+    <li><strong>Safety:</strong> Strings are used for passwords, file names, database URLs. If someone could change the text after it was checked, that would be a security hole.</li>
+    <li><strong>Sharing (String Pool):</strong> because nobody can change a String, Java can safely let many variables share one object.</li>
+    <li><strong>Thread-safety:</strong> many threads (Topic 17) can read the same String at the same time with no risk.</li>
+    <li><strong>Caching the hash code:</strong> Strings are great as keys in a <code>HashMap</code> (Topic 11) because their hash never changes.</li>
+  </ul>
+
+  <h3>3.4 The String Pool</h3>
+  <p>The <strong>String Pool</strong> is a special area inside the heap memory where Java keeps <strong>one copy</strong> of each string <em>literal</em>.
+     When you write the same literal twice, Java gives you the same object.</p>
+  <pre><code class="lang-java">String a = "java";              // Java puts "java" in the pool
+String b = "java";              // same literal -&gt; Java re-uses the SAME pooled object
+String c = new String("java");  // 'new' forces a NEW object outside the pool
+String d = c.intern();          // intern() = "give me the pooled copy of this text"</code></pre>
+  <figure class="diagram">
+    <svg viewBox="0 0 560 210" width="560" role="img" aria-label="a, b and d point to the pooled java object, c points to a separate object">
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="20" y="20" width="60" height="34" rx="5"/>
+        <rect x="20" y="66" width="60" height="34" rx="5"/>
+        <rect x="20" y="112" width="60" height="34" rx="5"/>
+        <rect x="20" y="158" width="60" height="34" rx="5"/>
+        <rect x="260" y="20" width="280" height="100" rx="10" stroke-dasharray="5 4"/>
+        <rect x="340" y="55" width="110" height="40" rx="6"/>
+        <rect x="340" y="150" width="110" height="40" rx="6"/>
+        <path d="M80 37 L337 70"/>
+        <path d="M80 83 L337 75"/>
+        <path d="M80 175 L337 82"/>
+        <path d="M80 129 L337 170"/>
+      </g>
+      <g fill="currentColor" font-family="Segoe UI, sans-serif" font-size="15">
+        <text x="44" y="42">a</text><text x="44" y="88">b</text><text x="44" y="134">c</text><text x="44" y="180">d</text>
+        <text x="270" y="40" font-size="12">String Pool</text>
+        <text x="368" y="80">"java"</text>
+        <text x="368" y="175">"java"</text>
+        <text x="460" y="175" font-size="12">normal heap</text>
+      </g>
+    </svg>
+    <figcaption><code>a</code>, <code>b</code> and <code>d</code> share the pooled object. <code>c</code> points to its own copy.</figcaption>
+  </figure>
+
+  <h3>3.5 <code>==</code> versus <code>equals()</code> — the most famous String trap</h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th><code>==</code></th><th><code>equals()</code></th></tr>
+    <tr><td>Question it asks</td><td>"Are these two arrows pointing to the <strong>same object</strong>?"</td><td>"Is the <strong>text</strong> the same, character by character?"</td></tr>
+    <tr><td><code>a == b</code> / <code>a.equals(b)</code></td><td>true (same pooled object)</td><td>true</td></tr>
+    <tr><td><code>a == c</code> / <code>a.equals(c)</code></td><td><strong>false</strong> (different objects)</td><td><strong>true</strong> (same text)</td></tr>
+    <tr><td>When to use</td><td>Primitives (<code>int</code>, <code>char</code> …) and checking for <code>null</code></td><td><strong>Always</strong> for comparing String content</td></tr>
+  </table></div>
+  <p>Analogy: two people each holding a printed copy of the same book. <code>equals</code> asks "is it the same story?" — yes.
+     <code>==</code> asks "is it the very same physical book?" — no.</p>
+  <pre><code class="lang-java">String role = getRoleFromDatabase();   // imagine this returns "ADMIN" built at runtime
+if (role == "ADMIN") { ... }           // ❌ may be false even when the text is ADMIN!
+if ("ADMIN".equals(role)) { ... }      // ✅ correct, and safe even if role is null</code></pre>
+  <p>More comparison helpers:</p>
+  <ul>
+    <li><code>equalsIgnoreCase("JAVA")</code> — same text, ignoring capital/small letters.</li>
+    <li><code>compareTo(other)</code> — dictionary order. Negative number = comes before, <code>0</code> = equal, positive = comes after.
+        <code>"apple".compareTo("banana")</code> is <code>-1</code>. Used for sorting.</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ Why put the literal first?</strong>
+    <code>"yes".equals(answer)</code> can never crash: a literal is never <code>null</code>.
+    But <code>answer.equals("yes")</code> throws a <code>NullPointerException</code> if <code>answer</code> is <code>null</code>
+    (calling a method on "nothing"). This little habit avoids many crashes.</div>
+
+  <h3>3.6 Everyday String methods</h3>
+  <p>All examples below use <code>String email = "priya.sharma@shop.com";</code></p>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>What it does</th><th>Example</th><th>Result</th></tr>
+    <tr><td><code>length()</code></td><td>Number of characters</td><td><code>email.length()</code></td><td>21</td></tr>
+    <tr><td><code>charAt(i)</code></td><td>Character at index i</td><td><code>email.charAt(0)</code></td><td>'p'</td></tr>
+    <tr><td><code>indexOf(x)</code></td><td>First position of x, or <code>-1</code> if missing</td><td><code>email.indexOf('@')</code></td><td>12</td></tr>
+    <tr><td><code>lastIndexOf(x)</code></td><td>Last position of x</td><td><code>email.lastIndexOf('.')</code></td><td>17</td></tr>
+    <tr><td><code>contains(s)</code></td><td>Is s inside?</td><td><code>email.contains("shop")</code></td><td>true</td></tr>
+    <tr><td><code>startsWith(s)</code> / <code>endsWith(s)</code></td><td>Begins / ends with s?</td><td><code>email.endsWith(".com")</code></td><td>true</td></tr>
+    <tr><td><code>substring(start)</code></td><td>From start to the end</td><td><code>email.substring(13)</code></td><td>"shop.com"</td></tr>
+    <tr><td><code>substring(start, end)</code></td><td>From start up to <strong>but not including</strong> end</td><td><code>email.substring(0, 12)</code></td><td>"priya.sharma"</td></tr>
+    <tr><td><code>replace(a, b)</code></td><td>Replace every a with b</td><td><code>"98-765".replace("-", "")</code></td><td>"98765"</td></tr>
+    <tr><td><code>split(regex)</code></td><td>Cut into a <code>String[]</code></td><td><code>"a,b,c".split(",")</code></td><td>[a, b, c]</td></tr>
+    <tr><td><code>trim()</code></td><td>Remove spaces at both ends (old, ASCII only)</td><td><code>"  hi  ".trim()</code></td><td>"hi"</td></tr>
+    <tr><td><code>strip()</code></td><td>Same, but understands all Unicode spaces (Java 11+)</td><td><code>"  hi  ".strip()</code></td><td>"hi"</td></tr>
+    <tr><td><code>toUpperCase()</code> / <code>toLowerCase()</code></td><td>Change case</td><td><code>"Boot".toUpperCase()</code></td><td>"BOOT"</td></tr>
+    <tr><td><code>isEmpty()</code></td><td>Is length 0?</td><td><code>"   ".isEmpty()</code></td><td>false</td></tr>
+    <tr><td><code>isBlank()</code></td><td>Empty or only spaces? (Java 11+)</td><td><code>"   ".isBlank()</code></td><td>true</td></tr>
+    <tr><td><code>String.join(sep, ...)</code></td><td>Glue pieces with a separator</td><td><code>String.join("-", "a", "b")</code></td><td>"a-b"</td></tr>
+    <tr><td><code>repeat(n)</code></td><td>Repeat n times (Java 11+)</td><td><code>"ab".repeat(3)</code></td><td>"ababab"</td></tr>
+    <tr><td><code>String.valueOf(x)</code></td><td>Turn anything into a String</td><td><code>String.valueOf(42)</code></td><td>"42"</td></tr>
+    <tr><td><code>toCharArray()</code></td><td>String → <code>char[]</code></td><td><code>"hi".toCharArray()</code></td><td>['h','i']</td></tr>
+  </table></div>
+
+  <h4>Understanding <code>substring</code> (start included, end excluded)</h4>
+  <p>Think of the indexes as <strong>fences between letters</strong>. <code>substring(0, 3)</code> takes everything between fence 0 and fence 3:</p>
+  <pre><code class="lang-java">//  | J | a | v | a |
+//  0   1   2   3   4      &lt;- fences
+"Java".substring(0, 3)   // "Jav"
+"Java".substring(1, 3)   // "av"
+"Java".substring(2)      // "va"
+// Length of the result is always (end - start).</code></pre>
+
+  <h4>Real use: cut an email into user name and domain</h4>
+  <pre><code class="lang-java">String email = "priya.sharma@shop.com";
+int at = email.indexOf('@');                 // 12
+String userName = email.substring(0, at);    // "priya.sharma"
+String domain   = email.substring(at + 1);   // "shop.com"</code></pre>
+
+  <h4>Real use: read one line of a CSV file</h4>
+  <pre><code class="lang-java">String csvLine = "Laptop,55000,Electronics";
+String[] parts = csvLine.split(",");          // ["Laptop", "55000", "Electronics"]
+String name = parts[0];
+int price = Integer.parseInt(parts[1]);       // text "55000" -&gt; number 55000</code></pre>
+  <div class="callout warn"><strong>⚠️ <code>split</code> takes a regular expression</strong>
+    The argument of <code>split</code> is a <em>regex</em> (a pattern language). Some characters have special meaning:
+    <code>.</code> <code>|</code> <code>*</code> <code>+</code> <code>?</code> and more.
+    So <code>"a.b.c".split(".")</code> returns an <strong>empty</strong> array! Use <code>split("\\.")</code> to mean a real dot,
+    and <code>split("\\|")</code> for a pipe. <code>split("\\s+")</code> means "one or more spaces" — very handy.</div>
+
+  <h3>3.7 Joining strings with <code>+</code></h3>
+  <p><code>+</code> joins (concatenates) text. But be careful: Java reads <code>+</code> from <strong>left to right</strong>.
+     As soon as a String appears, everything after it is joined as text.</p>
+  <pre><code class="lang-java">System.out.println(1 + 2 + " apples");   // "3 apples"   (1+2 is math first)
+System.out.println("apples: " + 1 + 2);   // "apples: 12" (text, then text)
+System.out.println("apples: " + (1 + 2)); // "apples: 3"  (brackets force math first)</code></pre>
+
+  <h3>3.8 Formatting text: <code>String.format</code>, <code>formatted</code>, <code>printf</code></h3>
+  <p>Joining many pieces with <code>+</code> gets messy. Formatting lets you write a <strong>template</strong> with
+     <strong>placeholders</strong> and fill them in.</p>
+  <pre><code class="lang-java">String msg = String.format("Hi %s, you bought %d items. Total: Rs. %.2f", "Anita", 3, 1249.5);
+// Hi Anita, you bought 3 items. Total: Rs. 1249.50
+
+String same = "Hi %s, total %.2f".formatted("Anita", 1249.5);   // Java 15+, same idea
+
+System.out.printf("Discount: %d%%%n", 10);   // printf = format + print. Prints: Discount: 10%</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Placeholder</th><th>Meaning</th><th>Example</th><th>Output</th></tr>
+    <tr><td><code>%s</code></td><td>Any value as text</td><td><code>"%s".formatted("Hi")</code></td><td>Hi</td></tr>
+    <tr><td><code>%d</code></td><td>Whole number (int, long)</td><td><code>"%d".formatted(42)</code></td><td>42</td></tr>
+    <tr><td><code>%f</code> / <code>%.2f</code></td><td>Decimal / with 2 decimals</td><td><code>"%.2f".formatted(3.14159)</code></td><td>3.14</td></tr>
+    <tr><td><code>%c</code></td><td>One character</td><td><code>"%c".formatted('A')</code></td><td>A</td></tr>
+    <tr><td><code>%b</code></td><td>boolean</td><td><code>"%b".formatted(true)</code></td><td>true</td></tr>
+    <tr><td><code>%n</code></td><td>New line (correct for your OS)</td><td></td><td></td></tr>
+    <tr><td><code>%%</code></td><td>A real % sign</td><td><code>"%d%%".formatted(10)</code></td><td>10%</td></tr>
+    <tr><td><code>%10s</code> / <code>%-10s</code></td><td>Width 10, right / left aligned</td><td><code>"[%-6s]".formatted("Pen")</code></td><td>[Pen&nbsp;&nbsp;&nbsp;]</td></tr>
+    <tr><td><code>%05d</code></td><td>Pad with zeros to width 5</td><td><code>"%05d".formatted(42)</code></td><td>00042</td></tr>
+    <tr><td><code>%,d</code></td><td>Thousands separator</td><td><code>"%,d".formatted(1500000)</code></td><td>1,500,000</td></tr>
+  </table></div>
+  <p>With widths, you can print neat tables (see <code>Example03</code>):</p>
+  <pre><code class="lang-java">System.out.printf("%-12s %3s %8s%n", "Item", "Qty", "Price");
+System.out.printf("%-12s %3d %8.2f%n", "Notebook", 2, 120.0);
+// Item         Qty    Price
+// Notebook       2   120.00</code></pre>
+
+  <h3>3.9 Text blocks (<code>"""</code>) — multi-line text made easy (Java 15+)</h3>
+  <p>Before Java 15, writing JSON or SQL inside Java meant lots of <code>\n</code>, <code>\"</code> and <code>+</code>. Text blocks fix this.</p>
+  <pre><code class="lang-java">// Old way - hard to read, easy to break
+String oldJson = "{\n" +
+                 "  \"name\": \"Laptop\"\n" +
+                 "}";
+
+// Text block - looks exactly like the real JSON
+String json = """
+        {
+          "name": "Laptop",
+          "price": 55000
+        }
+        """;</code></pre>
+  <p>Rules to remember:</p>
+  <ul>
+    <li>Open with <code>"""</code> and then a <strong>new line</strong> (text cannot start on the same line).</li>
+    <li>Java removes the common indentation on the left automatically (the spaces before <code>{</code> disappear).</li>
+    <li>If the closing <code>"""</code> is on its own line, the text ends with a new line. Put it right after the last word to avoid that.</li>
+    <li>You do not need to escape double quotes inside.</li>
+    <li>Combine with <code>.formatted(...)</code> to make templates (see the SQL example in <code>Example03</code>).</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ Where you will use this later</strong>
+    In Spring Boot you will write SQL queries (<code>@Query</code>), JSON for tests, and long messages. Text blocks make them readable.</div>
+
+  <h3>3.10 <code>StringBuilder</code> — a changeable string</h3>
+  <p>Because Strings are immutable, this loop creates <strong>20,000 new String objects</strong>, each one a copy of the last plus one letter:</p>
+  <pre><code class="lang-java">String slow = "";
+for (int i = 0; i &lt; 20_000; i++) {
+    slow = slow + "x";      // copy everything so far + 1 char, into a NEW object, every time
+}</code></pre>
+  <p>Copying gets longer each time (1 char, 2 chars, 3 chars … 20,000 chars), so the total work grows very fast.
+     A <code>StringBuilder</code> keeps <strong>one</strong> growing buffer and just adds to it:</p>
+  <pre><code class="lang-java">StringBuilder fast = new StringBuilder();
+for (int i = 0; i &lt; 20_000; i++) {
+    fast.append("x");       // add 1 char to the same buffer
+}
+String result = fast.toString();   // turn it into a normal String at the end</code></pre>
+  <p>On the trainer's laptop: <code>+</code> took about <strong>230 ms</strong>, <code>StringBuilder</code> about <strong>1 ms</strong>. With bigger loops the gap becomes huge.</p>
+  <div class="table-wrap"><table>
+    <tr><th>StringBuilder method</th><th>What it does</th><th>Example (sb = "Spring")</th></tr>
+    <tr><td><code>append(x)</code></td><td>Add at the end (any type)</td><td><code>sb.append(" Boot")</code> → "Spring Boot"</td></tr>
+    <tr><td><code>insert(i, x)</code></td><td>Add at position i</td><td><code>sb.insert(0, "I love ")</code></td></tr>
+    <tr><td><code>delete(start, end)</code></td><td>Remove a range</td><td><code>sb.delete(0, 2)</code> → "ring"</td></tr>
+    <tr><td><code>deleteCharAt(i)</code></td><td>Remove one char</td><td><code>sb.deleteCharAt(0)</code> → "pring"</td></tr>
+    <tr><td><code>replace(start, end, s)</code></td><td>Replace a range</td><td><code>sb.replace(0, 1, "s")</code> → "spring"</td></tr>
+    <tr><td><code>reverse()</code></td><td>Reverse in place</td><td>→ "gnirpS"</td></tr>
+    <tr><td><code>setCharAt(i, c)</code></td><td>Change one char</td><td><code>sb.setCharAt(0, 's')</code></td></tr>
+    <tr><td><code>length()</code>, <code>charAt(i)</code></td><td>Same as String</td><td></td></tr>
+    <tr><td><code>toString()</code></td><td>Get a normal String</td><td></td></tr>
+  </table></div>
+  <p>Most methods return the same builder, so you can <strong>chain</strong> them:
+     <code>sb.append(1).append(". ").append("Milk").append('\n');</code></p>
+
+  <div class="callout tip"><strong>💡 Do I always need StringBuilder?</strong>
+    No! For a <em>single line</em> like <code>"Hello " + name + "!"</code>, plain <code>+</code> is perfect — the compiler optimizes it for you.
+    Use <code>StringBuilder</code> when you build text <strong>inside a loop</strong> or piece by piece across many steps.</div>
+
+  <h3>3.11 <code>String</code> vs <code>StringBuilder</code> vs <code>StringBuffer</code></h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>String</th><th>StringBuilder</th><th>StringBuffer</th></tr>
+    <tr><td>Can change?</td><td>No (immutable)</td><td>Yes (mutable)</td><td>Yes (mutable)</td></tr>
+    <tr><td>Thread-safe?</td><td>Yes (because it can't change)</td><td>No</td><td>Yes (methods are <code>synchronized</code>)</td></tr>
+    <tr><td>Speed for many changes</td><td>Slow (new object each time)</td><td><strong>Fastest</strong></td><td>A bit slower than StringBuilder</td></tr>
+    <tr><td>Since</td><td>Java 1.0</td><td>Java 5</td><td>Java 1.0</td></tr>
+    <tr><td>Use when</td><td>Fixed text, keys, constants</td><td>Building text in a loop (99% of cases)</td><td>Rare: many threads sharing one buffer</td></tr>
+  </table></div>
+  <p><em>Thread</em> = a separate path of execution that can run at the same time as others (full detail in Topic 17). For now:
+     use <code>StringBuilder</code>, and just know <code>StringBuffer</code> is its older, "safer but slower" cousin.</p>
+
+  <h3>3.12 Working with single characters (<code>char</code>)</h3>
+  <p>A <code>char</code> is a primitive type holding <strong>one</strong> character, in <strong>single quotes</strong>: <code>'A'</code>.
+     <code>"A"</code> (double quotes) is a String. They are different types!</p>
+  <p>Inside the computer, every char is stored as a <strong>number</strong> (its Unicode code). That is why you can do math with chars:</p>
+  <pre><code class="lang-java">(int) 'A'           // 65
+'A' + 1             // 66   (int math)
+(char) ('A' + 1)    // 'B'
+'7' - '0'           // 7    (classic trick: digit character -&gt; its number value)
+'c' - 'a'           // 2    (position of a letter in the alphabet, starting at 0)</code></pre>
+  <p>The <code>Character</code> class has helpers to ask questions about a char:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>True for</th></tr>
+    <tr><td><code>Character.isLetter(ch)</code></td><td>'a', 'Z'</td></tr>
+    <tr><td><code>Character.isDigit(ch)</code></td><td>'0' … '9'</td></tr>
+    <tr><td><code>Character.isLetterOrDigit(ch)</code></td><td>letters and digits</td></tr>
+    <tr><td><code>Character.isUpperCase(ch)</code> / <code>isLowerCase</code></td><td>'Z' / 'a'</td></tr>
+    <tr><td><code>Character.isWhitespace(ch)</code></td><td>space, tab, new line</td></tr>
+    <tr><td><code>Character.toUpperCase(ch)</code> / <code>toLowerCase</code></td><td>(converts, returns a char)</td></tr>
+  </table></div>
+  <p>Two ways to loop over every character of a String:</p>
+  <pre><code class="lang-java">String course = "Java";
+for (int i = 0; i &lt; course.length(); i++) {   // when you need the index
+    char ch = course.charAt(i);
+}
+for (char ch : course.toCharArray()) {        // simplest when you only need the char
+    System.out.print(ch);
+}</code></pre>
+
+  <h3>3.13 Classic interview string programs (the ideas)</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Problem</th><th>Idea in one line</th></tr>
+    <tr><td>Reverse a string</td><td>Loop from the last index to 0 and append, or <code>new StringBuilder(s).reverse()</code>.</td></tr>
+    <tr><td>Palindrome ("madam")</td><td>Two pointers: compare first and last char, move inwards; any mismatch → not a palindrome.</td></tr>
+    <tr><td>Count vowels</td><td>Loop chars; if <code>"aeiou".indexOf(ch) != -1</code> it is a vowel.</td></tr>
+    <tr><td>Anagram ("listen"/"silent")</td><td>Remove spaces, lower-case, sort both char arrays, compare with <code>Arrays.equals</code>. Or count letters in an <code>int[26]</code>.</td></tr>
+    <tr><td>Count words</td><td><code>s.strip().split("\\s+").length</code> (check empty first).</td></tr>
+    <tr><td>First non-repeating char</td><td>The char where <code>indexOf(ch) == lastIndexOf(ch)</code>.</td></tr>
+  </table></div>
+  <p>The palindrome with two pointers, step by step for <code>"madam"</code>:</p>
+  <div class="flow">
+    <span class="box">m ↔ m ✓</span><span class="arrow">→</span>
+    <span class="box">a ↔ a ✓</span><span class="arrow">→</span>
+    <span class="box info">d (middle, stop)</span><span class="arrow">→</span>
+    <span class="box alt">Palindrome!</span>
+  </div>
+  <p>All of them are implemented and explained in <code>Example06_InterviewStringPrograms.java</code>.</p>
+
+  <!-- =========================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>Example01_StringBasicsAndImmutability.java</code></td><td>Creating Strings, immutability, String Pool, <code>==</code> vs <code>equals</code>, <code>intern</code>, <code>compareTo</code>.</td></tr>
+    <tr><td><code>Example02_CommonStringMethods.java</code></td><td>All the everyday methods on a real email address, CSV line and messy input.</td></tr>
+    <tr><td><code>Example03_FormattingAndTextBlocks.java</code></td><td><code>String.format</code>, <code>formatted</code>, <code>printf</code> bill table, JSON and SQL text blocks.</td></tr>
+    <tr><td><code>Example04_StringBuilderPerformance.java</code></td><td>StringBuilder methods, timing <code>+</code> vs StringBuilder, StringBuffer, building a receipt.</td></tr>
+    <tr><td><code>Example05_CharHandling.java</code></td><td>char vs String, chars as numbers, <code>Character</code> helpers, a password strength checker.</td></tr>
+    <tr><td><code>Example06_InterviewStringPrograms.java</code></td><td>Reverse, palindrome, vowels/consonants, anagram (2 ways), word count, first non-repeating char, reverse each word.</td></tr>
+  </table></div>
+
+  <h3>4.1 Example01 — immutability and comparison</h3>
+  <pre><span class="file">Example01_StringBasicsAndImmutability.java</span><code class="lang-java">String name = "ravi";
+name.toUpperCase();                        // result thrown away -&gt; nothing happens to 'name'
+System.out.println("After toUpperCase() without saving: " + name);   // ravi
+
+name = name.toUpperCase();                 // save the NEW string back into the variable
+System.out.println("After saving the result: " + name);              // RAVI
+
+String a = "java";
+String b = "java";
+String c = new String("java");
+String d = c.intern();
+System.out.println("a == b       : " + (a == b));        // true
+System.out.println("a == c       : " + (a == c));        // false
+System.out.println("a.equals(c)  : " + a.equals(c));     // true
+System.out.println("a == d       : " + (a == d));        // true</code></pre>
+  <p>Notice the <strong>brackets</strong> around <code>(a == b)</code>. Without them Java would first join <code>"a == b : " + a</code> into a String
+     and then compare that String with <code>b</code> — giving a confusing <code>false</code>.</p>
+  <p>The file also shows the null-safe pattern <code>"yes".equals(userInput)</code> where <code>userInput</code> is <code>null</code>: it prints <code>false</code> instead of crashing.</p>
+
+  <h3>4.2 Example02 — the daily toolbox</h3>
+  <pre><span class="file">Example02_CommonStringMethods.java</span><code class="lang-java">int at = email.indexOf('@');
+String userName = email.substring(0, at);       // from 0 up to (not including) '@'
+String domain = email.substring(at + 1);        // from after '@' to the end
+
+String[] parts = "Laptop,55000,Electronics".split(",");
+System.out.println("price as int      : " + Integer.parseInt(parts[1]));
+
+String raw = "  ORDER-1001  ";
+String clean = raw.strip().toLowerCase().replace("order-", "#");   // "#1001"</code></pre>
+  <p>The last line is <strong>method chaining</strong>: each method returns a <em>new</em> String, and the next method is called on that new String.
+     Read it left to right: strip spaces → lower-case → replace.</p>
+  <p>Also look at <code>"valueOf(5) + 1"</code>: <code>"5" + 1</code> is <code>"51"</code> (joining), while <code>(5 + 1)</code> is <code>6</code> (math).</p>
+
+  <h3>4.3 Example03 — formatting and text blocks</h3>
+  <pre><span class="file">Example03_FormattingAndTextBlocks.java</span><code class="lang-java">System.out.printf("%-12s %3s %8s%n", "Item", "Qty", "Price");
+System.out.printf("%-12s %3d %8.2f%n", "Notebook", 2, 120.0);
+
+String sql = """
+        SELECT id, name, price
+        FROM product
+        WHERE price &lt; %d
+        ORDER BY price""".formatted(1000);</code></pre>
+  <p><code>%-12s</code> = "a text value, 12 characters wide, left aligned". <code>%8.2f</code> = "a decimal, 8 characters wide, 2 digits after the point".
+     The SQL text block ends with <code>"""</code> on the same line as <code>ORDER BY price</code>, so there is no extra new line at the end.</p>
+
+  <h3>4.4 Example04 — StringBuilder and the speed test</h3>
+  <pre><span class="file">Example04_StringBuilderPerformance.java</span><code class="lang-java">StringBuilder sb = new StringBuilder("Spring");
+sb.append(" Boot");                 // Spring Boot
+sb.append(' ').append(3);           // Spring Boot 3   (chaining)
+sb.insert(0, "I love ");            // I love Spring Boot 3
+sb.replace(0, 6, "We like");        // We like Spring Boot 3
+sb.delete(0, 8);                    // Spring Boot 3
+sb.deleteCharAt(sb.length() - 1);   // "Spring Boot "  (the 3 is gone, the space stays)
+sb.setCharAt(0, 's');               // "spring Boot "</code></pre>
+  <p>Unlike String, these calls <strong>change the same object</strong> — we never write <code>sb = sb.append(...)</code>.
+     Then the program times 20,000 joins with <code>+</code> versus <code>append</code> using <code>System.nanoTime()</code> (a very precise stopwatch).</p>
+
+  <h3>4.5 Example05 — characters</h3>
+  <pre><span class="file">Example05_CharHandling.java</span><code class="lang-java">for (char ch : password.toCharArray()) {
+    if (Character.isUpperCase(ch)) {
+        upper++;
+    } else if (Character.isLowerCase(ch)) {
+        lower++;
+    } else if (Character.isDigit(ch)) {
+        digits++;
+    } else {
+        special++;          // anything else: @, #, !, ...
+    }
+}
+boolean strong = password.length() &gt;= 8 &amp;&amp; upper &gt; 0 &amp;&amp; lower &gt; 0 &amp;&amp; digits &gt; 0 &amp;&amp; special &gt; 0;</code></pre>
+  <p>A real-world rule you will meet again in Topic 34 (Validation) when we build a <code>@StrongPassword</code> check in Spring.</p>
+
+  <h3>4.6 Example06 — interview programs</h3>
+  <pre><span class="file">Example06_InterviewStringPrograms.java</span><code class="lang-java">static boolean isAnagramByCounting(String first, String second) {
+    String a = first.replace(" ", "").toLowerCase();
+    String b = second.replace(" ", "").toLowerCase();
+    if (a.length() != b.length()) {
+        return false;
+    }
+    int[] counts = new int[26];                // one box per letter a..z
+    for (int i = 0; i &lt; a.length(); i++) {
+        counts[a.charAt(i) - 'a']++;           // 'c' - 'a' = 2 -&gt; box number 2
+        counts[b.charAt(i) - 'a']--;
+    }
+    for (int c : counts) {
+        if (c != 0) {
+            return false;
+        }
+    }
+    return true;
+}</code></pre>
+  <p>Each letter of the first word adds 1 to its box, each letter of the second word removes 1. If all 26 boxes end at 0,
+     both words used exactly the same letters. This works in one pass — faster than sorting. (It assumes only the letters a–z.)</p>
+
+  <!-- =========================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <h3>In VS Code</h3>
+  <ol>
+    <li>Open the folder <code>D:\Java-SpringBoot</code> in VS Code (<em>File → Open Folder</em>).</li>
+    <li>Open <code>5-Strings/Example01_StringBasicsAndImmutability.java</code>.</li>
+    <li>Click the small <strong>Run</strong> link above <code>main</code> (or press the ▶ button at the top right).</li>
+    <li>The output appears in the <em>Terminal</em> panel at the bottom.</li>
+  </ol>
+  <h3>From the terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\5-Strings"
+java Example01_StringBasicsAndImmutability.java
+java Example02_CommonStringMethods.java
+java Example03_FormattingAndTextBlocks.java
+java Example04_StringBuilderPerformance.java
+java Example05_CharHandling.java
+java Example06_InterviewStringPrograms.java</code></pre>
+  <p>Expected output of <code>Example01</code>:</p>
+  <pre class="terminal"><code>City: Hyderabad
+Country: India
+Language: Java
+After toUpperCase() without saving: ravi
+After saving the result: RAVI
+greeting is still: Hello
+bigger is: Hello, World
+a == b       : true
+a == c       : false
+a.equals(c)  : true
+a == d       : true
+"JAVA".equalsIgnoreCase(a): true
+"yes".equals(userInput): false
+"apple".compareTo("banana"): -1
+"apple".compareTo("apple"): 0</code></pre>
+  <p>Expected output of <code>Example02</code>:</p>
+  <pre class="terminal"><code>length()          : 21
+charAt(0)         : p
+last char         : m
+indexOf('@')      : 12
+indexOf("xyz")    : -1
+lastIndexOf('.')  : 17
+contains("shop")  : true
+startsWith("priya"): true
+endsWith(".com")  : true
+user name         : priya.sharma
+domain            : shop.com
+replace("-", "") : 9876543210
+split(",")        : [Laptop, 55000, Electronics]
+product name      : Laptop
+price as int      : 55000
+trim()            : [hello world]
+strip()           : [hello world]
+stripLeading()    : [hello world   ]
+stripTrailing()   : [   hello world]
+toUpperCase()     : SPRING BOOT
+toLowerCase()     : spring boot
+"".isEmpty()      : true
+"    ".isEmpty()  : false
+"    ".isBlank()  : true
+String.join       : Home | Products | Cart
+repeat(3)         : ababab
+divider           : --------------------
+valueOf(5) + 1    : 51
+qty + 1           : 6
+chained result    : #1001</code></pre>
+  <p>Expected output of <code>Example03</code>:</p>
+  <pre class="terminal"><code>Hi Anita, you bought 3 items. Total: Rs. 1249.50
+Hi Anita, you bought 3 items. Total: Rs. 1249.50
+Discount: 10%
+
+----- SHOP BILL -----
+Item         Qty    Price
+Notebook       2   120.00
+Pen            5    50.50
+Backpack       1   899.00
+Invoice no: 00042
+Big number with commas: 1,500,000
+
+JSON text block:
+{
+  "name": "Laptop",
+  "price": 55000,
+  "inStock": true
+}
+SQL text block:
+SELECT id, name, price
+FROM product
+WHERE price &lt; 1000
+ORDER BY price
+Old way:
+{
+  "name": "Laptop"
+}</code></pre>
+  <p>Expected output of <code>Example04</code> (the milliseconds will be different on your machine):</p>
+  <pre class="terminal"><code>append      : Spring Boot 3
+insert      : I love Spring Boot 3
+replace     : We like Spring Boot 3
+delete      : Spring Boot 3
+deleteCharAt: [Spring Boot ]
+setCharAt   : spring Boot
+length      : 12
+reverse     : pu level
+toString    : spring Boot
+
+Both strings have length 20000 and 20000
+Using +             took about 232 ms
+Using StringBuilder took about 1 ms
+StringBuilder was faster: true
+StringBuffer: Order#1001
+1. Milk
+2. Bread
+3. Eggs</code></pre>
+  <p>Expected output of <code>Example05</code>:</p>
+  <pre class="terminal"><code>char: A, String: A
+(int) 'A'       = 65
+'A' + 1         = 66
+(char) ('A' + 1) = B
+'7' - '0'       = 7
+'a' letter=true digit=false upper=false space=false
+'Z' letter=true digit=false upper=true space=false
+'5' letter=false digit=true upper=false space=false
+' ' letter=false digit=false upper=false space=true
+'@' letter=false digit=false upper=false space=false
+Character.toUpperCase('q') = Q
+Character.getNumericValue('9') = 9
+charAt loop     : J a v a
+toCharArray loop: J-a-v-a-
+String.valueOf(chars): Boot
+
+hello      -&gt; upper=0 lower=5 digits=0 special=0 -&gt; weak
+Hello123   -&gt; upper=1 lower=4 digits=3 special=0 -&gt; weak
+Hello@123  -&gt; upper=1 lower=4 digits=3 special=1 -&gt; STRONG</code></pre>
+  <p>Expected output of <code>Example06</code>:</p>
+  <pre class="terminal"><code>1. reverse("Spring")          = gnirpS
+   reverseWithBuilder("Spring") = gnirpS
+2. isPalindrome("Madam")      = true
+   isPalindrome("Java")       = false
+3. "Hello World" -&gt; vowels=3, consonants=7
+4. isAnagram("listen","silent") = true
+   isAnagram("Dormitory","Dirty room") = true
+   isAnagram("hello","world")  = false
+5. countWords("  Java is   fun  ") = 3
+6. firstNonRepeating("swiss") = w
+7. reverseEachWord("I love Java") = I evol avaJ</code></pre>
+  <div class="callout info"><strong>ℹ️ Decimal separator</strong>
+    <code>%.2f</code> and <code>%,d</code> follow your computer's language settings. On some systems you may see <code>1249,50</code> or <code>1.500.000</code>. That is normal.</div>
+
+  <!-- =========================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>❌ Mistake: comparing Strings with <code>==</code></strong>
+    <code>if (password == "secret")</code> compares object addresses, not text. It may work in a tiny test (pooled literals) and then fail
+    with real input from a user or a database.<br><strong>Fix:</strong> <code>if ("secret".equals(password))</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting that Strings are immutable</strong>
+    <code>name.trim();</code> on its own line does nothing useful — the result is thrown away.<br>
+    <strong>Fix:</strong> <code>name = name.trim();</code> — always save the returned value.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: <code>StringIndexOutOfBoundsException</code></strong>
+    <code>"Java".charAt(4)</code> or <code>"Java".substring(2, 10)</code> crash because the last valid index is <code>length() - 1</code> = 3.<br>
+    <strong>Fix:</strong> loop with <code>i &lt; s.length()</code> (not <code>&lt;=</code>) and check indexes, e.g. <code>if (at != -1)</code> after <code>indexOf</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: calling a method on a <code>null</code> String</strong>
+    <code>String city = null; city.length();</code> throws <code>NullPointerException</code>.<br>
+    <strong>Fix:</strong> check first: <code>if (city != null &amp;&amp; !city.isBlank())</code>, or put the literal first in <code>equals</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: <code>split(".")</code> or <code>split("|")</code></strong>
+    These characters are special in regular expressions; <code>"a.b".split(".")</code> gives an empty array.<br>
+    <strong>Fix:</strong> escape them: <code>split("\\.")</code>, <code>split("\\|")</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: <code>+</code> with numbers and text</strong>
+    <code>"Total: " + 10 + 5</code> prints <code>Total: 105</code>.<br>
+    <strong>Fix:</strong> use brackets <code>"Total: " + (10 + 5)</code> or <code>"Total: %d".formatted(10 + 5)</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: using <code>+</code> inside big loops</strong>
+    Building a report of 100,000 lines with <code>report = report + line</code> can take seconds.<br>
+    <strong>Fix:</strong> use a <code>StringBuilder</code> and call <code>toString()</code> once at the end.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: mixing up <code>'A'</code> and <code>"A"</code></strong>
+    <code>char c = "A";</code> does not compile. <code>'A' + 'B'</code> is the number 131, not "AB".<br>
+    <strong>Fix:</strong> single quotes for one <code>char</code>, double quotes for a <code>String</code>. Use <code>"" + 'A' + 'B'</code> or <code>String.valueOf</code> if you need text.</div>
+
+  <!-- =========================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Always compare content with <code>equals()</code></strong> (or <code>equalsIgnoreCase()</code>). Use <code>==</code> only for <code>null</code> checks.</li>
+    <li><strong>Literal first:</strong> <code>"ADMIN".equals(role)</code> — null-safe. Or use <code>Objects.equals(a, b)</code> when both may be null.</li>
+    <li><strong>Prefer <code>isBlank()</code> and <code>strip()</code></strong> (Java 11+) for user input — they handle all kinds of whitespace.</li>
+    <li><strong>Use <code>StringBuilder</code> in loops</strong>, plain <code>+</code> for one-line joins.</li>
+    <li><strong>Use <code>formatted()</code> / <code>String.format()</code></strong> for readable messages with many values.</li>
+    <li><strong>Use text blocks</strong> for JSON, SQL, HTML or any multi-line text.</li>
+    <li><strong>Never put secrets in Strings that get logged</strong> (passwords, tokens). In Topic 30 (Logging) you will learn what not to log.</li>
+    <li><strong>Make text constants <code>final</code></strong> and give them a name, e.g. <code>static final String ADMIN_ROLE = "ADMIN";</code> instead of repeating the literal everywhere.</li>
+    <li>When you need a utility that Java doesn't have (e.g. "is this null or blank?"), write a small helper method once and reuse it. In Maven projects later, libraries like Apache Commons Lang (<code>StringUtils</code>) offer many of these.</li>
+  </ul>
+
+  <!-- =========================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>A <code>String</code> is an object holding a sequence of characters; indexes start at 0.</li>
+    <li>Strings are <strong>immutable</strong>: methods return a <em>new</em> String — always save the result.</li>
+    <li>Identical literals share one object in the <strong>String Pool</strong>; <code>new String(...)</code> creates a separate object.</li>
+    <li><code>==</code> compares references, <code>equals()</code> compares text. Use <code>equals()</code> for Strings.</li>
+    <li>Know your toolbox: <code>length, charAt, indexOf, substring, contains, replace, split, strip, isBlank, join, repeat</code>.</li>
+    <li><code>String.format</code> / <code>formatted</code> / <code>printf</code> use placeholders like <code>%s %d %.2f %n</code>.</li>
+    <li>Text blocks <code>"""</code> make multi-line text (JSON, SQL) clean and readable.</li>
+    <li><code>StringBuilder</code> is a mutable, fast builder; <code>StringBuffer</code> is the thread-safe, slower version.</li>
+    <li>A <code>char</code> is a number underneath; the <code>Character</code> class answers "is it a digit/letter/upper case?".</li>
+  </ul></div>
+
+  <!-- =========================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <p>Create a new file for each exercise (e.g. <code>Practice01.java</code>) in a separate practice folder, then run it with <code>java Practice01.java</code>.</p>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Initials.</strong> Given <code>String fullName = "Sachin Ramesh Tendulkar";</code> print the initials <code>S.R.T.</code></p>
+    <details><summary>Hint / solution</summary>
+      <p>Split by spaces, take <code>charAt(0)</code> of each word, use a <code>StringBuilder</code>.</p>
+      <pre><code class="lang-java">public class Practice01 {
+    public static void main(String[] args) {
+        String fullName = "Sachin Ramesh Tendulkar";
+        StringBuilder initials = new StringBuilder();
+        for (String word : fullName.split("\\s+")) {
+            initials.append(Character.toUpperCase(word.charAt(0))).append('.');
+        }
+        System.out.println(initials);   // S.R.T.
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Clean the username.</strong> A user types <code>"   Ravi_Kumar99   "</code>. Print it stripped and in lower case,
+       then print whether it is blank, and whether it starts with <code>"ravi"</code>.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public class Practice02 {
+    public static void main(String[] args) {
+        String input = "   Ravi_Kumar99   ";
+        String userName = input.strip().toLowerCase();
+        System.out.println("[" + userName + "]");             // [ravi_kumar99]
+        System.out.println(userName.isBlank());               // false
+        System.out.println(userName.startsWith("ravi"));      // true
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Mask a card number.</strong> Write <code>static String mask(String card)</code> that turns
+       <code>"1234567812345678"</code> into <code>"************5678"</code> (show only the last 4 digits).</p>
+    <details><summary>Hint / solution</summary>
+      <p>Use <code>repeat</code> and <code>substring</code>.</p>
+      <pre><code class="lang-java">public class Practice03 {
+    static String mask(String card) {
+        if (card == null || card.length() &lt;= 4) {
+            return card;
+        }
+        String lastFour = card.substring(card.length() - 4);
+        return "*".repeat(card.length() - 4) + lastFour;
+    }
+
+    public static void main(String[] args) {
+        System.out.println(mask("1234567812345678"));   // ************5678
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Character frequency.</strong> For <code>"programming"</code>, print how many times each letter appears
+       (only letters that appear at least once, in a–z order). Expected: <code>a=1 g=2 i=1 m=2 n=1 o=1 p=1 r=2</code></p>
+    <details><summary>Hint / solution</summary>
+      <p>Use an <code>int[26]</code> counter like the anagram program.</p>
+      <pre><code class="lang-java">public class Practice04 {
+    public static void main(String[] args) {
+        String word = "programming";
+        int[] counts = new int[26];
+        for (char ch : word.toCharArray()) {
+            counts[ch - 'a']++;
+        }
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i &lt; 26; i++) {
+            if (counts[i] &gt; 0) {
+                out.append((char) ('a' + i)).append('=').append(counts[i]).append(' ');
+            }
+        }
+        System.out.println(out.toString().strip());
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>5. Capitalize each word.</strong> Turn <code>"welcome to spring boot"</code> into <code>"Welcome To Spring Boot"</code>.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public class Practice05 {
+    static String capitalizeWords(String text) {
+        StringBuilder result = new StringBuilder();
+        for (String word : text.strip().split("\\s+")) {
+            if (result.length() &gt; 0) {
+                result.append(' ');
+            }
+            result.append(Character.toUpperCase(word.charAt(0)))
+                  .append(word.substring(1).toLowerCase());
+        }
+        return result.toString();
+    }
+
+    public static void main(String[] args) {
+        System.out.println(capitalizeWords("welcome to spring boot"));   // Welcome To Spring Boot
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Compress a string.</strong> Write <code>compress("aaabbcdddd")</code> that returns <code>"a3b2c1d4"</code>.
+       If the compressed version is not shorter than the original, return the original (so <code>compress("abc")</code> returns <code>"abc"</code>).</p>
+    <details><summary>Hint / solution</summary>
+      <p>Walk through the string, count how many times the current char repeats, append char + count when it changes.</p>
+      <pre><code class="lang-java">public class Practice06 {
+    static String compress(String s) {
+        if (s == null || s.isEmpty()) {
+            return s;
+        }
+        StringBuilder out = new StringBuilder();
+        int count = 1;
+        for (int i = 1; i &lt;= s.length(); i++) {
+            if (i &lt; s.length() &amp;&amp; s.charAt(i) == s.charAt(i - 1)) {
+                count++;
+            } else {
+                out.append(s.charAt(i - 1)).append(count);
+                count = 1;
+            }
+        }
+        return out.length() &lt; s.length() ? out.toString() : s;
+    }
+
+    public static void main(String[] args) {
+        System.out.println(compress("aaabbcdddd"));   // a3b2c1d4
+        System.out.println(compress("abc"));          // abc
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. Why is String immutable in Java?</summary>
+    <p>For <strong>security</strong> (Strings hold passwords, file paths, URLs; they cannot be changed after validation),
+       to allow the <strong>String Pool</strong> (sharing one object is only safe if nobody can change it),
+       for <strong>thread-safety</strong> (no locking needed to share it), and so the <strong>hash code can be cached</strong>,
+       which makes Strings fast and reliable <code>HashMap</code> keys.</p></details>
+
+  <details><summary>Q2. What is the difference between <code>==</code> and <code>equals()</code> for Strings?</summary>
+    <p><code>==</code> checks if two references point to the <strong>same object</strong>. <code>equals()</code> checks if the
+       <strong>characters</strong> are the same. <code>new String("a") == "a"</code> is false, but <code>new String("a").equals("a")</code> is true.
+       Always use <code>equals()</code> to compare text.</p></details>
+
+  <details><summary>Q3. What is the String Pool? How many objects does <code>String s = new String("hello");</code> create?</summary>
+    <p>The String Pool is a special area of the heap where Java stores one shared copy of each string literal.
+       <code>new String("hello")</code> creates <strong>up to two</strong> objects: the literal <code>"hello"</code> in the pool
+       (only if it is not already there) and a new object on the heap that <code>s</code> points to. If the literal was already pooled, only one new object is created.</p></details>
+
+  <details><summary>Q4. What does <code>intern()</code> do?</summary>
+    <p>It returns the pooled copy of the String's text. If the pool does not have it yet, it adds it. After
+       <code>String d = new String("java").intern();</code>, <code>d == "java"</code> is true.</p></details>
+
+  <details><summary>Q5. String vs StringBuilder vs StringBuffer?</summary>
+    <p><code>String</code> is immutable. <code>StringBuilder</code> is mutable and not synchronized — the fastest choice for building text.
+       <code>StringBuffer</code> is mutable and synchronized (thread-safe) but slower. Use StringBuilder by default; StringBuffer only when
+       several threads must modify the same buffer.</p></details>
+
+  <details><summary>Q6. Why is using <code>+</code> in a loop slow?</summary>
+    <p>Each <code>+</code> creates a new String and copies all previous characters into it, so the total work grows roughly with the
+       square of the number of iterations. <code>StringBuilder.append</code> adds to one internal buffer (it grows occasionally), so it is
+       roughly linear. Outside loops the compiler already optimizes <code>+</code>, so one-line joins are fine.</p></details>
+
+  <details><summary>Q7. Difference between <code>trim()</code> and <code>strip()</code>? <code>isEmpty()</code> and <code>isBlank()</code>?</summary>
+    <p><code>trim()</code> removes characters with code ≤ 32 (basic ASCII spaces); <code>strip()</code> (Java 11) removes all Unicode whitespace.
+       <code>isEmpty()</code> is true only when the length is 0; <code>isBlank()</code> (Java 11) is true when the String is empty <em>or</em> contains only whitespace.</p></details>
+
+  <details><summary>Q8. How do you check if two strings are anagrams?</summary>
+    <p>Normalize them (remove spaces, lower case), check equal length, then either sort both char arrays and compare with
+       <code>Arrays.equals</code> (O(n log n)), or count letters with an <code>int[26]</code> — increment for the first, decrement for the second, all zeros means anagram (O(n)).</p></details>
+
+  <details><summary>Q9. Is String thread-safe? Can String be used as a HashMap key?</summary>
+    <p>Yes, because it is immutable — no thread can change it. And yes, it is the most common key: its <code>equals</code> and <code>hashCode</code>
+       are based on content and the hash never changes, so lookups are reliable.</p></details>
+
+  <details><summary>Q10. What are text blocks and when were they added?</summary>
+    <p>Text blocks (standard since Java 15) are multi-line String literals written between <code>"""</code> delimiters. They keep line breaks,
+       remove common indentation and do not need escaping of double quotes. Ideal for JSON, SQL, HTML and long messages.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../4-Methods-And-Arrays/lesson.html"><small>← Previous</small>4. Methods &amp; Arrays</a>
+    <a class="next" href="../6-OOP-Classes-And-Objects/lesson.html"><small>Next →</small>6. OOP · Classes &amp; Objects</a>
+  </nav>
+</main>
+</body>
+</html>

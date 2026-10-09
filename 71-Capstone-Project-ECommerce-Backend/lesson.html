@@ -1,0 +1,1271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>71 · Capstone: ShopEasy E-Commerce Backend</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+  <style>
+    /* Diagram styles for the inline SVGs on this page. They use the course colour variables,
+       so the diagrams follow light / dark mode automatically. */
+    .dg text { fill: var(--text); font-family: "Segoe UI", system-ui, sans-serif; font-size: 13px; }
+    .dg .t-head { font-weight: 700; font-size: 14px; }
+    .dg .t-small { font-size: 11.5px; fill: var(--muted); }
+    .dg .t-key { font-weight: 700; fill: var(--java); }
+    .dg .t-fk { fill: var(--info); }
+    .dg .bx { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
+    .dg .bx-java { fill: var(--surface); stroke: var(--java); stroke-width: 2; }
+    .dg .bx-info { fill: var(--surface); stroke: var(--info); stroke-width: 2; }
+    .dg .bx-warn { fill: var(--surface); stroke: var(--warn); stroke-width: 2; stroke-dasharray: 5 3; }
+    .dg .hdr { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
+    .dg .ln { stroke: var(--muted); stroke-width: 1.6; fill: none; }
+    .dg .ln-dash { stroke: var(--muted); stroke-width: 1.4; fill: none; stroke-dasharray: 4 3; }
+    .dg .arrowhead { fill: var(--muted); }
+  </style>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part G · Capstone › Topic 71</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag adv">Part G · Capstone</span>
+  <span class="tag">⏱ ~12–15 hours (build it yourself!)</span>
+  <h1>71. Capstone Project — ShopEasy E-Commerce Backend</h1>
+  <p class="subtitle">Put the whole course together and build (and fully understand) a production-style online shop backend: secure, tested, documented, containerised and ready for CI.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="71-Capstone-Project-ECommerce-Backend"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>How a real Spring Boot backend is <strong>organised</strong>: package-by-feature, layers, DTOs, mappers.</li>
+      <li>How the pieces you learned one at a time — JPA, Flyway, validation, ProblemDetail, JWT, caching, OpenAPI, Actuator — <strong>work together</strong>.</li>
+      <li>How to write the most important piece of any shop: a <strong>transactional checkout</strong> that never oversells stock.</li>
+      <li>How to <strong>prove</strong> it works: unit tests, web-slice tests and a full end-to-end test.</li>
+      <li>How to <strong>ship</strong> it: Dockerfile, docker-compose with MySQL and a GitHub Actions pipeline.</li>
+      <li>How to <strong>explain</strong> it in an interview — this project is your portfolio piece.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — this lesson uses almost everything from the course. You do not need to remember every detail: every section links back to the topic that taught it. The most important ones are
+    <a href="../33-Layered-Architecture-And-DTOs/lesson.html">33 · Layers &amp; DTOs</a>,
+    <a href="../38-Spring-Data-JPA-Fundamentals/lesson.html">38 · Spring Data JPA</a>,
+    <a href="../42-Transactions/lesson.html">42 · Transactions</a> and
+    <a href="../49-JWT-Authentication/lesson.html">49 · JWT Authentication</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">The project: requirements, architecture, data model, API</a></li>
+      <li><a href="#code">Build it feature by feature (code walkthrough)</a></li>
+      <li><a href="#run">How to run &amp; test end-to-end</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices &amp; extension ideas</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ================================================================== 1. WHY -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Congratulations — you made it to the last topic! 🎉 Up to now you learned every skill <em>on its own</em>: validation in one project, JWT in another, caching in a third. Real jobs are different. On your first day at a company you will open a codebase where <strong>all of these things live together</strong>, and the hard part is understanding <em>how they fit</em>.</p>
+  <p>That is exactly what this capstone gives you. <strong>ShopEasy</strong> is an online shop backend — think of a tiny Amazon or Flipkart without the website. A mobile app or a React front-end would talk to it over HTTP + JSON.</p>
+  <ul>
+    <li><strong>For learning:</strong> you see how 30+ topics connect, in one place, with comments that explain <em>why</em>.</li>
+    <li><strong>For your portfolio:</strong> put it on GitHub. A recruiter sees JWT, tests, Docker and CI — the things they look for in a "Java Backend Developer" CV.</li>
+    <li><strong>For interviews:</strong> "Tell me about a project you built" is the most common interview question. You will be able to answer: <em>"I built an e-commerce backend. The trickiest part was the checkout: I used a pessimistic lock so two customers cannot buy the last item at the same time…"</em> That answer gets you hired.</li>
+    <li><strong>As a template:</strong> the structure (package-by-feature, ProblemDetail errors, stateless JWT security, Flyway) is a good starting point for almost any real REST backend.</li>
+  </ul>
+
+  <div class="callout tip"><strong>💡 How to study this lesson</strong>
+    Don't just read the finished code. The best way: create an empty project and <strong>rebuild ShopEasy step by step</strong> following section 4, peeking at the reference code when you are stuck. Run the tests after every step. It takes a weekend or two — and it is the best investment of the whole course.</div>
+
+  <!-- ================================================================== 2. ANALOGY -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏬 ShopEasy is a real department store</strong>
+    <ul>
+      <li><strong>The security guard at the door</strong> checks your membership card (the <em>JWT</em>). No card? You can still look at the shop window (public product list), but you cannot take a basket. Staff badge (<em>ADMIN</em>)? You may enter the stock room.</li>
+      <li><strong>The shelves</strong> are the product <em>catalog</em>, sorted into aisles (<em>categories</em>). You can search: "books under ₹1000, in stock".</li>
+      <li><strong>Your shopping basket</strong> is the <em>cart</em>. Putting something in the basket does <em>not</em> reserve it — another customer can still take the last one from the shelf.</li>
+      <li><strong>The cashier</strong> is the <code>OrderService</code>. At the till everything happens <em>together or not at all</em>: check each item is still available, take it off the stock list, print the receipt, empty your basket. If the last item is gone, the whole sale is cancelled — the cashier does not sell you "half an order". That is a <em>transaction</em>.</li>
+      <li><strong>The receipt</strong> is the <em>order</em>. It shows the price you paid <em>that day</em>, even if the price tag changes tomorrow (a <em>snapshot</em>).</li>
+      <li><strong>The "bestsellers" board by the door</strong> is the <em>cache</em>: quick to read, but someone must update it when stock changes.</li>
+      <li><strong>The building's renovation log</strong> is <em>Flyway</em>: every change to the store layout is written down, numbered, and done exactly once.</li>
+      <li><strong>The store directory at the entrance</strong> is <em>Swagger UI</em>, and <strong>the CCTV + fire-alarm panel</strong> is <em>Actuator</em>.</li>
+    </ul>
+  </div>
+
+  <!-- ================================================================== 3. CONCEPTS -->
+  <h2 id="concepts">3. The project: requirements, architecture, data model, API</h2>
+
+  <h3>3.1 Requirements — what must ShopEasy do?</h3>
+  <p>Every real project starts with requirements. <strong>Functional</strong> requirements say <em>what</em> the system does; <strong>non-functional</strong> ones say <em>how well</em> it does it.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Who</th><th>Can do</th></tr>
+    <tr><td><strong>Anonymous visitor</strong></td><td>Register, log in, list categories, search / filter / sort / page through products, view one product.</td></tr>
+    <tr><td><strong>CUSTOMER</strong></td><td>Everything a visitor can + see "my profile", manage <em>my</em> cart (add, change quantity, remove, clear), place an order from the cart, list <em>my</em> orders, view one of <em>my</em> orders, cancel <em>my</em> order while it is PENDING or PAID.</td></tr>
+    <tr><td><strong>ADMIN</strong></td><td>Create / update / delete categories and products, list <em>all</em> orders (filter by status), move an order through its life cycle (PAID → SHIPPED → DELIVERED or CANCELLED), see Actuator metrics and caches.</td></tr>
+  </table></div>
+  <p><strong>Business rules</strong> (the interesting part):</p>
+  <ol>
+    <li>Stock can <strong>never</strong> go below zero — even if two customers check out at the same millisecond.</li>
+    <li>An order stores a <strong>snapshot</strong> of product name and price. Later price changes do not change old orders.</li>
+    <li>The client <strong>never</strong> sends prices or totals. The server calculates them.</li>
+    <li>Cancelling an order <strong>returns</strong> the items to stock. A SHIPPED order cannot be cancelled.</li>
+    <li>Deleting a product is a <strong>soft delete</strong> (it disappears from the shop, but old orders still point to it).</li>
+    <li>A category that still has products cannot be deleted.</li>
+    <li>Registration always creates a CUSTOMER. Nobody can make themselves ADMIN.</li>
+    <li>A customer can never see or change another customer's cart or orders.</li>
+  </ol>
+  <p><strong>Non-functional requirements:</strong></p>
+  <div class="table-wrap"><table>
+    <tr><th>Requirement</th><th>How ShopEasy meets it</th><th>Taught in</th></tr>
+    <tr><td>Secure</td><td>Stateless JWT, BCrypt passwords, role rules, no secrets in code</td><td><a href="../47-Spring-Security-Fundamentals/lesson.html">47</a>, <a href="../48-Spring-Security-With-Database-Users-And-Roles/lesson.html">48</a>, <a href="../49-JWT-Authentication/lesson.html">49</a></td></tr>
+    <tr><td>Consistent errors</td><td>Every error is RFC 9457 <code>ProblemDetail</code> JSON</td><td><a href="../35-Global-Exception-Handling/lesson.html">35</a></td></tr>
+    <tr><td>Fast catalog</td><td>Pagination, indexes, <code>@EntityGraph</code> (no N+1), caching</td><td><a href="../41-Pagination-And-Sorting/lesson.html">41</a>, <a href="../40-JPA-Relationships/lesson.html">40</a>, <a href="../51-Caching-With-Redis/lesson.html">51</a></td></tr>
+    <tr><td>Safe database changes</td><td>Flyway migrations, Hibernate only <em>validates</em></td><td><a href="../43-MySQL-And-Database-Migrations-Flyway/lesson.html">43</a></td></tr>
+    <tr><td>Documented</td><td>OpenAPI + Swagger UI with a working "Authorize" button</td><td><a href="../44-REST-API-Best-Practices-And-OpenAPI/lesson.html">44</a></td></tr>
+    <tr><td>Observable</td><td>Actuator health / metrics, request-id in every log line</td><td><a href="../53-Actuator-Monitoring-And-Observability/lesson.html">53</a>, <a href="../30-Logging-In-Spring-Boot/lesson.html">30</a></td></tr>
+    <tr><td>Tested</td><td>24 automated tests: unit, web slice, end-to-end</td><td><a href="../46-Testing-Spring-Boot-Applications/lesson.html">46</a></td></tr>
+    <tr><td>Deployable</td><td>Dockerfile, docker-compose (app + MySQL), GitHub Actions CI</td><td><a href="../66-Docker-For-Spring-Boot/lesson.html">66</a>, <a href="../67-Docker-Compose-Multi-Container-Apps/lesson.html">67</a>, <a href="../68-CI-CD-With-GitHub-Actions/lesson.html">68</a></td></tr>
+  </table></div>
+
+  <h3>3.2 Architecture — the big picture</h3>
+  <p>ShopEasy is a <strong>modular monolith</strong>: one deployable application, but cleanly split inside by feature. This is the right starting point for most projects (see <a href="../59-Microservices-Architecture-Introduction/lesson.html">topic 59</a> — "don't start with microservices"). A request travels from top to bottom:</p>
+
+  <figure class="diagram">
+    <svg class="dg" viewBox="0 0 900 540" role="img" aria-label="ShopEasy layered architecture diagram">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path class="arrowhead" d="M0,0 L10,5 L0,10 z"/>
+        </marker>
+      </defs>
+      <!-- client -->
+      <rect class="bx-java" x="290" y="10" width="320" height="50" rx="10"/>
+      <text class="t-head" x="450" y="32" text-anchor="middle">Client</text>
+      <text class="t-small" x="450" y="50" text-anchor="middle">mobile app · React SPA · curl · Swagger UI</text>
+      <line class="ln" x1="450" y1="60" x2="450" y2="88" marker-end="url(#arr)"/>
+      <text class="t-small" x="460" y="80">HTTP + JSON, Authorization: Bearer &lt;JWT&gt;</text>
+
+      <!-- filter chain -->
+      <rect class="bx-info" x="250" y="90" width="400" height="66" rx="10"/>
+      <text class="t-head" x="450" y="112" text-anchor="middle">Servlet filters + Spring Security filter chain</text>
+      <text x="450" y="132" text-anchor="middle">RequestIdFilter → JwtAuthenticationFilter → URL rules</text>
+      <text class="t-small" x="450" y="148" text-anchor="middle">permitAll · hasRole('CUSTOMER') · hasRole('ADMIN')</text>
+      <line class="ln" x1="450" y1="156" x2="450" y2="184" marker-end="url(#arr)"/>
+
+      <!-- controllers -->
+      <rect class="bx" x="250" y="186" width="400" height="66" rx="10"/>
+      <text class="t-head" x="450" y="208" text-anchor="middle">Controllers (@RestController)</text>
+      <text x="450" y="228" text-anchor="middle">auth · user · category · product · cart · order · admin</text>
+      <text class="t-small" x="450" y="244" text-anchor="middle">@Valid DTOs in · DTOs out · @PreAuthorize · thin!</text>
+      <line class="ln" x1="450" y1="252" x2="450" y2="280" marker-end="url(#arr)"/>
+
+      <!-- services -->
+      <rect class="bx" x="250" y="282" width="400" height="66" rx="10"/>
+      <text class="t-head" x="450" y="304" text-anchor="middle">Services (@Service)</text>
+      <text x="450" y="324" text-anchor="middle">business rules · @Transactional · mapping to DTOs</text>
+      <text class="t-small" x="450" y="340" text-anchor="middle">AuthService · ProductService · CartService · OrderService …</text>
+      <line class="ln" x1="450" y1="348" x2="450" y2="376" marker-end="url(#arr)"/>
+
+      <!-- repositories -->
+      <rect class="bx" x="250" y="378" width="400" height="56" rx="10"/>
+      <text class="t-head" x="450" y="400" text-anchor="middle">Repositories (Spring Data JPA)</text>
+      <text class="t-small" x="450" y="420" text-anchor="middle">derived queries · JPQL · Specifications · @EntityGraph · @Lock</text>
+      <line class="ln" x1="450" y1="434" x2="450" y2="462" marker-end="url(#arr)"/>
+
+      <!-- database -->
+      <rect class="bx-java" x="250" y="464" width="400" height="62" rx="10"/>
+      <text class="t-head" x="450" y="488" text-anchor="middle">Database</text>
+      <text x="450" y="508" text-anchor="middle">H2 in-memory (default) · MySQL 8.4 (profile "mysql")</text>
+      <text class="t-small" x="450" y="522" text-anchor="middle">schema + seed data created by Flyway</text>
+
+      <!-- right side -->
+      <rect class="bx-warn" x="690" y="90" width="195" height="66" rx="10"/>
+      <text class="t-head" x="787" y="114" text-anchor="middle">SecurityProblemHandler</text>
+      <text class="t-small" x="787" y="134" text-anchor="middle">401 / 403 as ProblemDetail</text>
+      <line class="ln-dash" x1="650" y1="123" x2="688" y2="123" marker-end="url(#arr)"/>
+
+      <rect class="bx-warn" x="690" y="186" width="195" height="66" rx="10"/>
+      <text class="t-head" x="787" y="210" text-anchor="middle">GlobalExceptionHandler</text>
+      <text class="t-small" x="787" y="230" text-anchor="middle">@RestControllerAdvice</text>
+      <text class="t-small" x="787" y="245" text-anchor="middle">exceptions → ProblemDetail</text>
+      <line class="ln-dash" x1="650" y1="219" x2="688" y2="219" marker-end="url(#arr)"/>
+
+      <rect class="bx-info" x="690" y="282" width="195" height="66" rx="10"/>
+      <text class="t-head" x="787" y="306" text-anchor="middle">Cache</text>
+      <text class="t-small" x="787" y="324" text-anchor="middle">products · categories</text>
+      <text class="t-small" x="787" y="340" text-anchor="middle">evicted after commit</text>
+      <line class="ln-dash" x1="650" y1="315" x2="688" y2="315" marker-end="url(#arr)" marker-start="url(#arr)"/>
+
+      <!-- left side -->
+      <rect class="bx-info" x="15" y="90" width="200" height="66" rx="10"/>
+      <text class="t-head" x="115" y="114" text-anchor="middle">Swagger UI · Actuator</text>
+      <text class="t-small" x="115" y="134" text-anchor="middle">/swagger-ui.html</text>
+      <text class="t-small" x="115" y="149" text-anchor="middle">/actuator/health, /metrics</text>
+
+      <rect class="bx-info" x="15" y="186" width="200" height="66" rx="10"/>
+      <text class="t-head" x="115" y="210" text-anchor="middle">DTO records + Mappers</text>
+      <text class="t-small" x="115" y="230" text-anchor="middle">ProductRequest / ProductResponse</text>
+      <text class="t-small" x="115" y="245" text-anchor="middle">the public API contract</text>
+      <line class="ln-dash" x1="215" y1="219" x2="248" y2="219"/>
+
+      <rect class="bx-info" x="15" y="330" width="200" height="66" rx="10"/>
+      <text class="t-head" x="115" y="354" text-anchor="middle">JPA entities</text>
+      <text class="t-small" x="115" y="374" text-anchor="middle">rich domain: decreaseStock()</text>
+      <text class="t-small" x="115" y="389" text-anchor="middle">never leave the service layer</text>
+      <line class="ln-dash" x1="215" y1="350" x2="248" y2="320"/>
+      <line class="ln-dash" x1="215" y1="376" x2="248" y2="400"/>
+    </svg>
+    <figcaption>Figure 1 — Layers of ShopEasy. Solid arrows: the path of a request. Dashed: helpers used by a layer.</figcaption>
+  </figure>
+
+  <div class="table-wrap"><table>
+    <tr><th>Layer</th><th>Its ONE job</th><th>Must NOT</th></tr>
+    <tr><td>Filters / Security</td><td>Who are you? May you call this URL?</td><td>contain business logic</td></tr>
+    <tr><td>Controller</td><td>HTTP in/out: read path, query and body, validate, return status codes</td><td>talk to repositories, use entities in responses</td></tr>
+    <tr><td>Service</td><td>Business rules and transactions; returns DTOs</td><td>know about HTTP (no <code>HttpServletRequest</code>, no <code>ResponseEntity</code>)</td></tr>
+    <tr><td>Repository</td><td>Load and save data</td><td>contain business rules</td></tr>
+    <tr><td>Entity</td><td>Data + rules that protect that data (e.g. stock never negative)</td><td>be serialised to JSON</td></tr>
+  </table></div>
+
+  <h3>3.3 Project structure — package by feature</h3>
+  <p>In <a href="../33-Layered-Architecture-And-DTOs/lesson.html">topic 33</a> you saw two ways to organise packages. Small demos use <em>package-by-layer</em> (<code>controller/</code>, <code>service/</code>, …). Real projects prefer <strong>package-by-feature</strong>: everything about "orders" lives in one folder. When you change the checkout, you open one package, not five.</p>
+  <pre><span class="file">71-Capstone-Project-ECommerce-Backend/</span><code>├── pom.xml                         ← all dependencies (web, jpa, security, jjwt, flyway, cache, actuator, springdoc)
+├── Dockerfile / .dockerignore      ← container image (multi-stage, non-root)
+├── docker-compose.yml              ← app + MySQL 8.4
+├── .github/workflows/ci.yml        ← GitHub Actions: test + docker build
+├── requests.http                   ← the whole API flow for VS Code REST Client
+├── README.md · lesson.html
+└── src
+    ├── main/java/com/course/shopeasy
+    │   ├── ShopEasyApplication.java
+    │   ├── auth/       AuthController, AuthService, RegisterRequest, LoginRequest, AuthResponse
+    │   ├── user/       User (entity), Role, UserRepository, UserResponse, UserController (/me)
+    │   ├── category/   Category, CategoryRepository, CategoryService, CategoryController, DTOs, CategoryMapper
+    │   ├── product/    Product, ProductRepository, ProductSpecifications, ProductSearchCriteria,
+    │   │               ProductService, ProductController, ProductRequest/Response, ProductMapper
+    │   ├── cart/       Cart, CartItem, CartRepository, CartService, CartController, DTOs, CartMapper
+    │   ├── order/      Order, OrderItem, OrderStatus, OrderRepository, OrderService,
+    │   │               OrderController, AdminOrderController, DTOs, OrderMapper
+    │   ├── security/   SecurityConfig, JwtService, JwtProperties, JwtAuthenticationFilter,
+    │   │               UserPrincipal, ShopEasyUserDetailsService, SecurityProblemHandler
+    │   ├── config/     OpenApiConfig, CacheConfig, CacheNames, DataSeeder, SeedProperties
+    │   └── common/     exception/ (GlobalExceptionHandler + 4 exceptions)
+    │                   web/ (PageResponse, RequestIdFilter) · persistence/ (AuditableEntity)
+    ├── main/resources
+    │   ├── application.yml · application-mysql.yml
+    │   └── db/migration/ V1__create_schema.sql · V2__seed_catalog.sql
+    └── test/java/com/course/shopeasy
+        ├── ShopEasyEndToEndTest.java           ← @SpringBootTest, real HTTP
+        ├── order/OrderServiceTest.java         ← Mockito unit test
+        ├── product/ProductControllerTest.java  ← @WebMvcTest + security
+        ├── product/ProductTest.java            ← pure domain test
+        └── security/JwtServiceTest.java        ← pure unit test</code></pre>
+  <div class="callout info"><strong>ℹ️ Feature packages can still depend on each other — in one direction</strong>
+    <code>order</code> uses <code>cart</code> and <code>product</code>; <code>cart</code> uses <code>product</code>; <code>product</code> uses <code>category</code>. Nothing points back "upwards". Keeping these arrows one-way is what later makes it possible to split a feature into its own microservice (see the extension ideas in section 7).</div>
+
+  <h3>3.4 The data model (ER diagram)</h3>
+  <p>Seven tables. <span style="color:var(--java);font-weight:700">PK</span> = primary key, <span style="color:var(--info)">FK</span> = foreign key, UK = unique. Read the lines as "one user has one cart", "one order has many order items", and so on (relationships: <a href="../40-JPA-Relationships/lesson.html">topic 40</a>).</p>
+
+  <figure class="diagram">
+    <svg class="dg" viewBox="0 0 900 600" role="img" aria-label="ShopEasy entity relationship diagram">
+      <!-- users -->
+      <rect class="bx" x="20" y="20" width="210" height="196" rx="6"/>
+      <rect class="hdr" x="20" y="20" width="210" height="28" rx="6"/>
+      <text class="t-head" x="125" y="39" text-anchor="middle">users</text>
+      <text class="t-key" x="30" y="68">PK id</text>
+      <text x="30" y="88">full_name</text>
+      <text x="30" y="108">email  (UK)</text>
+      <text x="30" y="128">password  (BCrypt hash)</text>
+      <text x="30" y="148">role  ADMIN | CUSTOMER</text>
+      <text x="30" y="168">enabled</text>
+      <text class="t-small" x="30" y="188">created_at, updated_at</text>
+
+      <!-- carts -->
+      <rect class="bx" x="345" y="20" width="210" height="116" rx="6"/>
+      <rect class="hdr" x="345" y="20" width="210" height="28" rx="6"/>
+      <text class="t-head" x="450" y="39" text-anchor="middle">carts</text>
+      <text class="t-key" x="355" y="68">PK id</text>
+      <text class="t-fk" x="355" y="88">FK user_id  (UK)</text>
+      <text class="t-small" x="355" y="108">created_at, updated_at</text>
+
+      <!-- cart_items -->
+      <rect class="bx" x="670" y="20" width="210" height="116" rx="6"/>
+      <rect class="hdr" x="670" y="20" width="210" height="28" rx="6"/>
+      <text class="t-head" x="775" y="39" text-anchor="middle">cart_items</text>
+      <text class="t-key" x="680" y="68">PK id</text>
+      <text class="t-fk" x="680" y="88">FK cart_id</text>
+      <text class="t-fk" x="680" y="108">FK product_id</text>
+      <text x="680" y="128">quantity  (&gt; 0)</text>
+
+      <!-- orders -->
+      <rect class="bx" x="20" y="300" width="210" height="176" rx="6"/>
+      <rect class="hdr" x="20" y="300" width="210" height="28" rx="6"/>
+      <text class="t-head" x="125" y="319" text-anchor="middle">orders</text>
+      <text class="t-key" x="30" y="348">PK id</text>
+      <text class="t-fk" x="30" y="368">FK user_id</text>
+      <text x="30" y="388">status</text>
+      <text x="30" y="408">total_amount  DECIMAL(12,2)</text>
+      <text x="30" y="428">shipping_address</text>
+      <text class="t-small" x="30" y="448">created_at, updated_at</text>
+
+      <!-- order_items -->
+      <rect class="bx" x="345" y="300" width="210" height="176" rx="6"/>
+      <rect class="hdr" x="345" y="300" width="210" height="28" rx="6"/>
+      <text class="t-head" x="450" y="319" text-anchor="middle">order_items</text>
+      <text class="t-key" x="355" y="348">PK id</text>
+      <text class="t-fk" x="355" y="368">FK order_id</text>
+      <text class="t-fk" x="355" y="388">FK product_id</text>
+      <text x="355" y="408">product_name  (snapshot)</text>
+      <text x="355" y="428">unit_price  (snapshot)</text>
+      <text x="355" y="448">quantity</text>
+      <text x="355" y="468">line_total</text>
+
+      <!-- products -->
+      <rect class="bx-java" x="670" y="250" width="210" height="256" rx="6"/>
+      <rect class="hdr" x="670" y="250" width="210" height="28" rx="6"/>
+      <text class="t-head" x="775" y="269" text-anchor="middle">products</text>
+      <text class="t-key" x="680" y="298">PK id</text>
+      <text x="680" y="318">sku  (UK)</text>
+      <text x="680" y="338">name, description</text>
+      <text x="680" y="358">price  DECIMAL(12,2)</text>
+      <text x="680" y="378">stock_quantity  (&gt;= 0)</text>
+      <text x="680" y="398">image_url</text>
+      <text x="680" y="418">active  (soft delete)</text>
+      <text class="t-fk" x="680" y="438">FK category_id</text>
+      <text x="680" y="458">version  (@Version)</text>
+      <text class="t-small" x="680" y="478">created_at, updated_at</text>
+
+      <!-- categories -->
+      <rect class="bx" x="345" y="510" width="210" height="76" rx="6"/>
+      <rect class="hdr" x="345" y="510" width="210" height="28" rx="6"/>
+      <text class="t-head" x="450" y="529" text-anchor="middle">categories</text>
+      <text class="t-key" x="355" y="556">PK id</text>
+      <text x="355" y="576">name (UK), description</text>
+
+      <!-- relationships -->
+      <line class="ln" x1="230" y1="78" x2="345" y2="78"/>
+      <text class="t-small" x="238" y="72">1</text><text class="t-small" x="334" y="72">1</text>
+      <text class="t-small" x="262" y="94">has one cart</text>
+
+      <line class="ln" x1="555" y1="78" x2="670" y2="78"/>
+      <text class="t-small" x="562" y="72">1</text><text class="t-small" x="656" y="72">N</text>
+      <text class="t-small" x="580" y="94">contains</text>
+
+      <polyline class="ln" points="775,136 775,250"/>
+      <text class="t-small" x="782" y="152">N</text><text class="t-small" x="782" y="244">1</text>
+      <text class="t-small" x="782" y="200">refers to</text>
+
+      <line class="ln" x1="125" y1="216" x2="125" y2="300"/>
+      <text class="t-small" x="132" y="232">1</text><text class="t-small" x="132" y="294">N</text>
+      <text class="t-small" x="132" y="262">places</text>
+
+      <line class="ln" x1="230" y1="358" x2="345" y2="358"/>
+      <text class="t-small" x="238" y="352">1</text><text class="t-small" x="334" y="352">N</text>
+      <text class="t-small" x="262" y="374">has lines</text>
+
+      <line class="ln" x1="555" y1="388" x2="670" y2="388"/>
+      <text class="t-small" x="562" y="382">N</text><text class="t-small" x="656" y="382">1</text>
+      <text class="t-small" x="580" y="404">refers to</text>
+
+      <polyline class="ln" points="670,438 620,438 620,548 555,548"/>
+      <text class="t-small" x="656" y="432">N</text><text class="t-small" x="562" y="542">1</text>
+      <text class="t-small" x="626" y="500">belongs to</text>
+    </svg>
+    <figcaption>Figure 2 — ShopEasy tables (created by <code>V1__create_schema.sql</code>).</figcaption>
+  </figure>
+
+  <div class="callout tip"><strong>💡 Two design decisions worth remembering</strong>
+    <ul>
+      <li><strong>Cart items have no price; order items do.</strong> The cart always shows today's price. The order is a historical record, so it copies (<em>snapshots</em>) name and price at the moment of purchase.</li>
+      <li><strong>Money is <code>DECIMAL(12,2)</code> in SQL and <code>BigDecimal</code> in Java</strong> — never <code>double</code> (<a href="../2-Variables-DataTypes-Operators/lesson.html">topic 2</a>: <code>0.1 + 0.2 != 0.3</code> in floating point).</li>
+    </ul>
+  </div>
+
+  <h3>3.5 The REST API</h3>
+  <p>All URLs start with <code>/api/v1</code> — the version in the URI lets us release a <code>v2</code> later without breaking old mobile apps (<a href="../44-REST-API-Best-Practices-And-OpenAPI/lesson.html">topic 44</a>).</p>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>URL</th><th>Who</th><th>What</th><th>Success</th></tr>
+    <tr><td>POST</td><td><code>/api/v1/auth/register</code></td><td>public</td><td>Create a CUSTOMER account, returns a token</td><td>201</td></tr>
+    <tr><td>POST</td><td><code>/api/v1/auth/login</code></td><td>public</td><td>Log in, returns a token</td><td>200</td></tr>
+    <tr><td>GET</td><td><code>/api/v1/users/me</code></td><td>logged in</td><td>My profile</td><td>200</td></tr>
+    <tr><td>GET</td><td><code>/api/v1/categories</code></td><td>public</td><td>All categories (cached)</td><td>200</td></tr>
+    <tr><td>GET</td><td><code>/api/v1/categories/{id}</code></td><td>public</td><td>One category</td><td>200</td></tr>
+    <tr><td>POST / PUT / DELETE</td><td><code>/api/v1/categories[/{id}]</code></td><td>ADMIN</td><td>Manage categories</td><td>201 / 200 / 204</td></tr>
+    <tr><td>GET</td><td><code>/api/v1/products?q=&amp;categoryId=&amp;minPrice=&amp;maxPrice=&amp;inStock=&amp;page=&amp;size=&amp;sort=</code></td><td>public</td><td>Search, filter, sort, paginate</td><td>200</td></tr>
+    <tr><td>GET</td><td><code>/api/v1/products/{id}</code></td><td>public</td><td>One product (cached)</td><td>200</td></tr>
+    <tr><td>POST / PUT / DELETE</td><td><code>/api/v1/products[/{id}]</code></td><td>ADMIN</td><td>Manage products (DELETE = soft delete)</td><td>201 / 200 / 204</td></tr>
+    <tr><td>GET</td><td><code>/api/v1/cart</code></td><td>CUSTOMER</td><td>My cart with totals</td><td>200</td></tr>
+    <tr><td>POST</td><td><code>/api/v1/cart/items</code></td><td>CUSTOMER</td><td>Add a product (quantity adds up)</td><td>200</td></tr>
+    <tr><td>PUT</td><td><code>/api/v1/cart/items/{productId}</code></td><td>CUSTOMER</td><td>Set the quantity</td><td>200</td></tr>
+    <tr><td>DELETE</td><td><code>/api/v1/cart/items/{productId}</code></td><td>CUSTOMER</td><td>Remove one product</td><td>200</td></tr>
+    <tr><td>DELETE</td><td><code>/api/v1/cart</code></td><td>CUSTOMER</td><td>Empty the cart</td><td>204</td></tr>
+    <tr><td>POST</td><td><code>/api/v1/orders</code></td><td>CUSTOMER</td><td>Place an order from the cart</td><td>201 + Location</td></tr>
+    <tr><td>GET</td><td><code>/api/v1/orders</code></td><td>CUSTOMER</td><td>My orders (paged, newest first)</td><td>200</td></tr>
+    <tr><td>GET</td><td><code>/api/v1/orders/{id}</code></td><td>CUSTOMER</td><td>One of my orders</td><td>200</td></tr>
+    <tr><td>POST</td><td><code>/api/v1/orders/{id}/cancel</code></td><td>CUSTOMER</td><td>Cancel my order, stock returned</td><td>200</td></tr>
+    <tr><td>GET</td><td><code>/api/v1/admin/orders?status=</code></td><td>ADMIN</td><td>All orders</td><td>200</td></tr>
+    <tr><td>GET</td><td><code>/api/v1/admin/orders/{id}</code></td><td>ADMIN</td><td>Any order</td><td>200</td></tr>
+    <tr><td>PATCH</td><td><code>/api/v1/admin/orders/{id}/status</code></td><td>ADMIN</td><td>Change status</td><td>200</td></tr>
+    <tr><td>GET</td><td><code>/actuator/health</code>, <code>/actuator/info</code></td><td>public</td><td>Health &amp; build info</td><td>200</td></tr>
+    <tr><td>GET</td><td><code>/actuator/metrics</code>, <code>/actuator/caches</code></td><td>ADMIN</td><td>Monitoring</td><td>200</td></tr>
+    <tr><td>GET</td><td><code>/swagger-ui.html</code>, <code>/v3/api-docs</code></td><td>public</td><td>API documentation</td><td>200</td></tr>
+  </table></div>
+  <p><strong>Error status codes</strong> — always with a ProblemDetail body:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Status</th><th>When</th><th>Thrown by</th></tr>
+    <tr><td>400 Bad Request</td><td>Validation failed, bad JSON, unknown sort field</td><td><code>@Valid</code>, Spring MVC</td></tr>
+    <tr><td>401 Unauthorized</td><td>No / invalid / expired token, wrong password</td><td><code>SecurityProblemHandler</code>, <code>BadCredentialsException</code></td></tr>
+    <tr><td>403 Forbidden</td><td>Logged in but wrong role</td><td>URL rules, <code>@PreAuthorize</code></td></tr>
+    <tr><td>404 Not Found</td><td>Unknown id, or somebody else's order</td><td><code>ResourceNotFoundException</code></td></tr>
+    <tr><td>409 Conflict</td><td>Duplicate e-mail / SKU / category, not enough stock, concurrent update</td><td><code>DuplicateResourceException</code>, <code>InsufficientStockException</code></td></tr>
+    <tr><td>422 Unprocessable Content</td><td>Business rule: empty cart, cannot cancel a shipped order, category not empty</td><td><code>BusinessRuleException</code></td></tr>
+    <tr><td>500</td><td>A bug. Logged with stack trace; the client gets a generic message</td><td>catch-all handler</td></tr>
+  </table></div>
+
+  <h3>3.6 Life of one request: "place my order"</h3>
+  <div class="flow">
+    <span class="box alt">POST /api/v1/orders</span><span class="arrow">→</span>
+    <span class="box info">RequestIdFilter<br><small>id = d1be0d43</small></span><span class="arrow">→</span>
+    <span class="box info">JwtAuthenticationFilter<br><small>token ✔ → UserPrincipal</small></span><span class="arrow">→</span>
+    <span class="box info">hasRole('CUSTOMER') ✔</span><span class="arrow">→</span>
+    <span class="box">OrderController<br><small>@Valid body</small></span><span class="arrow">→</span>
+    <span class="box">OrderService<br><small>@Transactional</small></span><span class="arrow">→</span>
+    <span class="box alt">DB: lock, update stock, insert order</span>
+  </div>
+  <ol>
+    <li><code>RequestIdFilter</code> gives the request an id and puts it in the logging MDC — every log line of this request will show <code>[d1be0d43]</code>.</li>
+    <li><code>JwtAuthenticationFilter</code> reads <code>Authorization: Bearer eyJ…</code>, verifies the signature and expiry, loads the user and stores a <code>UserPrincipal</code> in the <code>SecurityContext</code>.</li>
+    <li>The authorization rules in <code>SecurityConfig</code> check: is this user a CUSTOMER? If not → 403.</li>
+    <li>Jackson turns the JSON body into a <code>PlaceOrderRequest</code> record; <code>@Valid</code> checks <code>@NotBlank shippingAddress</code>. If invalid → 400.</li>
+    <li><code>OrderController</code> gets the user id from <code>@AuthenticationPrincipal</code> (never from the request body!) and calls <code>OrderService.placeOrder</code>.</li>
+    <li>The <code>@Transactional</code> proxy starts a transaction (<a href="../27-Spring-AOP/lesson.html">topic 27</a>: it is AOP!). The service locks the products, reduces stock, creates the order, empties the cart.</li>
+    <li>Method returns → <strong>COMMIT</strong>. Then the cache entries for those products are evicted.</li>
+    <li>The controller returns <code>201 Created</code> with a <code>Location</code> header and the <code>OrderResponse</code> JSON.</li>
+    <li>If <em>anything</em> threw an exception in step 6, the transaction is <strong>rolled back</strong> and <code>GlobalExceptionHandler</code> writes a ProblemDetail (e.g. 409 "Insufficient stock").</li>
+  </ol>
+
+  <!-- ================================================================== 4. CODE -->
+  <h2 id="code">4. Build it feature by feature (code walkthrough)</h2>
+  <p>We go through the project in the order you would <strong>build</strong> it. Each step names the files, shows the key code and links back to the topic that taught the concept. Open the files in VS Code side by side — the comments in the code add more detail.</p>
+
+  <!-- ---------- step 1 -->
+  <h3>Step 1 · The project and its dependencies</h3>
+  <p>Created with Spring Initializr (<a href="../28-Spring-Boot-Introduction/lesson.html">topic 28</a>). The Boot parent manages all versions; we only pin the two libraries that are not part of Boot: JJWT and springdoc.</p>
+  <pre><span class="file">pom.xml (key parts)</span><code class="lang-xml">&lt;parent&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-parent&lt;/artifactId&gt;
+    &lt;version&gt;3.5.6&lt;/version&gt;
+&lt;/parent&gt;
+&lt;groupId&gt;com.course&lt;/groupId&gt;
+&lt;artifactId&gt;shopeasy&lt;/artifactId&gt;
+
+&lt;!-- web, validation, data-jpa, flyway-core + flyway-mysql, h2, mysql-connector-j,
+     security, jjwt-api/impl/jackson 0.12.6, cache, actuator,
+     springdoc-openapi-starter-webmvc-ui 2.8.9, starter-test, spring-security-test --&gt;
+
+&lt;build&gt;
+    &lt;finalName&gt;shopeasy&lt;/finalName&gt;   &lt;!-- target/shopeasy.jar, easy for the Dockerfile --&gt;
+    ...
+&lt;/build&gt;</code></pre>
+  <p>The main class is tiny. <code>@ConfigurationPropertiesScan</code> finds our settings records (<code>JwtProperties</code>, <code>SeedProperties</code>):</p>
+  <pre><span class="file">ShopEasyApplication.java</span><code class="lang-java">@SpringBootApplication
+@ConfigurationPropertiesScan
+public class ShopEasyApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(ShopEasyApplication.class, args);
+    }
+}</code></pre>
+
+  <!-- ---------- step 2 -->
+  <h3>Step 2 · Configuration and profiles</h3>
+  <p><a href="../29-Configuration-Properties-And-Profiles/lesson.html">Topic 29</a>. <code>application.yml</code> holds the defaults (H2). <code>application-mysql.yml</code> only overrides what differs. Secrets use <code>${ENV_VAR:default}</code> so production can inject them as environment variables.</p>
+  <pre><span class="file">src/main/resources/application.yml (excerpt)</span><code class="lang-yaml">spring:
+  datasource:
+    # MODE=MySQL lets the SAME Flyway SQL run on H2 and on MySQL
+    url: jdbc:h2:mem:shopeasy;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+  jpa:
+    hibernate:
+      ddl-auto: validate        # Flyway creates tables, Hibernate only checks them
+    open-in-view: false         # build DTOs inside the service transaction
+    properties:
+      hibernate:
+        default_batch_fetch_size: 50   # load lazy collections in batches (N+1 fix)
+  data:
+    web:
+      pageable:
+        max-page-size: 100      # nobody can request 1 million rows
+
+shopeasy:
+  jwt:
+    secret: ${JWT_SECRET:c2hvcGVhc3ktZGV2LW9ubHkt...}   # DEV ONLY default
+    expiration: ${JWT_EXPIRATION:1h}
+    issuer: shopeasy</code></pre>
+  <p>Type-safe binding with a validated record — the app refuses to start without a secret:</p>
+  <pre><span class="file">security/JwtProperties.java</span><code class="lang-java">@Validated
+@ConfigurationProperties(prefix = "shopeasy.jwt")
+public record JwtProperties(@NotBlank String secret,
+                            @NotNull Duration expiration,   // "1h" → Duration.ofHours(1)
+                            @NotBlank String issuer) { }</code></pre>
+
+  <!-- ---------- step 3 -->
+  <h3>Step 3 · The database schema with Flyway</h3>
+  <p><a href="../43-MySQL-And-Database-Migrations-Flyway/lesson.html">Topic 43</a>. Files in <code>db/migration</code> run once, in version order, and are recorded in <code>flyway_schema_history</code>. <code>V1</code> creates all tables with constraints and indexes; <code>V2</code> inserts 4 categories and 12 products.</p>
+  <pre><span class="file">db/migration/V1__create_schema.sql (products table)</span><code class="lang-sql">CREATE TABLE products (
+    id             BIGINT        NOT NULL AUTO_INCREMENT,
+    sku            VARCHAR(40)   NOT NULL,
+    name           VARCHAR(150)  NOT NULL,
+    price          DECIMAL(12,2) NOT NULL,
+    stock_quantity INT           NOT NULL,
+    active         BOOLEAN       NOT NULL DEFAULT TRUE,   -- soft delete flag
+    category_id    BIGINT        NOT NULL,
+    version        BIGINT        NOT NULL DEFAULT 0,      -- optimistic locking
+    ...
+    CONSTRAINT uk_products_sku UNIQUE (sku),
+    CONSTRAINT fk_products_category FOREIGN KEY (category_id) REFERENCES categories (id),
+    CONSTRAINT ck_products_stock CHECK (stock_quantity &gt;= 0)    -- last line of defence
+);
+CREATE INDEX idx_products_name ON products (name);</code></pre>
+  <div class="callout info"><strong>ℹ️ Defence in depth for stock</strong>
+    The rule "stock ≥ 0" is enforced <strong>three times</strong>: in the request validation, in the entity method <code>Product.decreaseStock()</code>, and by the database <code>CHECK</code> constraint. If a future developer forgets one, the others still protect the data.</div>
+  <p>Why are the demo <em>users</em> not inserted by Flyway? Their passwords must be BCrypt hashes. <code>config/DataSeeder.java</code> (an <code>ApplicationRunner</code>) creates <code>admin@shopeasy.com</code> and <code>customer@shopeasy.com</code> at startup with the real <code>PasswordEncoder</code> — and only if they do not exist yet (idempotent).</p>
+
+  <!-- ---------- step 4 -->
+  <h3>Step 4 · Entities — a rich domain model</h3>
+  <p><a href="../38-Spring-Data-JPA-Fundamentals/lesson.html">Topic 38</a> and <a href="../40-JPA-Relationships/lesson.html">40</a>. All entities extend <code>AuditableEntity</code>, a <code>@MappedSuperclass</code> with <code>@CreationTimestamp</code> / <code>@UpdateTimestamp</code>. We use <strong>no Lombok</strong> and <strong>no public setters</strong>. Instead, entities have small methods that protect their rules:</p>
+  <pre><span class="file">product/Product.java (excerpt)</span><code class="lang-java">@Entity
+@Table(name = "products")
+public class Product extends AuditableEntity {
+
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal price;                       // money = BigDecimal
+
+    @Column(name = "stock_quantity", nullable = false)
+    private int stockQuantity;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)   // LAZY: no hidden joins
+    @JoinColumn(name = "category_id", nullable = false)
+    private Category category;
+
+    @Version
+    private Long version;                           // optimistic locking (topic 42)
+
+    /** Takes items out of the warehouse. Refuses to go below zero. */
+    public void decreaseStock(int quantity) {
+        if (quantity &lt;= 0) throw new IllegalArgumentException("quantity must be positive");
+        if (quantity &gt; stockQuantity) {
+            throw new InsufficientStockException(id, name, quantity, stockQuantity);
+        }
+        this.stockQuantity -= quantity;
+    }
+}</code></pre>
+  <p>The cart and the order are <strong>aggregates</strong>: the parent owns its children with <code>cascade = ALL, orphanRemoval = true</code>. Removing an item from the list is enough — Hibernate deletes the row. That is why there is no <code>CartItemRepository</code>.</p>
+  <pre><span class="file">cart/Cart.java (excerpt)</span><code class="lang-java">@OneToMany(mappedBy = "cart", cascade = CascadeType.ALL, orphanRemoval = true)
+@OrderBy("id")
+private List&lt;CartItem&gt; items = new ArrayList&lt;&gt;();
+
+/** Adds a product, or increases the quantity if it is already in the cart (no duplicate lines). */
+public CartItem addProduct(Product product, int quantity) {
+    Optional&lt;CartItem&gt; existing = findItem(product.getId());
+    if (existing.isPresent()) {
+        CartItem item = existing.get();
+        item.changeQuantity(item.getQuantity() + quantity);
+        return item;
+    }
+    CartItem item = new CartItem(this, product, quantity);
+    items.add(item);
+    return item;
+}
+
+public List&lt;CartItem&gt; getItems() { return Collections.unmodifiableList(items); }   // read-only view</code></pre>
+  <p><code>OrderStatus</code> is an enum with behaviour — a tiny state machine (<a href="../15-Modern-Java-Features/lesson.html">topic 15</a>: switch expressions):</p>
+  <pre><span class="file">order/OrderStatus.java</span><code class="lang-java">public enum OrderStatus {
+    PENDING, PAID, SHIPPED, DELIVERED, CANCELLED;
+
+    public boolean canMoveTo(OrderStatus next) { return allowedNext().contains(next); }
+
+    private Set&lt;OrderStatus&gt; allowedNext() {
+        return switch (this) {
+            case PENDING -&gt; Set.of(PAID, CANCELLED);
+            case PAID -&gt; Set.of(SHIPPED, CANCELLED);
+            case SHIPPED -&gt; Set.of(DELIVERED);
+            case DELIVERED, CANCELLED -&gt; Set.of();   // final states
+        };
+    }
+}</code></pre>
+
+  <!-- ---------- step 5 -->
+  <h3>Step 5 · Repositories — queries without SQL boilerplate</h3>
+  <p><a href="../39-JPA-Queries-Derived-JPQL-Native/lesson.html">Topic 39</a>. Every query style from the course appears once:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Style</th><th>Example in ShopEasy</th></tr>
+    <tr><td>Derived query</td><td><code>UserRepository.findByEmailIgnoreCase(email)</code>, <code>ProductRepository.existsByCategoryId(id)</code></td></tr>
+    <tr><td>Derived on nested property</td><td><code>CartRepository.findByUserId(userId)</code> → <code>where cart.user.id = ?</code></td></tr>
+    <tr><td>JPQL <code>@Query</code></td><td><code>CartRepository.findProductIdsInCart(userId)</code></td></tr>
+    <tr><td>Specifications (dynamic WHERE)</td><td><code>ProductSpecifications.from(criteria)</code> for the product search</td></tr>
+    <tr><td><code>@EntityGraph</code> (fix N+1)</td><td>products + category, cart + items + products, order + user + items</td></tr>
+    <tr><td><code>@Lock(PESSIMISTIC_WRITE)</code></td><td><code>ProductRepository.findAllByIdForUpdate(ids)</code> for checkout</td></tr>
+  </table></div>
+  <pre><span class="file">product/ProductRepository.java (excerpt)</span><code class="lang-java">public interface ProductRepository extends JpaRepository&lt;Product, Long&gt;, JpaSpecificationExecutor&lt;Product&gt; {
+
+    @Override
+    @EntityGraph(attributePaths = "category")       // 1 query with a join instead of 1 + N
+    Page&lt;Product&gt; findAll(Specification&lt;Product&gt; spec, Pageable pageable);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)           // SELECT ... FOR UPDATE
+    @Query("select p from Product p where p.id in :ids order by p.id")
+    List&lt;Product&gt; findAllByIdForUpdate(@Param("ids") Collection&lt;Long&gt; ids);
+}</code></pre>
+
+  <!-- ---------- step 6 -->
+  <h3>Step 6 · DTOs, mappers and validation</h3>
+  <p><a href="../33-Layered-Architecture-And-DTOs/lesson.html">Topic 33</a> and <a href="../34-Validation/lesson.html">34</a>. Every request and response is a Java <strong>record</strong>. Entities never leave the service layer. Mappers are small hand-written classes (MapStruct would generate the same code).</p>
+  <pre><span class="file">auth/RegisterRequest.java</span><code class="lang-java">public record RegisterRequest(
+        @NotBlank @Size(max = 100) String fullName,
+        @NotBlank @Email @Size(max = 150) String email,
+        @NotBlank
+        @Size(min = 8, max = 72, message = "must be between 8 and 72 characters")
+        @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d).+$", message = "must contain at least one letter and one digit")
+        String password) {
+}   // NOTE: no "role" field - nobody can register as ADMIN</code></pre>
+  <pre><span class="file">product/ProductMapper.java (excerpt)</span><code class="lang-java">public static ProductResponse toResponse(Product product) {
+    Category category = product.getCategory();
+    return new ProductResponse(product.getId(), product.getSku(), product.getName(),
+            product.getDescription(), product.getPrice(), product.getStockQuantity(),
+            product.getStockQuantity() &gt; 0,          // a computed field for the UI
+            product.getImageUrl(), category.getId(), category.getName(),
+            product.getCreatedAt(), product.getUpdatedAt());
+}</code></pre>
+  <p>Search filters are a record too, bound from query parameters, with a cross-field rule:</p>
+  <pre><span class="file">product/ProductSearchCriteria.java (excerpt)</span><code class="lang-java">public record ProductSearchCriteria(@Size(max = 100) String q, Long categoryId,
+                                    @PositiveOrZero BigDecimal minPrice,
+                                    @PositiveOrZero BigDecimal maxPrice, Boolean inStock) {
+
+    @AssertTrue(message = "minPrice must not be greater than maxPrice")
+    public boolean isPriceRangeValid() {
+        return minPrice == null || maxPrice == null || minPrice.compareTo(maxPrice) &lt;= 0;
+    }
+}</code></pre>
+
+  <!-- ---------- step 7 -->
+  <h3>Step 7 · Errors as ProblemDetail</h3>
+  <p><a href="../35-Global-Exception-Handling/lesson.html">Topic 35</a>. Services throw meaningful exceptions; one <code>@RestControllerAdvice</code> turns each into the right status. It extends <code>ResponseEntityExceptionHandler</code>, so Spring's own errors (bad JSON, wrong method…) also become ProblemDetails.</p>
+  <pre><span class="file">common/exception/GlobalExceptionHandler.java (excerpt)</span><code class="lang-java">@RestControllerAdvice
+public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+
+    @ExceptionHandler(InsufficientStockException.class)
+    ProblemDetail handleInsufficientStock(InsufficientStockException ex) {
+        ProblemDetail pd = problem(HttpStatus.CONFLICT, "Insufficient stock", "insufficient-stock", ex.getMessage());
+        pd.setProperty("productId", ex.getProductId());   // extra fields for the front-end
+        pd.setProperty("available", ex.getAvailable());
+        return pd;
+    }
+
+    /** @PreAuthorize failures arrive HERE - without this the catch-all would turn them into 500. */
+    @ExceptionHandler(AccessDeniedException.class)
+    ProblemDetail handleAccessDenied(AccessDeniedException ex) { ... 403 ... }
+
+    @ExceptionHandler(Exception.class)                    // safety net
+    ProblemDetail handleUnexpected(Exception ex) {
+        log.error("Unexpected error", ex);                // full details for US
+        return problem(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", "internal",
+                "Something went wrong on our side. Please try again later.");   // nothing for attackers
+    }
+}</code></pre>
+  <p>Result for the client (real output):</p>
+  <pre class="terminal"><code>HTTP/1.1 409
+Content-Type: application/problem+json
+
+{"type":"https://shopeasy.example/problems/insufficient-stock","title":"Insufficient stock","status":409,
+ "detail":"Not enough stock for 'Limited Edition Mug': requested 3, available 0","instance":"/api/v1/orders",
+ "productId":13,"requested":3,"available":0,"timestamp":"2026-10-09T04:45:17.165Z"}</code></pre>
+
+  <!-- ---------- step 8 -->
+  <h3>Step 8 · Security: JWT + roles</h3>
+  <p><a href="../47-Spring-Security-Fundamentals/lesson.html">Topics 47</a>, <a href="../48-Spring-Security-With-Database-Users-And-Roles/lesson.html">48</a> and <a href="../49-JWT-Authentication/lesson.html">49</a>. Seven small classes in <code>security/</code>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Class</th><th>Job</th></tr>
+    <tr><td><code>SecurityConfig</code></td><td>The rules: stateless, CSRF off, which URL needs which role, 401/403 handlers, BCrypt, CORS</td></tr>
+    <tr><td><code>JwtService</code></td><td>Create and verify tokens (JJWT 0.12.6, HS256)</td></tr>
+    <tr><td><code>JwtProperties</code></td><td>Secret, expiry, issuer from config</td></tr>
+    <tr><td><code>JwtAuthenticationFilter</code></td><td>Per request: Bearer token → <code>UserPrincipal</code> in the <code>SecurityContext</code></td></tr>
+    <tr><td><code>UserPrincipal</code></td><td>Immutable record implementing <code>UserDetails</code> (id, email, role)</td></tr>
+    <tr><td><code>ShopEasyUserDetailsService</code></td><td>Loads a user by e-mail for login and for every token</td></tr>
+    <tr><td><code>SecurityProblemHandler</code></td><td>Writes 401/403 as ProblemDetail JSON (filters run before controllers!)</td></tr>
+  </table></div>
+  <pre><span class="file">security/SecurityConfig.java (the rules)</span><code class="lang-java">http
+    .csrf(AbstractHttpConfigurer::disable)            // no cookies → no CSRF risk
+    .cors(Customizer.withDefaults())
+    .sessionManagement(s -&gt; s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+    .exceptionHandling(e -&gt; e.authenticationEntryPoint(problemHandler)   // 401
+                             .accessDeniedHandler(problemHandler))     // 403
+    .authorizeHttpRequests(auth -&gt; auth
+        .requestMatchers(PUBLIC_DOCS_AND_HEALTH).permitAll()
+        .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login").permitAll()
+        .requestMatchers(HttpMethod.GET, "/api/v1/products/**", "/api/v1/categories/**").permitAll()
+        .requestMatchers("/api/v1/admin/**", "/actuator/**").hasRole("ADMIN")
+        .requestMatchers("/api/v1/products/**", "/api/v1/categories/**").hasRole("ADMIN")
+        .requestMatchers("/api/v1/cart/**", "/api/v1/orders/**").hasRole("CUSTOMER")
+        .anyRequest().authenticated())
+    .addFilterBefore(new JwtAuthenticationFilter(jwtService, userDetailsService),
+                     UsernamePasswordAuthenticationFilter.class);</code></pre>
+  <div class="callout warn"><strong>⚠️ Order of rules matters</strong>
+    Spring checks <code>requestMatchers</code> from top to bottom and uses the <strong>first</strong> match. That is why "GET products is public" comes <em>before</em> "everything else under products needs ADMIN".</div>
+  <p>Creating a token. The payload contains only non-secret data (it is Base64, not encrypted):</p>
+  <pre><span class="file">security/JwtService.java (excerpt)</span><code class="lang-java">public String generateToken(UserPrincipal user) {
+    Instant now = Instant.now();
+    return Jwts.builder()
+            .issuer(properties.issuer())
+            .subject(user.email())
+            .claim("uid", user.id())
+            .claim("role", user.role().name())
+            .issuedAt(Date.from(now))
+            .expiration(Date.from(now.plus(properties.expiration())))
+            .signWith(signingKey)
+            .compact();
+}</code></pre>
+  <p>Controllers get the logged-in user with <code>@AuthenticationPrincipal</code> — the id comes from the verified token, so a customer cannot pretend to be someone else:</p>
+  <pre><span class="file">cart/CartController.java (excerpt)</span><code class="lang-java">@PostMapping("/items")
+public CartResponse addItem(@AuthenticationPrincipal UserPrincipal user,
+                            @Valid @RequestBody AddCartItemRequest request) {
+    return cartService.addItem(user.id(), request);    // no user id in the URL or body!
+}</code></pre>
+  <p>Admin endpoints carry a second check with <code>@PreAuthorize("hasRole('ADMIN')")</code> (method security, <a href="../48-Spring-Security-With-Database-Users-And-Roles/lesson.html">topic 48</a>) — if someone later breaks a URL rule, the method is still protected.</p>
+
+  <!-- ---------- step 9 -->
+  <h3>Step 9 · Product catalog: search, pagination, sorting</h3>
+  <p><a href="../41-Pagination-And-Sorting/lesson.html">Topic 41</a>. The controller accepts the filters and a <code>Pageable</code>; <code>@ParameterObject</code> makes Swagger UI show each one as a separate field.</p>
+  <pre><span class="file">product/ProductController.java (excerpt)</span><code class="lang-java">@GetMapping
+public PageResponse&lt;ProductResponse&gt; search(
+        @Valid @ParameterObject ProductSearchCriteria criteria,
+        @ParameterObject @PageableDefault(size = 10, sort = "id") Pageable pageable) {
+    return productService.search(criteria, pageable);
+}</code></pre>
+  <p>The specification builds the WHERE clause only from the filters that were sent:</p>
+  <pre><span class="file">product/ProductSpecifications.java (excerpt)</span><code class="lang-java">public static Specification&lt;Product&gt; from(ProductSearchCriteria criteria) {
+    List&lt;Specification&lt;Product&gt;&gt; specs = new ArrayList&lt;&gt;();
+    specs.add(isActive());                                   // soft-deleted products never appear
+    if (criteria.q() != null &amp;&amp; !criteria.q().isBlank()) specs.add(textContains(criteria.q().trim()));
+    if (criteria.categoryId() != null) specs.add(inCategory(criteria.categoryId()));
+    if (criteria.minPrice() != null)   specs.add(priceAtLeast(criteria.minPrice()));
+    if (criteria.maxPrice() != null)   specs.add(priceAtMost(criteria.maxPrice()));
+    if (Boolean.TRUE.equals(criteria.inStock())) specs.add(inStock());
+    return Specification.allOf(specs);
+}</code></pre>
+  <p>We return our own <code>PageResponse</code> record instead of Spring's <code>Page</code> — a small, stable JSON contract:</p>
+  <pre class="terminal"><code>{ "content": [ {...}, {...}, {...} ], "page": 0, "size": 3, "totalElements": 4, "totalPages": 2, "first": true, "last": false }</code></pre>
+  <p>An unknown sort field (<code>?sort=foo,asc</code>) would normally cause a 500. We catch <code>PropertyReferenceException</code> and answer 400 "Cannot sort by 'foo'".</p>
+
+  <!-- ---------- step 10 -->
+  <h3>Step 10 · Caching the catalog</h3>
+  <p><a href="../51-Caching-With-Redis/lesson.html">Topic 51</a>. Reads of single products and of the category list are cached; writes evict.</p>
+  <pre><span class="file">product/ProductService.java (excerpt)</span><code class="lang-java">@Cacheable(cacheNames = CacheNames.PRODUCTS, key = "#id")
+public ProductResponse findById(Long id) {
+    log.debug("Loading product {} from the database (cache miss)", id);
+    return ProductMapper.toResponse(getActiveEntity(id));     // we cache the DTO, never the entity
+}
+
+@Transactional
+@CacheEvict(cacheNames = CacheNames.PRODUCTS, key = "#id")
+public ProductResponse update(Long id, ProductRequest request) { ... }</code></pre>
+  <pre><span class="file">config/CacheConfig.java</span><code class="lang-java">@Bean
+CacheManager cacheManager() {
+    ConcurrentMapCacheManager cacheManager = new ConcurrentMapCacheManager(CacheNames.PRODUCTS, CacheNames.CATEGORIES);
+    cacheManager.setAllowNullValues(false);
+    // Evictions inside a transaction are delayed until COMMIT (nothing evicted on rollback).
+    return new TransactionAwareCacheManagerProxy(cacheManager);
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ Why <code>TransactionAwareCacheManagerProxy</code>?</strong>
+    Placing an order changes stock inside a transaction. If we evicted the cache <em>before</em> the commit, another request could read the <em>old</em> stock from the database in that tiny gap and put it back into the cache — stale forever. Evicting <em>after</em> commit closes that gap. With several app instances you would switch to Redis (topic 51) so all instances share one cache.</div>
+
+  <!-- ---------- step 11 -->
+  <h3>Step 11 · The cart</h3>
+  <p><code>CartService</code> works only on "my" cart (user id from the token). It checks stock early for good feedback ("only 3 left"), but it does <strong>not reserve</strong> stock — the real check happens at checkout.</p>
+  <pre><span class="file">cart/CartService.java (excerpt)</span><code class="lang-java">public CartResponse addItem(Long userId, AddCartItemRequest request) {
+    Product product = productService.getActiveEntity(request.productId());   // 404 if unknown / deleted
+    Cart cart = getOrCreateCart(userId);
+
+    int alreadyInCart = cart.findItem(product.getId()).map(CartItem::getQuantity).orElse(0);
+    checkQuantity(product, alreadyInCart + request.quantity());              // 409 if not enough stock
+
+    cart.addProduct(product, request.quantity());
+    return CartMapper.toResponse(cart);         // no save() needed: the cart is a managed entity
+}</code></pre>
+
+  <!-- ---------- step 12 -->
+  <h3>Step 12 · Placing an order — the transactional heart</h3>
+  <p><a href="../42-Transactions/lesson.html">Topic 42</a>. This is the method interviewers love to ask about. Read the comments slowly:</p>
+  <pre><span class="file">order/OrderService.java (placeOrder)</span><code class="lang-java">@Transactional
+public OrderResponse placeOrder(Long userId, PlaceOrderRequest request) {
+    // 1. Which products are in the cart?
+    List&lt;Long&gt; productIds = cartRepository.findProductIdsInCart(userId);
+    if (productIds.isEmpty()) {
+        throw new BusinessRuleException("Your cart is empty - add products before placing an order");
+    }
+
+    // 2. Lock them BEFORE reading the stock. Rows stay locked until this transaction ends.
+    productRepository.findAllByIdForUpdate(productIds);
+
+    // 3. Load the cart; its products are the freshly locked instances (same persistence context).
+    Cart cart = cartRepository.findByUserId(userId)
+            .orElseThrow(() -&gt; new BusinessRuleException("Your cart is empty"));
+
+    Order order = new Order(cart.getUser(), request.shippingAddress().trim());
+    for (CartItem line : cart.getItems()) {
+        Product product = line.getProduct();
+        if (!product.isActive()) {
+            throw new BusinessRuleException("'" + product.getName() + "' is no longer available.");
+        }
+        product.decreaseStock(line.getQuantity());   // throws InsufficientStockException → ROLLBACK
+        order.addLine(product, line.getQuantity());  // snapshot of name + price
+    }
+
+    // 4. Persist the order (cascade saves the lines) and empty the cart.
+    Order saved = orderRepository.save(order);
+    cart.clear();
+    evictProductsFromCache(productIds);              // happens after COMMIT
+
+    log.info("Order {} placed by user {}: {} line(s), total {}", saved.getId(), userId,
+            saved.getItems().size(), saved.getTotalAmount());
+    return OrderMapper.toResponse(saved);
+}</code></pre>
+  <p>Why each detail matters:</p>
+  <ul>
+    <li><strong>One transaction:</strong> if line 3 of the cart is out of stock, the stock already reduced for lines 1 and 2 is rolled back. No half orders.</li>
+    <li><strong>Pessimistic lock (<code>SELECT … FOR UPDATE</code>):</strong> Alice and Bob both want the last 3 mugs. Bob's transaction waits at step 2 until Alice's commits; then Bob reads stock = 0 and gets a clean 409. Without the lock, both could read "3 in stock" and both succeed → stock −3.</li>
+    <li><strong>Lock before reading:</strong> we load only the <em>ids</em> first, lock, and only then load the products. If we read the products first, Hibernate would keep the old (unlocked) values in memory.</li>
+    <li><strong>Lock in id order</strong> (<code>order by p.id</code>): two transactions always lock rows in the same order, which prevents deadlocks.</li>
+    <li><strong><code>@Version</code> as a safety net:</strong> any other code path that updates a product concurrently fails with <code>ObjectOptimisticLockingFailureException</code> → 409 "Concurrent update".</li>
+    <li><strong>Dirty checking:</strong> we never call <code>productRepository.save(product)</code>. Products are managed entities; Hibernate writes the new stock at commit (<a href="../38-Spring-Data-JPA-Fundamentals/lesson.html">topic 38</a>).</li>
+  </ul>
+  <p>Cancelling works the same way in reverse: <code>order.changeStatus(CANCELLED)</code> (the enum refuses illegal moves), lock the products, <code>increaseStock</code>, evict the cache. Customers who ask for someone else's order get <strong>404, not 403</strong> — we do not even confirm that the order exists.</p>
+
+  <!-- ---------- step 13 -->
+  <h3>Step 13 · OpenAPI documentation with a JWT "Authorize" button</h3>
+  <p><a href="../44-REST-API-Best-Practices-And-OpenAPI/lesson.html">Topic 44</a>. One annotation defines the bearer scheme; controllers that need a token say <code>@SecurityRequirement(name = "bearerAuth")</code>.</p>
+  <pre><span class="file">config/OpenApiConfig.java</span><code class="lang-java">@Configuration
+@OpenAPIDefinition(info = @Info(title = "ShopEasy API", version = "v1", description = "..."))
+@SecurityScheme(name = "bearerAuth", type = SecuritySchemeType.HTTP, scheme = "bearer", bearerFormat = "JWT")
+public class OpenApiConfig { }</code></pre>
+
+  <!-- ---------- step 14 -->
+  <h3>Step 14 · Observability: logging with request ids, Actuator</h3>
+  <p><a href="../30-Logging-In-Spring-Boot/lesson.html">Topic 30</a> and <a href="../53-Actuator-Monitoring-And-Observability/lesson.html">53</a>. <code>RequestIdFilter</code> puts an id into the MDC; the log pattern prints it. Real log line from the checkout:</p>
+  <pre class="terminal"><code>INFO [d1be0d43] ... c.course.shopeasy.order.OrderService : Order 1 placed by user 3: 1 line(s), total 7998.00</code></pre>
+  <p>The same id goes back to the client in the <code>X-Request-Id</code> header — when a customer reports a problem, support can find exactly that request in the logs. Actuator exposes <code>health</code> and <code>info</code> publicly (with Kubernetes liveness/readiness probes, <a href="../69-Deployment-And-Kubernetes-Basics/lesson.html">topic 69</a>) and <code>metrics</code>/<code>caches</code> only to ADMIN.</p>
+
+  <!-- ---------- step 15 -->
+  <h3>Step 15 · Tests — 24 of them, three kinds</h3>
+  <p><a href="../46-Testing-Spring-Boot-Applications/lesson.html">Topic 46</a>. The test pyramid in action:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Test class</th><th>Kind</th><th>What it proves</th><th>Speed</th></tr>
+    <tr><td><code>ProductTest</code></td><td>Pure domain</td><td>Stock rules inside the entity</td><td>~ms</td></tr>
+    <tr><td><code>JwtServiceTest</code></td><td>Pure unit</td><td>Valid token accepted; forged, expired and garbage tokens rejected</td><td>~ms</td></tr>
+    <tr><td><code>OrderServiceTest</code></td><td>Mockito unit</td><td>Checkout reduces stock, snapshots prices, empties cart, evicts cache; rollback case; empty cart; cancel restocks; others' orders → 404; shipped cannot be cancelled</td><td>~ms</td></tr>
+    <tr><td><code>ProductControllerTest</code></td><td><code>@WebMvcTest</code> + real <code>SecurityConfig</code></td><td>Public GET, 404 ProblemDetail, 401 without token, 403 for CUSTOMER, 201 + Location for ADMIN, 400 with field errors</td><td>~1 s</td></tr>
+    <tr><td><code>ShopEasyEndToEndTest</code></td><td><code>@SpringBootTest(RANDOM_PORT)</code></td><td>Full flow over real HTTP; two customers race for the last 3 items; security rules; registration validation</td><td>~5 s</td></tr>
+  </table></div>
+  <pre><span class="file">order/OrderServiceTest.java (one test)</span><code class="lang-java">@Test
+@DisplayName("placeOrder fails with InsufficientStockException and saves nothing when stock is too low")
+void placeOrder_insufficientStock() {
+    cart.addProduct(watch, 5);                       // given: only 2 in stock
+    givenCartWithProducts(List.of(2L));
+
+    assertThatThrownBy(() -&gt; orderService.placeOrder(USER_ID, new PlaceOrderRequest("Somewhere")))   // when
+            .isInstanceOf(InsufficientStockException.class)                                          // then
+            .hasMessageContaining("requested 5, available 2");
+
+    assertThat(watch.getStockQuantity()).isEqualTo(2);
+    verify(orderRepository, never()).save(any());
+}</code></pre>
+  <pre><span class="file">ProductControllerTest.java (security in a slice test)</span><code class="lang-java">@WebMvcTest(ProductController.class)
+@Import({SecurityConfig.class, SecurityProblemHandler.class})   // test the REAL security rules
+class ProductControllerTest {
+    @MockitoBean private ProductService productService;          // Boot 3.4+ replacement for @MockBean
+    @MockitoBean private JwtService jwtService;
+    @MockitoBean private ShopEasyUserDetailsService userDetailsService;
+
+    @Test
+    @WithMockUser(roles = "CUSTOMER")
+    void customerCannotCreateProducts() throws Exception {
+        mockMvc.perform(post("/api/v1/products").contentType(MediaType.APPLICATION_JSON).content(VALID_PRODUCT_JSON))
+               .andExpect(status().isForbidden());
+        verifyNoInteractions(productService);
+    }
+}</code></pre>
+
+  <!-- ---------- step 16 -->
+  <h3>Step 16 · Ship it: Docker, Compose, CI</h3>
+  <p><a href="../66-Docker-For-Spring-Boot/lesson.html">Topics 66</a>, <a href="../67-Docker-Compose-Multi-Container-Apps/lesson.html">67</a>, <a href="../68-CI-CD-With-GitHub-Actions/lesson.html">68</a>.</p>
+  <ul>
+    <li><strong><code>Dockerfile</code></strong> — multi-stage: Maven builds the jar, then only the jar's <em>layers</em> are copied into <code>eclipse-temurin:17-jre</code>. Runs as a non-root user; JVM memory follows the container limit (<code>-XX:MaxRAMPercentage=75.0</code>).</li>
+    <li><strong><code>docker-compose.yml</code></strong> — <code>mysql:8.4</code> with a health check, and the app with <code>SPRING_PROFILES_ACTIVE=mysql</code> and <code>DB_HOST=mysql</code> (service name = host name). <code>depends_on: condition: service_healthy</code> makes the app wait for the database.</li>
+    <li><strong><code>.github/workflows/ci.yml</code></strong> — on every push / pull request: Java 17, <code>mvn -B verify</code> (all 24 tests), upload test reports, then build the Docker image (and push it on <code>main</code> if Docker Hub secrets are set).</li>
+  </ul>
+  <pre><span class="file">Dockerfile (run stage)</span><code>FROM eclipse-temurin:17-jre
+WORKDIR /app
+RUN groupadd --system shopeasy &amp;&amp; useradd --system --gid shopeasy shopeasy
+COPY --from=build /workspace/extracted/dependencies/ ./
+COPY --from=build /workspace/extracted/spring-boot-loader/ ./
+COPY --from=build /workspace/extracted/snapshot-dependencies/ ./
+COPY --from=build /workspace/extracted/application/ ./
+USER shopeasy
+EXPOSE 8080
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0"
+ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]</code></pre>
+
+  <!-- ================================================================== 5. RUN -->
+  <h2 id="run">5. How to run &amp; test end-to-end</h2>
+
+  <h3>5.1 Run the tests</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\71-Capstone-Project-ECommerce-Backend"
+mvn test</code></pre>
+  <pre class="terminal"><code>[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0 -- in com.course.shopeasy.ShopEasyEndToEndTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0 -- in com.course.shopeasy.order.OrderServiceTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0 -- in com.course.shopeasy.product.ProductControllerTest
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0 -- in com.course.shopeasy.product.ProductTest
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0 -- in com.course.shopeasy.security.JwtServiceTest
+[INFO] Tests run: 24, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS</code></pre>
+
+  <h3>5.2 Start the application</h3>
+  <p><strong>In VS Code:</strong> open the folder <code>71-Capstone-Project-ECommerce-Backend</code>, open <code>ShopEasyApplication.java</code> and click <strong>Run</strong> above <code>main</code> (or use the Spring Boot Dashboard). <strong>In a terminal:</strong></p>
+  <pre class="terminal"><code>mvn spring-boot:run</code></pre>
+  <pre class="terminal"><code>INFO [no-request] ... o.f.core.internal.command.DbMigrate   : Migrating schema "public" to version "1 - create schema"
+INFO [no-request] ... o.f.core.internal.command.DbMigrate   : Migrating schema "public" to version "2 - seed catalog"
+INFO [no-request] ... o.f.core.internal.command.DbMigrate   : Successfully applied 2 migrations to schema "public", now at version v2
+INFO [no-request] ... c.course.shopeasy.ShopEasyApplication : Started ShopEasyApplication in 7.4 seconds
+INFO [no-request] ... c.course.shopeasy.config.DataSeeder   : Seeded demo user admin@shopeasy.com with role ADMIN
+INFO [no-request] ... c.course.shopeasy.config.DataSeeder   : Seeded demo user customer@shopeasy.com with role CUSTOMER</code></pre>
+  <p><code>[no-request]</code> is the request-id slot of the log pattern — empty during startup. The seeder runs right after "Started" because it is an <code>ApplicationRunner</code>.</p>
+  <p>Useful pages: <a href="http://localhost:8080/swagger-ui.html">http://localhost:8080/swagger-ui.html</a> (API docs), <a href="http://localhost:8080/h2-console">http://localhost:8080/h2-console</a> (JDBC URL <code>jdbc:h2:mem:shopeasy</code>, user <code>sa</code>, empty password), <a href="http://localhost:8080/actuator/health">http://localhost:8080/actuator/health</a>.</p>
+
+  <h3>5.3 End-to-end walkthrough with curl</h3>
+  <p>These commands are for <strong>Git Bash</strong> (installed with Git for Windows) — it handles the JSON quotes nicely. A PowerShell version follows below. The easiest option of all is <code>requests.http</code> in VS Code: click "Send Request" from top to bottom.</p>
+
+  <p><strong>① Register</strong> a new customer — you get a token straight away:</p>
+  <pre class="terminal"><code>curl -s -X POST http://localhost:8080/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"fullName":"Asha Verma","email":"asha@example.com","password":"Secret@123"}'</code></pre>
+  <pre class="terminal"><code>{"accessToken":"eyJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzaG9wZWFzeSIs...","tokenType":"Bearer","expiresIn":3600,
+ "user":{"id":3,"fullName":"Asha Verma","email":"asha@example.com","role":"CUSTOMER","createdAt":"2026-10-09T04:45:15.2Z"}}</code></pre>
+
+  <p><strong>② Log in</strong> and keep the token in a shell variable:</p>
+  <pre class="terminal"><code>TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"asha@example.com","password":"Secret@123"}' \
+  | sed -E 's/.*"accessToken":"([^"]+)".*/\1/')
+echo $TOKEN</code></pre>
+
+  <p><strong>③ Browse</strong> — Electronics, most expensive first, 3 per page (no token needed):</p>
+  <pre class="terminal"><code>curl -s "http://localhost:8080/api/v1/products?categoryId=1&amp;sort=price,desc&amp;size=3"</code></pre>
+  <pre class="terminal"><code>{"content":[{"id":3,"sku":"ELEC-003","name":"Ultrabook 14","price":64999.00,"stockQuantity":15,"inStock":true,...},
+            {"id":1,"sku":"ELEC-001","name":"Smartphone X12","price":24999.00,"stockQuantity":50,...},
+            {"id":4,"sku":"ELEC-004","name":"Smart Watch Fit","price":4999.00,"stockQuantity":3,...}],
+ "page":0,"size":3,"totalElements":4,"totalPages":2,"first":true,"last":false}</code></pre>
+  <pre class="terminal"><code>curl -s http://localhost:8080/api/v1/products/2</code></pre>
+  <pre class="terminal"><code>{"id":2,"sku":"ELEC-002","name":"Wireless Earbuds Pro",...,"price":3999.00,"stockQuantity":120,"inStock":true,...}</code></pre>
+
+  <p><strong>④ Add to cart</strong> — 2 × Wireless Earbuds Pro:</p>
+  <pre class="terminal"><code>curl -s -X POST http://localhost:8080/api/v1/cart/items \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"productId":2,"quantity":2}'</code></pre>
+  <pre class="terminal"><code>{"items":[{"productId":2,"sku":"ELEC-002","productName":"Wireless Earbuds Pro","unitPrice":3999.00,
+  "quantity":2,"lineTotal":7998.00,"availableStock":120}],"totalQuantity":2,"totalAmount":7998.00}</code></pre>
+
+  <p><strong>⑤ Place the order</strong> (<code>-i</code> shows the status line and headers):</p>
+  <pre class="terminal"><code>curl -s -i -X POST http://localhost:8080/api/v1/orders \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"shippingAddress":"12 MG Road, Bengaluru"}'</code></pre>
+  <pre class="terminal"><code>HTTP/1.1 201
+Location: http://localhost:8080/api/v1/orders/1
+X-Request-Id: d1be0d43
+Content-Type: application/json
+
+{"id":1,"status":"PENDING","totalAmount":7998.00,"shippingAddress":"12 MG Road, Bengaluru","customerId":3,
+ "customerEmail":"asha@example.com","items":[{"productId":2,"productName":"Wireless Earbuds Pro",
+ "unitPrice":3999.00,"quantity":2,"lineTotal":7998.00}],"createdAt":"2026-10-09T04:45:16.099Z",...}</code></pre>
+
+  <p><strong>⑥ Check the stock went down</strong> from 120 to 118 (and the cart is empty again):</p>
+  <pre class="terminal"><code>curl -s http://localhost:8080/api/v1/products/2
+curl -s http://localhost:8080/api/v1/cart -H "Authorization: Bearer $TOKEN"</code></pre>
+  <pre class="terminal"><code>{"id":2,"sku":"ELEC-002","name":"Wireless Earbuds Pro",...,"stockQuantity":118,"inStock":true,...}
+{"items":[],"totalQuantity":0,"totalAmount":0}</code></pre>
+
+  <p><strong>⑦ Try the error cases</strong>:</p>
+  <pre class="terminal"><code>curl -s -X POST http://localhost:8080/api/v1/orders -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{"shippingAddress":"x"}'      # empty cart
+curl -s http://localhost:8080/api/v1/cart                                # no token
+curl -s "http://localhost:8080/api/v1/products?sort=foo,asc"             # bad sort field</code></pre>
+  <pre class="terminal"><code>{"type":"https://shopeasy.example/problems/business-rule","title":"Business rule violated","status":422,
+ "detail":"Your cart is empty - add products before placing an order","instance":"/api/v1/orders",...}
+{"type":"https://shopeasy.example/problems/unauthorized","title":"Unauthorized","status":401,
+ "detail":"Authentication is required. Send a valid token in the 'Authorization: Bearer &lt;token&gt;' header.",...}
+{"type":"https://shopeasy.example/problems/invalid-sort","title":"Invalid sort property","status":400,
+ "detail":"Cannot sort by 'foo'","instance":"/api/v1/products",...}</code></pre>
+
+  <p><strong>⑧ Admin</strong>: log in as admin and mark the order as paid:</p>
+  <pre class="terminal"><code>ADMIN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login -H "Content-Type: application/json" \
+  -d '{"email":"admin@shopeasy.com","password":"Admin@123"}' | sed -E 's/.*"accessToken":"([^"]+)".*/\1/')
+
+curl -s -X PATCH http://localhost:8080/api/v1/admin/orders/1/status \
+  -H "Authorization: Bearer $ADMIN" -H "Content-Type: application/json" -d '{"status":"PAID"}'</code></pre>
+  <pre class="terminal"><code>{"id":1,"status":"PAID","totalAmount":7998.00,...,"customerEmail":"asha@example.com",...}</code></pre>
+
+  <h3>5.4 The same flow in PowerShell</h3>
+  <p>In Windows PowerShell, <code>curl</code> is an alias for <code>Invoke-WebRequest</code> and JSON quoting is painful. <code>Invoke-RestMethod</code> is nicer: it parses the JSON response into objects for you.</p>
+  <pre class="terminal"><code>$base = "http://localhost:8080/api/v1"
+$login = Invoke-RestMethod -Method Post -Uri "$base/auth/login" -ContentType "application/json" `
+         -Body '{"email":"customer@shopeasy.com","password":"Customer@123"}'
+$h = @{ Authorization = "Bearer $($login.accessToken)" }
+
+(Invoke-RestMethod "$base/products/5").stockQuantity                     # 200
+Invoke-RestMethod -Method Post -Uri "$base/cart/items" -Headers $h -ContentType "application/json" `
+         -Body '{"productId":5,"quantity":3}'
+$order = Invoke-RestMethod -Method Post -Uri "$base/orders" -Headers $h -ContentType "application/json" `
+         -Body '{"shippingAddress":"5 Park Street, Kolkata"}'
+$order.status, $order.totalAmount                                         # PENDING 1497.00
+(Invoke-RestMethod "$base/products/5").stockQuantity                     # 197</code></pre>
+
+  <h3>5.5 Swagger UI with a token</h3>
+  <ol>
+    <li>Open <code>http://localhost:8080/swagger-ui.html</code>.</li>
+    <li>Expand <strong>Authentication → POST /api/v1/auth/login</strong>, click <em>Try it out</em>, use the example body, <em>Execute</em>. Copy the <code>accessToken</code> value.</li>
+    <li>Click the green <strong>Authorize</strong> button at the top, paste the token (without "Bearer"), click <em>Authorize</em>.</li>
+    <li>Now every "Cart" and "Orders" call sends the token automatically.</li>
+  </ol>
+
+  <h3>5.6 Run with MySQL</h3>
+  <pre class="terminal"><code>docker compose up -d mysql                               # start only MySQL 8.4 (port 3306)
+mvn spring-boot:run -Dspring-boot.run.profiles=mysql     # Flyway creates the tables in MySQL
+
+# or everything in containers:
+docker compose up --build
+docker compose down          # stop (add -v to delete the database volume too)</code></pre>
+  <p>Data now survives restarts. Flyway sees that V1 and V2 already ran (in <code>flyway_schema_history</code>) and does nothing; the seeder sees the users exist and does nothing.</p>
+
+  <!-- ================================================================== 6. MISTAKES -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting "Bearer " in the Authorization header</strong>
+    <code>Authorization: eyJhbGci...</code> → 401. The filter only reads headers that start with <code>Bearer </code> (with a space).<br><strong>Fix:</strong> <code>Authorization: Bearer eyJhbGci...</code>. In Swagger UI paste the token <em>without</em> the word Bearer — Swagger adds it.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: confusing 401 and 403</strong>
+    401 = "I don't know who you are" (no/expired/invalid token). 403 = "I know who you are, but you are not allowed" (a CUSTOMER calling an ADMIN endpoint).<br><strong>Fix:</strong> on 401 log in again; on 403 log in as a user with the right role.</div>
+
+  <div class="callout danger"><strong>🛑 Mistake: editing a Flyway migration that already ran</strong>
+    You change <code>V1__create_schema.sql</code> and restart against MySQL → <code>Validate failed: Migration checksum mismatch for migration version 1</code>.<br><strong>Fix:</strong> never edit an applied migration. Add <code>V3__add_product_rating.sql</code> instead. (With H2 in-memory the database is new on every start, so you only notice this on MySQL — or in production!)</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: <code>LazyInitializationException</code> after adding a field to a DTO</strong>
+    We set <code>spring.jpa.open-in-view=false</code>. If a controller touches a lazy association (e.g. <code>order.getItems()</code>) outside the service transaction, Hibernate has no session any more.<br><strong>Fix:</strong> do all mapping to DTOs <em>inside</em> the <code>@Transactional</code> service method, and load what you need with <code>@EntityGraph</code>/JOIN FETCH.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: "Port 8080 was already in use"</strong>
+    Another app (or an old ShopEasy) is still running.<br><strong>Fix:</strong> stop it, or start on another port: <code>mvn spring-boot:run -Dspring-boot.run.arguments=--server.port=8081</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: a JWT secret that is too short or not Base64</strong>
+    <code>WeakKeyException: The specified key byte array is 64 bits which is not secure enough</code> at startup.<br><strong>Fix:</strong> HS256 needs at least 32 random bytes, Base64-encoded: <code>openssl rand -base64 32</code> (Git Bash). Put it in the <code>JWT_SECRET</code> environment variable.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: caching entities instead of DTOs, or forgetting to evict</strong>
+    A cached JPA entity is detached and may explode with lazy loading later; a forgotten <code>@CacheEvict</code> shows customers old prices or stock.<br><strong>Fix:</strong> cache immutable DTO records; every write path evicts (we evict on update, delete, order placed and order cancelled).</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: trusting the client</strong>
+    Accepting <code>price</code>, <code>total</code>, <code>role</code> or <code>userId</code> from the request body lets attackers buy a laptop for ₹1 or become ADMIN.<br><strong>Fix:</strong> the server calculates prices and totals, registration always sets CUSTOMER, and the user id always comes from the token.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: using <code>curl</code> in PowerShell like in Bash</strong>
+    <code>curl -X POST ... -d '{...}'</code> in Windows PowerShell 5.1 calls <code>Invoke-WebRequest</code> and fails with strange parameter errors.<br><strong>Fix:</strong> use Git Bash, call <code>curl.exe</code> explicitly, or use <code>Invoke-RestMethod</code> (section 5.4).</div>
+
+  <!-- ================================================================== 7. BEST -->
+  <h2 id="best">7. Best practices &amp; extension ideas</h2>
+  <h3>7.1 What makes this codebase "enterprise-quality"</h3>
+  <ul>
+    <li><strong>Package-by-feature</strong> with one-way dependencies between features.</li>
+    <li><strong>Thin controllers, rich services, rich entities.</strong> Rules live where the data lives (<code>Product.decreaseStock</code>, <code>OrderStatus.canMoveTo</code>).</li>
+    <li><strong>DTO records</strong> for every request and response — the API is a contract, independent of the database.</li>
+    <li><strong>One error format</strong> (ProblemDetail) for every error — including 401/403 from the security filters.</li>
+    <li><strong>Secure by default:</strong> deny unless allowed, stateless JWT, BCrypt, user id only from the token, no secrets in Git (env variables), 404 instead of 403 for other people's resources.</li>
+    <li><strong>The database is managed by migrations</strong>, not by <code>ddl-auto=update</code>. Constraints and indexes are in SQL.</li>
+    <li><strong>Correct under concurrency:</strong> pessimistic lock at checkout, <code>@Version</code> elsewhere, cache evicted after commit.</li>
+    <li><strong>Performance basics:</strong> pagination with a max size, <code>@EntityGraph</code> and batch fetching against N+1, indexes on searched columns, caching hot reads (<a href="../70-Design-Patterns-Clean-Code-And-Best-Practices/lesson.html">topic 70</a>).</li>
+    <li><strong>Observability:</strong> request id in every log line, no passwords in logs, health probes, metrics.</li>
+    <li><strong>Automated tests</strong> at three levels and a <strong>CI pipeline</strong> that runs them on every change.</li>
+  </ul>
+
+  <h3>7.2 Production checklist before going live</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Item</th><th>Status in ShopEasy</th><th>To do for real production</th></tr>
+    <tr><td>Secrets</td><td>Env variables with dev defaults</td><td>Remove defaults; use a secret manager (Vault, AWS Secrets Manager, K8s Secret)</td></tr>
+    <tr><td>Demo users</td><td><code>SEED_USERS=true</code></td><td>Set <code>SEED_USERS=false</code>; create the first admin securely</td></tr>
+    <tr><td>HTTPS</td><td>—</td><td>Terminate TLS at a load balancer / ingress; tokens must never travel over plain HTTP</td></tr>
+    <tr><td>H2 console</td><td>On in default profile</td><td>Off (already off in the <code>mysql</code> profile)</td></tr>
+    <tr><td>Rate limiting on login</td><td>—</td><td>Protect <code>/auth/login</code> against password guessing (gateway or Bucket4j)</td></tr>
+    <tr><td>Token revocation</td><td>Short expiry (1h); disabled users are rejected on the next request</td><td>Refresh tokens + a deny-list for logout</td></tr>
+    <tr><td>Backups &amp; monitoring</td><td>Actuator</td><td>DB backups, Prometheus + Grafana dashboards, alerts</td></tr>
+  </table></div>
+
+  <h3>7.3 Extension ideas — make it yours</h3>
+  <div class="grid">
+    <div class="card"><strong>💳 Payments</strong><br>Add <code>POST /orders/{id}/pay</code> that calls a payment provider (Stripe/Razorpay sandbox) with <code>RestClient</code> (<a href="../45-Consuming-External-APIs-RestClient-WebClient/lesson.html">topic 45</a>). Use an <em>Idempotency-Key</em> header so a double click never charges twice. Webhook → PAID.</div>
+    <div class="card"><strong>📧 Order e-mails</strong><br>Publish an <code>OrderPlacedEvent</code> and send a confirmation mail in an <code>@Async @TransactionalEventListener</code> (<a href="../52-Scheduling-Async-And-Events/lesson.html">52</a>, <a href="../54-File-Upload-Download-And-Emails/lesson.html">54</a>) — only after the commit.</div>
+    <div class="card"><strong>🖼️ Product images</strong><br>Upload images with <code>MultipartFile</code>, store them on disk or S3, serve them with a cache header (<a href="../54-File-Upload-Download-And-Emails/lesson.html">topic 54</a>).</div>
+    <div class="card"><strong>⚡ Redis cache</strong><br>Swap <code>ConcurrentMapCacheManager</code> for Redis under a <code>redis</code> profile so several instances share one cache (<a href="../51-Caching-With-Redis/lesson.html">topic 51</a>).</div>
+    <div class="card"><strong>📨 Events with Kafka</strong><br>Publish <code>order-placed</code> events to Kafka; a separate "shipping" or "analytics" service consumes them (<a href="../58-Event-Streaming-With-Apache-Kafka/lesson.html">58</a>, or RabbitMQ <a href="../57-Messaging-With-RabbitMQ/lesson.html">57</a>).</div>
+    <div class="card"><strong>🧩 Microservices split</strong><br>Thanks to the feature packages: <em>catalog-service</em> (product + category), <em>order-service</em> (cart + order), <em>identity-service</em> (auth + user), behind a gateway with Eureka (<a href="../59-Microservices-Architecture-Introduction/lesson.html">topics 59–65</a>). Stock reservation then needs a <em>saga</em>.</div>
+    <div class="card"><strong>🔁 Refresh tokens</strong><br>Short-lived access token (15 min) + long-lived refresh token stored in the DB, with logout = delete the refresh token.</div>
+    <div class="card"><strong>🧪 Testcontainers</strong><br>Run the end-to-end test against a real MySQL in a throw-away container, exactly like production.</div>
+    <div class="card"><strong>☸️ Kubernetes</strong><br>Deploy with the manifests from <a href="../69-Deployment-And-Kubernetes-Basics/lesson.html">topic 69</a>; the liveness/readiness probes are already enabled.</div>
+  </div>
+
+  <!-- ================================================================== 8. SUMMARY -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>A real backend is many simple ideas <strong>combined carefully</strong>: layers, DTOs, validation, errors, security, transactions, caching, docs, tests, deployment.</li>
+    <li><strong>Package-by-feature</strong> keeps related code together and makes a later microservice split possible.</li>
+    <li>Entities protect their own rules (<code>decreaseStock</code>, <code>canMoveTo</code>); controllers stay thin; services own transactions.</li>
+    <li>The checkout is one <code>@Transactional</code> unit: <strong>lock → check → change → save → commit</strong>, or roll back everything.</li>
+    <li>Use a <strong>pessimistic lock</strong> where overselling must be impossible, <strong><code>@Version</code></strong> as a general safety net.</li>
+    <li>Orders store a <strong>snapshot</strong> of price and name; the client never sends prices, totals, roles or user ids.</li>
+    <li>Stateless <strong>JWT</strong> + roles + method security; 401 vs 403; every error is a <strong>ProblemDetail</strong>.</li>
+    <li><strong>Flyway</strong> owns the schema; Hibernate only validates it. Same SQL runs on H2 and MySQL.</li>
+    <li>Cache <strong>DTOs</strong>, evict on <strong>every</strong> write, preferably <strong>after commit</strong>.</li>
+    <li>Prove it with <strong>unit, slice and end-to-end tests</strong>; ship it with <strong>Docker</strong> and <strong>CI</strong>.</li>
+  </ul></div>
+  <div class="callout analogy"><strong>🎓 You did it!</strong>
+    From <code>System.out.println("Hello, World!")</code> in topic 1 to a secure, tested, containerised e-commerce backend. That is a huge journey. Put ShopEasy on GitHub, write a good README, add one extension from section 7.3 in your own style — and start applying for jobs. Good luck! 🚀</div>
+
+  <!-- ================================================================== 9. EXERCISES -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Products of a category.</strong> Add <code>GET /api/v1/categories/{id}/products</code> (public, paginated) that returns the active products of one category. Reuse the existing search.</p>
+    <details><summary>Hint / solution</summary>
+      <p>No new query is needed — build a <code>ProductSearchCriteria</code> with only <code>categoryId</code> set. Check the category exists first so an unknown id gives 404 instead of an empty page.</p>
+      <pre><code class="lang-java">// CategoryController (inject ProductService too)
+@GetMapping("/{id}/products")
+public PageResponse&lt;ProductResponse&gt; products(@PathVariable Long id,
+        @ParameterObject @PageableDefault(size = 10, sort = "name") Pageable pageable) {
+    categoryService.findById(id);                                      // 404 if unknown
+    return productService.search(new ProductSearchCriteria(null, id, null, null, null), pageable);
+}</code></pre>
+      <p>The URL already matches <code>GET /api/v1/categories/**</code> → public. Add a test in <code>ShopEasyEndToEndTest</code>.</p>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Low-stock report.</strong> Add <code>GET /api/v1/admin/products/low-stock?threshold=5</code> (ADMIN) listing active products with <code>stockQuantity &lt; threshold</code>, lowest first.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">// ProductRepository - a derived query
+@EntityGraph(attributePaths = "category")
+List&lt;Product&gt; findByActiveTrueAndStockQuantityLessThanOrderByStockQuantityAsc(int threshold);
+
+// AdminProductController under /api/v1/admin/products  (already ADMIN-only by URL rule)
+@GetMapping("/low-stock")
+public List&lt;ProductResponse&gt; lowStock(@RequestParam(defaultValue = "5") @Min(1) int threshold) { ... }</code></pre>
+      <p>Map inside a <code>@Transactional(readOnly = true)</code> service method. Remember <code>@Validated</code> on the controller for <code>@Min</code> on a request parameter.</p>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Product reviews.</strong> Customers can rate a product 1–5 with a comment — but only if they have a DELIVERED order containing it, and only once per product. Show <code>averageRating</code> and <code>reviewCount</code> in <code>ProductResponse</code>.</p>
+    <details><summary>Hint / solution</summary>
+      <ul>
+        <li>Migration <code>V3__create_reviews.sql</code>: <code>reviews(id, product_id FK, user_id FK, rating INT CHECK (rating BETWEEN 1 AND 5), comment, created_at, UNIQUE(product_id, user_id))</code>.</li>
+        <li>New feature package <code>review/</code> with entity, repository, service, controller (<code>POST /api/v1/products/{id}/reviews</code> — add a security rule for CUSTOMER <em>before</em> the ADMIN rule for products!).</li>
+        <li>Rule check with a JPQL exists query: <code>select count(oi) &gt; 0 from OrderItem oi where oi.product.id = :pid and oi.order.user.id = :uid and oi.order.status = 'DELIVERED'</code>.</li>
+        <li>Average: <code>select avg(r.rating), count(r) from Review r where r.product.id = :id</code>. Evict the product from the cache when a review is added.</li>
+      </ul>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Order-placed e-mail (simulated).</strong> When an order is placed, log "Sending confirmation mail for order 7 to asha@example.com" <em>asynchronously</em> and <em>only if the transaction commits</em>.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public record OrderPlacedEvent(Long orderId, String email, BigDecimal total) { }
+
+// OrderService.placeOrder - inject ApplicationEventPublisher
+events.publishEvent(new OrderPlacedEvent(saved.getId(), saved.getUser().getEmail(), saved.getTotalAmount()));
+
+@Component
+class OrderMailListener {
+    @Async
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onOrderPlaced(OrderPlacedEvent event) {
+        log.info("Sending confirmation mail for order {} to {}", event.orderId(), event.email());
+    }
+}
+// + @EnableAsync on a configuration class (topic 52)</code></pre>
+      <p>Test it: an order that fails with 409 must <strong>not</strong> log the mail.</p>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Idempotent checkout.</strong> Mobile networks retry. If the app sends <code>POST /api/v1/orders</code> twice with the same <code>Idempotency-Key</code> header, the second call must return the <em>same</em> order (200) instead of creating a second one.</p>
+    <details><summary>Hint / solution</summary>
+      <ul>
+        <li>Add a nullable unique column <code>idempotency_key VARCHAR(64)</code> to <code>orders</code> (V3 migration) with <code>UNIQUE (user_id, idempotency_key)</code>.</li>
+        <li>In <code>placeOrder</code>: if a key is given and <code>orderRepository.findByUserIdAndIdempotencyKey(...)</code> finds an order, return it.</li>
+        <li>Two requests at exactly the same time? The unique constraint makes the second insert fail → catch <code>DataIntegrityViolationException</code>, then load and return the existing order.</li>
+        <li>Read the header with <code>@RequestHeader(name = "Idempotency-Key", required = false) String key</code>.</li>
+      </ul>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Prove the lock works.</strong> Write a test that starts 10 threads, each placing an order for 1 unit of a product with stock 5. Afterwards exactly 5 orders must exist and the stock must be 0.</p>
+    <details><summary>Hint / solution</summary>
+      <p>In a <code>@SpringBootTest(webEnvironment = RANDOM_PORT)</code> test: create the product as admin, register 10 customers and fill their carts first. Then use an <code>ExecutorService</code> (<a href="../17-Multithreading-And-Concurrency/lesson.html">topic 17</a>) with a <code>CountDownLatch</code> so all threads call <code>POST /api/v1/orders</code> at the same moment. Count status codes: expect five 201 and five 409. Finally check <code>stockQuantity == 0</code>. Then remove the <code>findAllByIdForUpdate</code> call and watch the test fail (or become flaky) — that is the race condition the lock prevents.</p>
+    </details>
+  </div>
+
+  <!-- ================================================================== 10. INTERVIEW -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. Walk me through the architecture of your e-commerce project.</summary>
+    <p>It is a Spring Boot 3 modular monolith organised by feature: auth, user, category, product, cart and order, plus shared security, config and common packages. Each feature has a thin REST controller, a transactional service and a Spring Data JPA repository; requests and responses are Java records, mapped from entities by small mapper classes. Security is stateless JWT with two roles. Errors are returned as RFC 9457 ProblemDetail by a global handler. Flyway owns the schema (H2 for dev, MySQL in production), the catalog is cached, there are unit, web-slice and end-to-end tests, and it ships as a Docker image built by GitHub Actions.</p></details>
+
+  <details><summary>Q2. How do you prevent overselling when two customers buy the last item at the same time?</summary>
+    <p>Checkout runs in one <code>@Transactional</code> method. Before reading stock it locks the product rows with <code>SELECT … FOR UPDATE</code> (<code>@Lock(PESSIMISTIC_WRITE)</code>), ordered by id to avoid deadlocks. The second transaction waits until the first commits, then sees the reduced stock and fails with <code>InsufficientStockException</code> → 409, and its changes roll back. The entity method refuses negative stock and the database has a <code>CHECK (stock_quantity &gt;= 0)</code> constraint as the last line of defence. <code>@Version</code> optimistic locking protects other update paths. Alternative designs: an atomic <code>UPDATE products SET stock = stock - ? WHERE id = ? AND stock &gt;= ?</code> and checking the affected row count, or stock reservations with a timeout.</p></details>
+
+  <details><summary>Q3. Why do order items store the product name and price instead of just a product id?</summary>
+    <p>An order is a legal/historical record of what was sold at what price. If we only stored the product id, a later price change or rename would silently change old orders and invoices. So we snapshot name and unit price into the order line and keep the product id for reference (restocking, "buy again"). The cart, on the other hand, stores no price because it should always show the current price.</p></details>
+
+  <details><summary>Q4. Why JWT, and what are its downsides? How would you log a user out?</summary>
+    <p>JWT keeps the server stateless: any instance can verify a token with the secret key, no session store needed, which suits horizontal scaling and mobile clients. Downsides: a token cannot be revoked before it expires, the payload is only Base64 (never put secrets in it), and the secret must be protected. Mitigations: short expiry (1 hour here, often 15 minutes) plus refresh tokens stored server-side; logout deletes the refresh token, and for urgent cases a deny-list of token ids. ShopEasy also reloads the user on every request, so a disabled account stops working immediately.</p></details>
+
+  <details><summary>Q5. What is the difference between 401 and 403, and how does your app produce them?</summary>
+    <p>401 Unauthorized means "not authenticated" — no token, invalid or expired token, or wrong password. 403 Forbidden means "authenticated but not allowed" — e.g. a CUSTOMER calling an ADMIN endpoint. Because these errors happen in the security filter chain before any controller, <code>@RestControllerAdvice</code> cannot see them; a custom <code>AuthenticationEntryPoint</code> (401) and <code>AccessDeniedHandler</code> (403) write them as ProblemDetail JSON. <code>@PreAuthorize</code> failures are thrown inside the controller call, so the global handler maps <code>AccessDeniedException</code> to 403 as well.</p></details>
+
+  <details><summary>Q6. Why use DTOs instead of returning entities directly?</summary>
+    <p>Security (never leak password hashes or internal flags, prevent mass assignment like setting <code>role</code>), stability (the API contract does not change when the table changes), performance and correctness (no lazy-loading exceptions or infinite JSON recursion from bidirectional relationships), and the ability to shape data for the client (flattened <code>categoryName</code>, computed <code>inStock</code>). Records make DTOs short and immutable.</p></details>
+
+  <details><summary>Q7. How does caching work in the project, and how do you avoid stale data?</summary>
+    <p>Single products and the category list are cached with <code>@Cacheable</code>, storing immutable DTOs. Every write evicts: update and delete evict that product id, renaming a category clears the products cache, and placing or cancelling an order evicts the affected products because stock changed. The cache manager is wrapped in <code>TransactionAwareCacheManagerProxy</code>, so evictions happen after commit — otherwise a concurrent read could re-cache the old value between eviction and commit. Search pages are not cached because there are too many combinations and stock changes often. With multiple instances we would use Redis so all instances share the cache.</p></details>
+
+  <details><summary>Q8. Why Flyway and <code>ddl-auto=validate</code> instead of <code>ddl-auto=update</code>?</summary>
+    <p><code>update</code> guesses schema changes from entities, never drops or renames safely, cannot migrate data, and behaves differently per environment — dangerous in production. Flyway applies versioned, reviewed SQL scripts exactly once, in order, records them in <code>flyway_schema_history</code>, and gives the same schema everywhere. <code>validate</code> then makes Hibernate fail fast at startup if entities and tables do not match.</p></details>
+
+  <details><summary>Q9. How did you test the application?</summary>
+    <p>Following the test pyramid: fast pure unit tests for domain rules and the JWT service; Mockito unit tests for <code>OrderService</code> (happy path, rollback on insufficient stock, empty cart, cancellation, ownership); a <code>@WebMvcTest</code> slice for the product controller with the real security configuration (<code>@MockitoBean</code> for the service, <code>@WithMockUser</code> for roles) to check status codes, validation errors and ProblemDetail bodies; and a <code>@SpringBootTest(RANDOM_PORT)</code> end-to-end test that registers, browses, adds to cart, orders, checks stock and cache eviction, races two customers for the last items and checks the security rules over real HTTP. CI runs all of them on every push.</p></details>
+
+  <details><summary>Q10. What does <code>spring.jpa.open-in-view=false</code> do and why did you set it?</summary>
+    <p>Open Session In View keeps the Hibernate session open until the HTTP response is written, so controllers and Jackson can lazily load data. It hides N+1 problems, holds a database connection for the whole request and makes the transaction boundary unclear. Turning it off forces all data loading and DTO mapping to happen inside the service's <code>@Transactional</code> method, with explicit fetch plans (<code>@EntityGraph</code>, batch fetching). Spring Boot even logs a warning when it is left on by default.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../70-Design-Patterns-Clean-Code-And-Best-Practices/lesson.html"><small>← Previous</small>70. Design Patterns, Clean Code &amp; Best Practices</a>
+    <a class="next" href="../index.html"><small>Next →</small>🏠 Course Home</a>
+  </nav>
+</main>
+</body>
+</html>

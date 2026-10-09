@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>53 · Actuator, Monitoring &amp; Observability</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part E · Advanced Spring Boot › Topic 53</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part E · Advanced Spring Boot</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>53. Actuator, Monitoring &amp; Observability</h1>
+  <p class="subtitle">Give your application a dashboard: health checks, build info, live metrics, Prometheus &amp; Grafana graphs, and log levels you can change without a restart.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="53-Actuator-Monitoring-And-Observability"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What monitoring and observability mean (logs, metrics, traces).</li>
+      <li><code>spring-boot-starter-actuator</code> and its endpoints: <code>/health</code>, <code>/info</code>, <code>/metrics</code>, <code>/env</code>, <code>/loggers</code>, <code>/beans</code>, <code>/mappings</code> and more.</li>
+      <li>How to expose endpoints <strong>safely</strong>.</li>
+      <li>Writing a custom <code>HealthIndicator</code> and a custom <code>InfoContributor</code>.</li>
+      <li>Custom metrics with Micrometer: <code>Counter</code>, <code>Timer</code>, <code>Gauge</code>, <code>DistributionSummary</code>, and tags.</li>
+      <li>The Prometheus endpoint, plus an optional Prometheus + Grafana stack with Docker Compose.</li>
+      <li>Changing log levels at runtime.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../29-Configuration-Properties-And-Profiles/lesson.html">Topic 29 · Profiles</a>,
+    <a href="../30-Logging-In-Spring-Boot/lesson.html">Topic 30 · Logging</a> and <a href="../31-Spring-MVC-And-REST-Fundamentals/lesson.html">Topic 31 · REST</a>. Docker is only needed for the optional Grafana part.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1 -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>On your laptop you can see everything: the console, the debugger, the logs. In production your app runs on a server you never see, maybe as five copies
+    behind a load balancer, used by thousands of people. Now the important questions are:</p>
+  <ul>
+    <li>Is the app <strong>alive</strong>? Can it reach its database and the payment provider?</li>
+    <li>How <strong>fast</strong> are the requests? Did they get slower after yesterday's release?</li>
+    <li>How many <strong>errors</strong> (HTTP 500s) per minute?</li>
+    <li>Is memory slowly filling up? How many threads are busy?</li>
+    <li>Which <strong>version</strong> is deployed right now?</li>
+    <li>How many orders did we get in the last hour, and how many failed to pay? (business metrics!)</li>
+  </ul>
+  <p><strong>Monitoring</strong> means collecting such numbers and alerting when something looks wrong. <strong>Observability</strong> is a slightly bigger idea:
+    your system gives out enough information (logs, metrics and traces) that you can understand <em>why</em> something is wrong, even for problems you did not predict.</p>
+  <p>Spring Boot makes this easy with <strong>Actuator</strong>: add one dependency and you get production-ready endpoints for health, info, metrics and more. Every serious
+    Spring Boot service in companies has Actuator switched on – Kubernetes uses its health endpoints to restart sick pods, and Prometheus/Grafana read its metrics for dashboards and alerts.</p>
+
+  <!-- ===================================================== 2 -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🚗 The dashboard of a car</strong>
+    You don't open the engine to know if your car is OK. The dashboard tells you:
+    <ul>
+      <li><strong>Warning lights</strong> (engine, oil, battery) → <code>/actuator/health</code>: UP or DOWN, and which part is the problem.</li>
+      <li><strong>Speedometer, fuel gauge, rev counter</strong> → <code>/actuator/metrics</code>: live numbers. Some only go up (the odometer = a <em>counter</em>), some go up and down (fuel = a <em>gauge</em>), some measure how long things take (lap time = a <em>timer</em>).</li>
+      <li><strong>The registration papers</strong> (model, year, owner) → <code>/actuator/info</code>.</li>
+      <li><strong>The mechanic's diagnostic port</strong> → the more detailed endpoints (<code>/env</code>, <code>/beans</code>, <code>/threaddump</code>). Very useful – but you don't let strangers plug into it! That is why we expose endpoints carefully.</li>
+      <li><strong>A fleet manager's control room</strong> watching 500 cars on big screens → <strong>Prometheus + Grafana</strong>, collecting the dashboards of all your app instances in one place.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== 3 -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The three pillars of observability</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Pillar</th><th>What it is</th><th>Example</th><th>Where in this course</th></tr>
+    <tr><td><strong>Logs</strong></td><td>Text lines describing single events</td><td><code>Order 17 placed: Coffee Mug - status PAID</code></td><td>Topic 30</td></tr>
+    <tr><td><strong>Metrics</strong></td><td>Numbers measured over time, cheap to store and graph</td><td>"42 orders/minute", "p95 latency 180 ms", "heap 230 MB"</td><td>This topic</td></tr>
+    <tr><td><strong>Traces</strong></td><td>The path of ONE request across several services, with timings</td><td>"checkout → payment-service → bank API took 900 ms"</td><td>Topic 65</td></tr>
+  </table></div>
+  <p>Metrics tell you <em>that</em> something is wrong (errors went up). Logs and traces help you find <em>why</em>.</p>
+
+  <h3>3.2 Adding Actuator</h3>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-starter-actuator&lt;/artifactId&gt;
+&lt;/dependency&gt;</code></pre>
+  <p>Start the app and open <code>http://localhost:8080/actuator</code>. You get a "discovery page" listing the endpoints that are exposed – out of the box, only <code>health</code>:</p>
+  <pre class="terminal"><code>{"_links":{"self":{"href":"http://localhost:8080/actuator"},
+           "health":{"href":"http://localhost:8080/actuator/health"}, ...}}</code></pre>
+  <p>An <strong>endpoint</strong> is a built-in feature reachable at <code>/actuator/&lt;id&gt;</code> (and also over JMX, a Java management technology).</p>
+
+  <h3>3.3 The most important endpoints</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Endpoint</th><th>What it shows</th><th>Sensitive?</th></tr>
+    <tr><td><code>/actuator/health</code></td><td>UP/DOWN status of the app and its parts (DB, disk, Redis, your own checks)</td><td>Low (hide details publicly)</td></tr>
+    <tr><td><code>/actuator/info</code></td><td>App name, version, build time, git commit, Java version</td><td>Low</td></tr>
+    <tr><td><code>/actuator/metrics</code></td><td>List of metric names; <code>/metrics/{name}</code> shows values</td><td>Medium</td></tr>
+    <tr><td><code>/actuator/prometheus</code></td><td>All metrics in Prometheus text format (needs <code>micrometer-registry-prometheus</code>)</td><td>Medium</td></tr>
+    <tr><td><code>/actuator/loggers</code></td><td>Log levels; POST to change them at runtime</td><td>Medium (can change behaviour)</td></tr>
+    <tr><td><code>/actuator/env</code></td><td>All configuration properties and where they come from</td><td><strong>High</strong> – may contain secrets</td></tr>
+    <tr><td><code>/actuator/configprops</code></td><td>All <code>@ConfigurationProperties</code> beans and values</td><td><strong>High</strong></td></tr>
+    <tr><td><code>/actuator/beans</code></td><td>Every bean in the context and its dependencies</td><td>Medium (reveals internals)</td></tr>
+    <tr><td><code>/actuator/mappings</code></td><td>Every URL → controller method mapping</td><td>Medium</td></tr>
+    <tr><td><code>/actuator/conditions</code></td><td>The auto-configuration report (why a bean was or wasn't created)</td><td>Medium</td></tr>
+    <tr><td><code>/actuator/threaddump</code></td><td>What every thread is doing right now</td><td>Medium</td></tr>
+    <tr><td><code>/actuator/heapdump</code></td><td>Downloads a full memory dump</td><td><strong>Very high</strong> – contains passwords, tokens, user data</td></tr>
+    <tr><td><code>/actuator/scheduledtasks</code></td><td>All <code>@Scheduled</code> jobs (topic 52)</td><td>Low</td></tr>
+    <tr><td><code>/actuator/caches</code></td><td>Caches from the CacheManager (topic 51)</td><td>Low</td></tr>
+    <tr><td><code>/actuator/shutdown</code></td><td>Stops the app (POST). Disabled by default!</td><td><strong>Dangerous</strong></td></tr>
+  </table></div>
+
+  <h3>3.4 Exposing endpoints safely</h3>
+  <p>Two separate ideas:</p>
+  <ul>
+    <li><strong>Access / enabled</strong> – does the endpoint exist at all? Almost all endpoints exist by default (except <code>shutdown</code>).</li>
+    <li><strong>Exposure</strong> – can it be reached over <em>HTTP</em>? By default only <code>health</code> is exposed over the web.</li>
+  </ul>
+  <pre><span class="file">application.properties</span><code class="lang-properties"># expose a chosen list over HTTP (comma-separated)
+management.endpoints.web.exposure.include=health,info,metrics,prometheus,loggers
+
+# or: everything except a few (only behind Spring Security!)
+# management.endpoints.web.exposure.include=*
+# management.endpoints.web.exposure.exclude=env,heapdump,threaddump
+
+# Spring Boot 3.4+: control access per endpoint (none | read-only | unrestricted)
+# management.endpoint.loggers.access=read-only</code></pre>
+  <div class="callout danger"><strong>🛑 Never do this on a public server</strong><code>management.endpoints.web.exposure.include=*</code> without Spring Security exposes your configuration
+    and lets anyone download a heap dump full of passwords and tokens. Real companies have been hacked this way.</div>
+  <p>Three good ways to protect Actuator in production:</p>
+  <ol>
+    <li><strong>Expose only what you need</strong> (health, info, prometheus).</li>
+    <li><strong>A separate management port</strong> that only the internal network can reach: <code>management.server.port=9090</code>. The firewall then blocks 9090 from the internet.</li>
+    <li><strong>Spring Security</strong> (topic 47): allow <code>/actuator/health</code> for everyone, everything else only for an <code>ACTUATOR</code>/<code>ADMIN</code> role:</li>
+  </ol>
+  <pre><code class="lang-java">http.authorizeHttpRequests(auth -&gt; auth
+        .requestMatchers(EndpointRequest.to("health", "info")).permitAll()
+        .requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole("ACTUATOR")
+        .anyRequest().authenticated());</code></pre>
+  <p>In our project the default profile exposes a safe set, and a <code>dev</code> profile (<code>application-dev.properties</code>) exposes everything – for learning on your own machine only.</p>
+
+  <h3>3.5 Health checks</h3>
+  <p><code>/actuator/health</code> combines many <strong>health indicators</strong>. Spring Boot adds them automatically for the things it finds:
+    <code>diskSpace</code>, <code>ping</code>, <code>db</code> (if a DataSource exists), <code>redis</code>, <code>mail</code>, <code>rabbit</code>, <code>kafka</code>…</p>
+  <div class="table-wrap"><table>
+    <tr><th>Status</th><th>Meaning</th><th>HTTP status of /health</th></tr>
+    <tr><td><code>UP</code></td><td>Working</td><td>200</td></tr>
+    <tr><td><code>DOWN</code></td><td>Broken</td><td>503 Service Unavailable</td></tr>
+    <tr><td><code>OUT_OF_SERVICE</code></td><td>Deliberately taken out of service</td><td>503</td></tr>
+    <tr><td><code>UNKNOWN</code></td><td>Cannot tell</td><td>200</td></tr>
+  </table></div>
+  <p>The overall status is the "worst" of all components: one <code>DOWN</code> makes everything <code>DOWN</code>. Load balancers only look at the HTTP status – 200 = send traffic, 503 = don't.</p>
+  <p>Details are hidden by default (you only see <code>{"status":"UP"}</code>). Show them with:</p>
+  <pre><code class="lang-properties">management.endpoint.health.show-details=always        # never | when-authorized | always
+management.endpoint.health.show-components=always</code></pre>
+  <h4>Liveness and readiness probes</h4>
+  <p>Kubernetes (topic 69) asks two different questions:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Probe</th><th>Question</th><th>If it fails…</th><th>URL</th></tr>
+    <tr><td><strong>Liveness</strong></td><td>"Is the app alive, or stuck forever?"</td><td>Kubernetes <strong>restarts</strong> the container</td><td><code>/actuator/health/liveness</code></td></tr>
+    <tr><td><strong>Readiness</strong></td><td>"Can the app handle requests right now?"</td><td>Kubernetes <strong>stops sending traffic</strong> (no restart)</td><td><code>/actuator/health/readiness</code></td></tr>
+  </table></div>
+  <pre><code class="lang-properties">management.endpoint.health.probes.enabled=true
+# readiness also depends on our payment gateway check
+management.endpoint.health.group.readiness.include=readinessState,paymentGateway</code></pre>
+  <div class="callout warn"><strong>⚠️ Don't put external systems into liveness</strong>If the database is down and liveness fails, Kubernetes restarts ALL your pods again and again – which does not fix the database.
+    External dependencies belong in <em>readiness</em> (or just the main health), never in liveness.</div>
+
+  <h3>3.6 A custom <code>HealthIndicator</code></h3>
+  <p>For your own important dependency (a payment provider, an SFTP server, a licence), implement <code>HealthIndicator</code>:</p>
+  <pre><span class="file">health/PaymentGatewayHealthIndicator.java</span><code class="lang-java">@Component
+public class PaymentGatewayHealthIndicator implements HealthIndicator {
+
+    @Override
+    public Health health() {
+        try {
+            long latencyMs = paymentGateway.ping();
+            return Health.up().withDetail("provider", "DemoPay").withDetail("latencyMs", latencyMs).build();
+        } catch (Exception ex) {
+            return Health.down().withDetail("provider", "DemoPay").withDetail("error", ex.getMessage()).build();
+        }
+    }
+}</code></pre>
+  <p>The component name comes from the bean name minus "HealthIndicator": <code>paymentGatewayHealthIndicator</code> → <code>paymentGateway</code>. Result:</p>
+  <pre class="terminal"><code>"paymentGateway":{"status":"UP","details":{"provider":"DemoPay","latencyMs":42}}</code></pre>
+
+  <h3>3.7 Info</h3>
+  <p><code>/actuator/info</code> is built from several <strong>info contributors</strong>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Contributor</th><th>Source</th><th>Switch</th></tr>
+    <tr><td><code>env</code></td><td>Every <code>info.*</code> property</td><td><code>management.info.env.enabled=true</code> (off by default)</td></tr>
+    <tr><td><code>build</code></td><td><code>META-INF/build-info.properties</code> from the Maven plugin's <code>build-info</code> goal</td><td>on when the file exists</td></tr>
+    <tr><td><code>git</code></td><td><code>git.properties</code> from the <code>git-commit-id-maven-plugin</code></td><td>on when the file exists</td></tr>
+    <tr><td><code>java</code>, <code>os</code>, <code>process</code></td><td>JVM / operating system</td><td><code>management.info.java.enabled=true</code> etc.</td></tr>
+    <tr><td>your own</td><td>a bean implementing <code>InfoContributor</code></td><td>always</td></tr>
+  </table></div>
+  <pre><span class="file">pom.xml (build-info goal)</span><code class="lang-xml">&lt;plugin&gt;
+    &lt;groupId&gt;org.springframework.boot&lt;/groupId&gt;
+    &lt;artifactId&gt;spring-boot-maven-plugin&lt;/artifactId&gt;
+    &lt;executions&gt;
+        &lt;execution&gt;
+            &lt;goals&gt;&lt;goal&gt;build-info&lt;/goal&gt;&lt;/goals&gt;
+        &lt;/execution&gt;
+    &lt;/executions&gt;
+&lt;/plugin&gt;</code></pre>
+  <pre><span class="file">info/ShopInfoContributor.java</span><code class="lang-java">@Component
+public class ShopInfoContributor implements InfoContributor {
+    @Override
+    public void contribute(Info.Builder builder) {
+        builder.withDetail("shop", Map.of(
+                "region", "EU-West",
+                "ordersSinceStartup", orderService.countAll(),
+                "pendingOrders", orderService.countPending()));
+    }
+}</code></pre>
+  <p>Why care? When a bug report comes in, the first question is "which version is running?". <code>/actuator/info</code> answers it in one second.</p>
+
+  <h3>3.8 Metrics and Micrometer</h3>
+  <p>A <strong>metric</strong> is a number measured over time: requests per second, memory used, orders placed. Spring Boot uses <strong>Micrometer</strong> for metrics.
+    Micrometer is to metrics what SLF4J is to logging: one API in your code, many back-ends (Prometheus, Datadog, New Relic, CloudWatch, Dynatrace…).</p>
+  <p>Modern metrics are <strong>dimensional</strong>: a metric has a <em>name</em> plus <em>tags</em> (key=value labels). One metric
+    <code>http.server.requests</code> with tags <code>uri</code>, <code>method</code>, <code>status</code> lets you ask "how many POST /api/orders returned 500?"</p>
+  <p>Built-in metrics you get for free:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Metric</th><th>What it measures</th></tr>
+    <tr><td><code>http.server.requests</code></td><td>Every HTTP request: count, total time, max – tagged by uri, method, status, outcome, exception</td></tr>
+    <tr><td><code>jvm.memory.used</code> / <code>jvm.memory.max</code></td><td>Heap and non-heap memory</td></tr>
+    <tr><td><code>jvm.gc.pause</code></td><td>Garbage collection pauses</td></tr>
+    <tr><td><code>jvm.threads.live</code></td><td>Number of threads</td></tr>
+    <tr><td><code>process.cpu.usage</code>, <code>system.cpu.usage</code></td><td>CPU</td></tr>
+    <tr><td><code>hikaricp.connections.active</code></td><td>Database connection pool usage (if you have a DB)</td></tr>
+    <tr><td><code>logback.events</code></td><td>Number of log lines per level – a sudden rise in <code>error</code> is a great alert!</td></tr>
+    <tr><td><code>cache.gets</code></td><td>Cache hits/misses (topic 51)</td></tr>
+    <tr><td><code>application.started.time</code></td><td>How long startup took</td></tr>
+  </table></div>
+  <p>Look at one, and filter by tag:</p>
+  <pre class="terminal"><code>GET /actuator/metrics/http.server.requests
+GET /actuator/metrics/http.server.requests?tag=uri:/api/orders&amp;tag=method:POST
+GET /actuator/metrics/jvm.memory.used?tag=area:heap</code></pre>
+
+  <h3>3.9 Custom metrics: the four meter types</h3>
+  <p>Inject <code>MeterRegistry</code> (the place where all meters are registered) and create meters:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Meter</th><th>Behaviour</th><th>Examples</th></tr>
+    <tr><td><code>Counter</code></td><td>Only goes up (resets on restart)</td><td>orders placed, emails sent, login failures</td></tr>
+    <tr><td><code>Gauge</code></td><td>A current value; up and down; read when asked</td><td>pending orders, queue size, active users</td></tr>
+    <tr><td><code>Timer</code></td><td>How long + how often (count, total time, max, percentiles)</td><td>order processing time, external API call time</td></tr>
+    <tr><td><code>DistributionSummary</code></td><td>Distribution of non-time values</td><td>order amount, uploaded file size</td></tr>
+  </table></div>
+  <pre><span class="file">order/OrderService.java (excerpts)</span><code class="lang-java">// Counter with tags - one time series per (paymentMethod, status) combination
+Counter.builder("shop.orders.placed")
+        .description("Number of orders placed")
+        .tag("paymentMethod", normalise(paymentMethod))
+        .tag("status", result.status().name())
+        .register(registry)          // returns the existing counter if already registered
+        .increment();
+
+// Timer - created once in the constructor, then used for every order
+this.processingTimer = Timer.builder("shop.orders.processing")
+        .description("Time taken to process (pay) an order")
+        .publishPercentileHistogram()
+        .register(registry);
+Order result = processingTimer.record(() -&gt; { ... return order; });
+
+// Gauge - Micrometer calls countPending() whenever the value is read
+Gauge.builder("shop.orders.pending", this, OrderService::countPending)
+        .register(registry);
+
+// DistributionSummary - how big are our orders?
+this.orderAmounts = DistributionSummary.builder("shop.orders.amount").baseUnit("euros").register(registry);
+orderAmounts.record(amount.doubleValue());</code></pre>
+  <div class="callout warn"><strong>⚠️ Tag cardinality – the #1 metrics mistake</strong>"Cardinality" = how many different values a tag can have. Each different combination
+    of tag values creates a new time series that is stored forever. A tag like <code>paymentMethod</code> (4 values) is fine. A tag like <code>userId</code>, <code>email</code>
+    or <code>orderId</code> (millions of values) will blow up memory in your app and in Prometheus. That's why our code maps unknown payment methods to <code>"other"</code>.</div>
+  <p>Naming rules: lower case, words separated by dots, start with your domain (<code>shop.orders.placed</code>). Micrometer converts names for each back-end
+    (Prometheus: <code>shop_orders_placed_total</code>).</p>
+  <div class="callout info"><strong>ℹ️ Annotation style</strong>Micrometer also has <code>@Timed</code> and <code>@Counted</code> annotations, and the newer <em>Observation API</em> (<code>@Observed</code>)
+    that creates a metric AND a trace span at once (topic 65). They need AOP support (<code>spring-boot-starter-aop</code> plus aspect beans). We use the programmatic API here because it shows clearly what happens.</div>
+
+  <h3>3.10 Prometheus</h3>
+  <p><strong>Prometheus</strong> is a free, open-source monitoring database. Every few seconds it <strong>pulls</strong> ("scrapes") metrics from your app's
+    <code>/actuator/prometheus</code> URL and stores them with timestamps. You can then query history and set up alerts.</p>
+  <pre><span class="file">pom.xml</span><code class="lang-xml">&lt;dependency&gt;
+    &lt;groupId&gt;io.micrometer&lt;/groupId&gt;
+    &lt;artifactId&gt;micrometer-registry-prometheus&lt;/artifactId&gt;
+    &lt;scope&gt;runtime&lt;/scope&gt;
+&lt;/dependency&gt;</code></pre>
+  <div class="flow">
+    <span class="box">Spring Boot app<br><small>/actuator/prometheus</small></span><span class="arrow">← scrape every 5 s ←</span>
+    <span class="box info">Prometheus<br><small>stores time series</small></span><span class="arrow">← PromQL queries ←</span>
+    <span class="box alt">Grafana<br><small>dashboards &amp; alerts</small></span>
+  </div>
+  <p>The Prometheus text format looks like this (real output from our app):</p>
+  <pre class="terminal"><code>shop_orders_placed_total{application="order-service",paymentMethod="upi",status="PAID"} 1.0
+shop_orders_pending{application="order-service"} 0.0
+shop_orders_amount_euros_count{application="order-service"} 1
+shop_orders_amount_euros_sum{application="order-service"} 12.5
+shop_orders_processing_seconds_count{application="order-service"} 1
+shop_orders_processing_seconds_bucket{application="order-service",le="0.1"} 1</code></pre>
+  <p>Notice: dots became underscores, counters got <code>_total</code>, timers became <code>_seconds_*</code>, and the base unit "euros" was appended. The
+    <code>application</code> tag comes from <code>management.metrics.tags.application</code> – it is added to every metric so one dashboard can show many services.</p>
+  <p>A few PromQL (Prometheus Query Language) examples to try in the Prometheus UI:</p>
+  <div class="table-wrap"><table>
+    <tr><th>PromQL</th><th>Meaning</th></tr>
+    <tr><td><code>rate(shop_orders_placed_total[1m])</code></td><td>Orders per second, averaged over the last minute</td></tr>
+    <tr><td><code>sum by (paymentMethod) (shop_orders_placed_total)</code></td><td>Total orders per payment method</td></tr>
+    <tr><td><code>histogram_quantile(0.95, sum by (le) (rate(shop_orders_processing_seconds_bucket[5m])))</code></td><td>95th-percentile processing time</td></tr>
+    <tr><td><code>sum(rate(http_server_requests_seconds_count{status=~"5.."}[1m]))</code></td><td>Server errors per second</td></tr>
+    <tr><td><code>jvm_memory_used_bytes{area="heap"}</code></td><td>Heap memory used</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ What is a percentile?</strong>"p95 = 180 ms" means 95% of requests were faster than 180 ms and 5% were slower. Averages hide slow requests;
+    percentiles show what your unhappiest users experience. That's why we call <code>publishPercentileHistogram()</code>.</div>
+
+  <h3>3.11 Grafana</h3>
+  <p><strong>Grafana</strong> draws beautiful dashboards from Prometheus data and can send alerts (email, Slack…). Our <code>docker-compose.yml</code> starts both, and
+    a provisioning file adds Prometheus as a data source automatically. You can import ready-made community dashboards: in Grafana go to
+    <em>Dashboards → New → Import</em> and enter ID <strong>4701</strong> ("JVM (Micrometer)"), or search grafana.com for "Spring Boot".</p>
+
+  <h3>3.12 Changing log levels at runtime</h3>
+  <p>Production runs at <code>INFO</code>. A customer reports a strange problem. You need <code>DEBUG</code> logs – but restarting means losing the situation.
+    The <code>loggers</code> endpoint changes the level <em>live</em>:</p>
+  <pre class="terminal"><code>GET  /actuator/loggers/com.course.observability
+{"configuredLevel":"INFO","effectiveLevel":"INFO"}
+
+POST /actuator/loggers/com.course.observability
+Content-Type: application/json
+{"configuredLevel":"DEBUG"}
+-&gt; 204 No Content
+
+GET  /actuator/loggers/com.course.observability
+{"configuredLevel":"DEBUG","effectiveLevel":"DEBUG"}</code></pre>
+  <p>Send <code>{"configuredLevel": null}</code> to go back to the configured level. The change is lost on restart, which is usually what you want.</p>
+
+  <!-- ===================================================== 4 -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>An "Order Service", package <code>com.course.observability</code>. No database – orders live in a map – so we can focus on monitoring.</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>pom.xml</code></td><td>Actuator, Prometheus registry, <code>build-info</code> goal.</td></tr>
+    <tr><td><code>ObservabilityApplication.java</code></td><td>Main class with a list of useful URLs.</td></tr>
+    <tr><td><code>order/Order.java</code></td><td>Record + <code>OrderStatus</code> enum (PENDING, PAID, FAILED).</td></tr>
+    <tr><td><code>order/OrderService.java</code></td><td>All four custom meter types.</td></tr>
+    <tr><td><code>order/OrderController.java</code></td><td><code>POST /api/orders</code>, <code>GET /api/orders</code> (measured automatically in <code>http.server.requests</code>).</td></tr>
+    <tr><td><code>health/PaymentGateway.java</code></td><td>Fake external provider that can be "down".</td></tr>
+    <tr><td><code>health/PaymentGatewayHealthIndicator.java</code></td><td>Custom health check.</td></tr>
+    <tr><td><code>info/ShopInfoContributor.java</code></td><td>Custom info section.</td></tr>
+    <tr><td><code>admin/PaymentGatewayAdminController.java</code></td><td>Demo switch: <code>POST /api/admin/payment-gateway?up=false</code>.</td></tr>
+    <tr><td><code>application.properties</code></td><td>Safe exposure, health details, probes, info, common tags, histogram.</td></tr>
+    <tr><td><code>application-dev.properties</code></td><td>Exposes everything + shows real values in /env (learning only).</td></tr>
+    <tr><td><code>src/test/.../ActuatorEndpointsTest.java</code></td><td>MockMvc tests for health (UP and 503), info, metrics and prometheus.</td></tr>
+    <tr><td><code>docker-compose.yml</code>, <code>monitoring/prometheus.yml</code>, <code>monitoring/grafana/...</code></td><td>Optional Prometheus + Grafana stack.</td></tr>
+    <tr><td><code>requests.http</code></td><td>Every request from this lesson.</td></tr>
+  </table></div>
+
+  <h3>4.1 How the payment gateway connects everything</h3>
+  <p><code>PaymentGateway</code> is a tiny bean with an <code>AtomicBoolean up</code>. Three classes use it:</p>
+  <ul>
+    <li><code>PaymentGatewayHealthIndicator</code> calls <code>ping()</code> → health UP/DOWN.</li>
+    <li><code>OrderService</code> checks <code>isUp()</code> → order becomes PAID or PENDING → the <code>shop.orders.pending</code> gauge rises.</li>
+    <li><code>PaymentGatewayAdminController</code> flips the switch so you can watch the whole system react.</li>
+  </ul>
+
+  <h3>4.2 The properties, line by line</h3>
+  <pre><span class="file">src/main/resources/application.properties (excerpt)</span><code class="lang-properties">management.endpoints.web.exposure.include=health,info,metrics,prometheus,loggers
+management.endpoint.health.show-details=always
+management.endpoint.health.probes.enabled=true
+management.endpoint.health.group.readiness.include=readinessState,paymentGateway
+
+management.info.env.enabled=true
+info.app.name=Order Service
+info.app.version=@project.version@          # filled in by Maven at build time
+
+management.metrics.tags.application=${spring.application.name}
+management.metrics.distribution.percentiles-histogram.http.server.requests=true</code></pre>
+  <p><code>@project.version@</code> is Maven <em>resource filtering</em>: the Spring Boot parent POM replaces <code>@...@</code> placeholders in <code>application*.properties</code> while copying them. So <code>/info</code> shows <code>"version":"1.0.0"</code>.</p>
+
+  <h3>4.3 The test</h3>
+  <pre><span class="file">src/test/java/com/course/observability/ActuatorEndpointsTest.java (excerpt)</span><code class="lang-java">@SpringBootTest
+@AutoConfigureMockMvc
+@AutoConfigureObservability   // tests switch metric EXPORTERS (e.g. /actuator/prometheus) off by default
+@DirtiesContext
+class ActuatorEndpointsTest {
+
+    @Test
+    void healthIsDownWhenTheGatewayIsDown() throws Exception {
+        mockMvc.perform(post("/api/admin/payment-gateway").param("up", "false"));
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isServiceUnavailable())       // HTTP 503
+                .andExpect(jsonPath("$.status").value("DOWN"));
+    }
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ Lesson learned while building this project</strong>Without <code>@AutoConfigureObservability</code>, the test for <code>/actuator/prometheus</code> failed with 404.
+    Spring Boot tests deliberately switch off metric exporters (Prometheus, Datadog…) so tests don't send data anywhere. This annotation switches them back on.</div>
+
+  <!-- ===================================================== 5 -->
+  <h2 id="run">5. How to run</h2>
+  <p><strong>VS Code:</strong> run <code>ObservabilityApplication.java</code>. <strong>Terminal:</strong></p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\53-Actuator-Monitoring-And-Observability"
+mvn spring-boot:run</code></pre>
+  <p>Open these in your browser, or use <code>requests.http</code> (in PowerShell use <code>curl.exe</code>):</p>
+  <pre class="terminal"><code>curl http://localhost:8080/actuator/health</code></pre>
+  <pre class="terminal"><code>{"status":"UP","groups":["liveness","readiness"],"components":{
+  "diskSpace":{"status":"UP","details":{"total":157285347328,"free":111159152640,"threshold":10485760,...}},
+  "livenessState":{"status":"UP"},
+  "paymentGateway":{"status":"UP","details":{"provider":"DemoPay","latencyMs":42}},
+  "ping":{"status":"UP"},
+  "readinessState":{"status":"UP"}, ...}}</code></pre>
+  <p>Place an order and look at the metrics:</p>
+  <pre class="terminal"><code>curl -X POST http://localhost:8080/api/orders -H "Content-Type: application/json" -d "{\"product\":\"Coffee Mug\",\"amount\":12.50,\"paymentMethod\":\"UPI\"}"
+{"id":1,"product":"Coffee Mug","amount":12.50,"paymentMethod":"UPI","status":"PAID","createdAt":"..."}
+
+curl http://localhost:8080/actuator/metrics/shop.orders.placed
+{"name":"shop.orders.placed","description":"Number of orders placed",
+ "measurements":[{"statistic":"COUNT","value":1.0}],
+ "availableTags":[{"tag":"application","values":["order-service"]},
+                  {"tag":"paymentMethod","values":["upi"]},{"tag":"status","values":["PAID"]}]}
+
+curl http://localhost:8080/actuator/metrics/shop.orders.processing
+{"name":"shop.orders.processing","baseUnit":"seconds",
+ "measurements":[{"statistic":"COUNT","value":1.0},{"statistic":"TOTAL_TIME","value":0.0858},{"statistic":"MAX","value":0.0858}], ...}</code></pre>
+  <p>Info:</p>
+  <pre class="terminal"><code>curl http://localhost:8080/actuator/info
+{"app":{"name":"Order Service","version":"1.0.0",...},"team":{"owner":"checkout-team",...},
+ "build":{"artifact":"actuator-observability","version":"1.0.0","time":"...","group":"com.course"},
+ "java":{"version":"17.0.19",...},"os":{"name":"Windows 11",...},
+ "shop":{"region":"EU-West","ordersSinceStartup":1,"pendingOrders":0,"supportEmail":"support@shop.example"}}</code></pre>
+  <p>Break the payment gateway and watch health turn red:</p>
+  <pre class="terminal"><code>curl -X POST "http://localhost:8080/api/admin/payment-gateway?up=false"
+curl -i http://localhost:8080/actuator/health
+HTTP/1.1 503
+{"status":"DOWN", ... "paymentGateway":{"status":"DOWN","details":{"provider":"DemoPay","error":"Connection refused: api.demopay.example:443"}} ...}</code></pre>
+  <p>Change the log level live, then place an order and see the extra <code>DEBUG Placing order ...</code> line:</p>
+  <pre class="terminal"><code>curl -X POST http://localhost:8080/actuator/loggers/com.course.observability -H "Content-Type: application/json" -d "{\"configuredLevel\":\"DEBUG\"}"</code></pre>
+  <p>See every endpoint with the <code>dev</code> profile (learning only):</p>
+  <pre class="terminal"><code>mvn spring-boot:run -Dspring-boot.run.profiles=dev
+# then: /actuator/env  /actuator/beans  /actuator/mappings  /actuator/conditions  /actuator/threaddump</code></pre>
+  <h3>Optional: Prometheus + Grafana</h3>
+  <pre class="terminal"><code># app running on 8080, then in a second terminal:
+docker compose up -d
+# Prometheus: http://localhost:9090  -&gt; Status &gt; Targets  -&gt; "order-service" should be UP
+#             Graph tab: rate(shop_orders_placed_total[1m])
+# Grafana:    http://localhost:3000  (admin / admin) -&gt; Explore -&gt; Prometheus data source
+docker compose down</code></pre>
+  <p>Run the tests with <code>mvn test</code> (4 tests).</p>
+
+  <!-- ===================================================== 6 -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: "/actuator/metrics gives 404"</strong>Only <code>health</code> is exposed over HTTP by default.
+    <br><strong>Fix:</strong> add it to <code>management.endpoints.web.exposure.include</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "/actuator/info is empty <code>{}</code>"</strong>Since Spring Boot 2.6 the <code>env</code> info contributor is off by default, so <code>info.*</code> properties are ignored.
+    <br><strong>Fix:</strong> <code>management.info.env.enabled=true</code>, and add the <code>build-info</code> goal for build data.</div>
+  <div class="callout danger"><strong>🛑 Mistake: <code>exposure.include=*</code> in production without security</strong>Anyone can read <code>/env</code>, download <code>/heapdump</code> (with passwords and tokens inside), or change log levels.
+    <br><strong>Fix:</strong> expose only what you need, use a separate internal management port, and protect the rest with Spring Security.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: high-cardinality tags</strong><code>.tag("userId", userId)</code> creates one time series per user – memory explodes in your app and in Prometheus.
+    <br><strong>Fix:</strong> tags must have a small, fixed set of values (status, method, region). Put ids in logs or traces instead.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: creating a new Timer/Counter object on every call with <code>new</code></strong>Meters must be registered in the <code>MeterRegistry</code>, otherwise nobody sees them.
+    <br><strong>Fix:</strong> always use the builders with <code>.register(registry)</code> (it returns the existing meter if the name+tags already exist), and keep long-lived meters in fields.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: a Gauge on a temporary object</strong>Micrometer keeps only a <em>weak reference</em> to the object you give a Gauge. If that object is garbage-collected, the gauge shows <code>NaN</code>.
+    <br><strong>Fix:</strong> point gauges at long-lived objects such as a Spring bean (we use <code>this</code>, the <code>OrderService</code> singleton).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: slow health checks</strong>A health indicator that runs a 5-second query is called by the load balancer every few seconds and makes everything slow.
+    <br><strong>Fix:</strong> keep checks cheap (a ping, <code>SELECT 1</code>), use timeouts, and don't put external systems into liveness.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: Prometheus target is DOWN in Docker</strong>Inside a container, <code>localhost</code> means the container itself, not your PC.
+    <br><strong>Fix:</strong> use <code>host.docker.internal:8080</code> as the target (our <code>prometheus.yml</code> does).</div>
+
+  <!-- ===================================================== 7 -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Add Actuator to every service</strong> from day one. It costs almost nothing.</li>
+    <li><strong>Expose the minimum</strong> over HTTP (health, info, prometheus); use a separate management port and/or Spring Security for the rest.</li>
+    <li><strong><code>show-details=when-authorized</code></strong> in production, so the public only sees UP/DOWN.</li>
+    <li><strong>Enable liveness/readiness probes</strong> on Kubernetes; external dependencies go to readiness only.</li>
+    <li><strong>Publish build and git info</strong> so you always know what is deployed.</li>
+    <li><strong>Add business metrics</strong> (orders, payments, sign-ups), not just technical ones – they catch problems that technical metrics miss.</li>
+    <li><strong>Use a common <code>application</code> tag</strong> and consistent, dotted metric names with a domain prefix.</li>
+    <li><strong>Watch the "four golden signals"</strong>: latency, traffic, errors, saturation (CPU/memory/pool usage).</li>
+    <li><strong>Alert on symptoms</strong> (error rate, p95 latency) rather than on every small cause, and avoid alert fatigue.</li>
+    <li><strong>Use percentiles</strong> (p95, p99), not only averages.</li>
+    <li>Combine with <strong>structured logs</strong> (topic 30) and <strong>tracing</strong> (topic 65) for full observability.</li>
+  </ul>
+
+  <!-- ===================================================== 8 -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Observability = logs + metrics + traces. Actuator gives you production-ready endpoints with one dependency.</li>
+    <li>Only <code>/actuator/health</code> is exposed over HTTP by default; choose more with <code>management.endpoints.web.exposure.include</code>.</li>
+    <li><code>/env</code>, <code>/heapdump</code>, <code>/configprops</code> are sensitive – never expose them publicly.</li>
+    <li>Health = combination of indicators; one DOWN → overall DOWN → HTTP 503. Custom checks implement <code>HealthIndicator</code>.</li>
+    <li>Liveness → restart; readiness → stop traffic. Enable with <code>management.endpoint.health.probes.enabled=true</code>.</li>
+    <li><code>/info</code> is built from <code>info.*</code> properties (enable the env contributor), build-info, git, java/os and custom <code>InfoContributor</code>s.</li>
+    <li>Micrometer meters: Counter (up only), Gauge (current value), Timer (duration), DistributionSummary (sizes/amounts); tags must be low-cardinality.</li>
+    <li><code>micrometer-registry-prometheus</code> adds <code>/actuator/prometheus</code>; Prometheus scrapes it, Grafana draws it.</li>
+    <li><code>/actuator/loggers</code> changes log levels at runtime without a restart.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9 -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Explore the built-in metrics.</strong> Call <code>GET /api/orders</code> five times, then find out (a) how many requests went to <code>/api/orders</code> and (b) how much heap memory is used.</p>
+    <details><summary>Hint / solution</summary><pre class="terminal"><code>GET /actuator/metrics/http.server.requests?tag=uri:/api/orders&amp;tag=method:GET
+GET /actuator/metrics/jvm.memory.used?tag=area:heap</code></pre><p>The first shows <code>COUNT</code> = 5 (plus any earlier calls). Values are in bytes for memory.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Add git-style info.</strong> Add <code>info.app.environment</code> and <code>info.app.contact</code> properties and confirm they appear in <code>/actuator/info</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-properties">info.app.environment=local
+info.app.contact=checkout-team@shop.example</code></pre><p>Works because <code>management.info.env.enabled=true</code> is already set. For real git data, add the <code>io.github.git-commit-id:git-commit-id-maven-plugin</code> to the build – Actuator picks up <code>git.properties</code> automatically.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Count failed orders.</strong> Reject orders with an amount ≤ 0 by throwing <code>IllegalArgumentException</code>, and count them in a counter <code>shop.orders.rejected</code> with a tag <code>reason</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public Order placeOrder(String product, BigDecimal amount, String paymentMethod) {
+    if (amount == null || amount.signum() &lt;= 0) {
+        Counter.builder("shop.orders.rejected")
+                .description("Orders rejected by validation")
+                .tag("reason", "invalid_amount")
+                .register(registry)
+                .increment();
+        throw new IllegalArgumentException("Amount must be positive");
+    }
+    ...
+}</code></pre><p>Then <code>GET /actuator/metrics/shop.orders.rejected</code>. Note the tag value is a fixed word, not the amount itself (cardinality!).</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>A disk-quota health check.</strong> Write a <code>ReportsFolderHealthIndicator</code> that is DOWN when the folder <code>reports/</code> does not exist and shows the number of files as a detail when it does.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Component
+public class ReportsFolderHealthIndicator implements HealthIndicator {
+    private final Path folder = Path.of("reports");
+
+    @Override
+    public Health health() {
+        if (!Files.isDirectory(folder)) {
+            return Health.down().withDetail("folder", folder.toAbsolutePath().toString())
+                                .withDetail("error", "folder missing").build();
+        }
+        try (Stream&lt;Path&gt; files = Files.list(folder)) {
+            return Health.up().withDetail("files", files.count()).build();
+        } catch (IOException e) {
+            return Health.down(e).build();
+        }
+    }
+}</code></pre><p>It appears as <code>reportsFolder</code> in <code>/actuator/health</code>. Create the folder and refresh to see it turn UP.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>A custom actuator endpoint.</strong> Create <code>/actuator/features</code> that returns a map of feature flags (GET) and lets you switch one on/off (POST).</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Component
+@Endpoint(id = "features")
+public class FeaturesEndpoint {
+    private final Map&lt;String, Boolean&gt; features = new ConcurrentHashMap&lt;&gt;(Map.of("newCheckout", false, "darkMode", true));
+
+    @ReadOperation                         // GET /actuator/features
+    public Map&lt;String, Boolean&gt; features() { return features; }
+
+    @ReadOperation                         // GET /actuator/features/{name}
+    public Boolean feature(@Selector String name) { return features.get(name); }
+
+    @WriteOperation                        // POST /actuator/features/{name}  body: {"enabled": true}
+    public void configure(@Selector String name, boolean enabled) { features.put(name, enabled); }
+}</code></pre><p>Add <code>features</code> to <code>management.endpoints.web.exposure.include</code>. <code>@Endpoint</code> works over both HTTP and JMX.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>A Grafana panel.</strong> Start the Docker stack, place 20 orders with different payment methods (a PowerShell loop helps), and build a Grafana panel showing orders per minute by payment method.</p>
+    <details><summary>Hint / solution</summary><pre class="terminal"><code>1..20 | ForEach-Object {
+  $pm = @("UPI","card","paypal")[$_ % 3]
+  curl.exe -s -X POST http://localhost:8080/api/orders -H "Content-Type: application/json" -d "{\"product\":\"Item $_\",\"amount\":$_,\"paymentMethod\":\"$pm\"}"
+}</code></pre><p>In Grafana: <em>Dashboards → New → Add visualization → Prometheus</em>, query
+    <code>sum by (paymentMethod) (rate(shop_orders_placed_total[1m])) * 60</code>, visualization "Time series".</p></details>
+  </div>
+
+  <!-- ===================================================== 10 -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is Spring Boot Actuator?</summary>
+    <p>A Spring Boot module (<code>spring-boot-starter-actuator</code>) that adds production-ready features: endpoints for health, info, metrics, environment, loggers, beans, mappings,
+    thread dumps and more, over HTTP and JMX. It integrates with Micrometer for metrics and is the basis for monitoring and Kubernetes probes.</p></details>
+  <details><summary>Q2. Which endpoints are exposed by default, and how do you expose more safely?</summary>
+    <p>Over HTTP only <code>health</code>. Use <code>management.endpoints.web.exposure.include</code>/<code>exclude</code>. Protect with Spring Security (<code>EndpointRequest</code> matchers),
+    a separate <code>management.server.port</code> reachable only internally, and <code>show-details=when-authorized</code>. Never expose <code>env</code>/<code>heapdump</code> publicly.</p></details>
+  <details><summary>Q3. How do you write a custom health check?</summary>
+    <p>Create a bean implementing <code>HealthIndicator</code> (or extend <code>AbstractHealthIndicator</code>) and return <code>Health.up()/down().withDetail(...).build()</code>.
+    The name in <code>/health</code> is the bean name without the "HealthIndicator" suffix. Keep it fast and side-effect free.</p></details>
+  <details><summary>Q4. Difference between liveness and readiness probes?</summary>
+    <p>Liveness answers "is the process alive or stuck?" – failure makes Kubernetes restart the container. Readiness answers "can it take traffic now?" – failure removes it from the load balancer
+    without restarting. External dependencies belong in readiness, not liveness. Spring Boot exposes them at <code>/actuator/health/liveness</code> and <code>/readiness</code>.</p></details>
+  <details><summary>Q5. What is Micrometer?</summary>
+    <p>A vendor-neutral metrics facade ("SLF4J for metrics"). Code records metrics through <code>MeterRegistry</code> and meters (Counter, Gauge, Timer, DistributionSummary, LongTaskTimer);
+    registries for Prometheus, Datadog, CloudWatch, etc. export them. Spring Boot auto-configures it and adds many built-in metrics.</p></details>
+  <details><summary>Q6. Counter vs Gauge vs Timer?</summary>
+    <p>Counter: monotonically increasing count (requests, errors). Gauge: current value that goes up and down, sampled when read (queue size, active sessions). Timer: measures durations and counts
+    of events, providing count, total time, max and optionally percentiles/histograms (request latency).</p></details>
+  <details><summary>Q7. What is tag cardinality and why does it matter?</summary>
+    <p>The number of distinct values a tag can take. Each unique tag combination is a separate time series. High-cardinality tags (user id, order id, full URL with ids) create huge numbers of series,
+    exhausting memory in the app and the monitoring backend. Use bounded values; Spring uses URI <em>templates</em> (<code>/api/orders/{id}</code>) for exactly this reason.</p></details>
+  <details><summary>Q8. How does Prometheus get metrics from a Spring Boot app?</summary>
+    <p>Add <code>micrometer-registry-prometheus</code> and expose the <code>prometheus</code> endpoint. Prometheus <em>pulls</em> (scrapes) <code>/actuator/prometheus</code> on an interval defined in its
+    <code>scrape_configs</code>, stores the time series, and Grafana queries it with PromQL for dashboards and alerts.</p></details>
+  <details><summary>Q9. How can you change a log level in production without restarting?</summary>
+    <p>With the loggers endpoint: <code>POST /actuator/loggers/{logger.name}</code> with <code>{"configuredLevel":"DEBUG"}</code>; send <code>null</code> to reset. The endpoint must be exposed and should be secured.</p></details>
+  <details><summary>Q10. How do you show the application version in /actuator/info?</summary>
+    <p>Enable the env contributor (<code>management.info.env.enabled=true</code>) and set <code>info.app.version=@project.version@</code> (Maven resource filtering), and/or add the <code>build-info</code>
+    goal of <code>spring-boot-maven-plugin</code> which generates <code>build-info.properties</code>. The git-commit-id plugin adds commit information.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../52-Scheduling-Async-And-Events/lesson.html"><small>← Previous</small>52. Scheduling, Async &amp; Events</a>
+    <a class="next" href="../54-File-Upload-Download-And-Emails/lesson.html"><small>Next →</small>54. File Upload, Download &amp; Emails</a>
+  </nav>
+</main>
+</body>
+</html>

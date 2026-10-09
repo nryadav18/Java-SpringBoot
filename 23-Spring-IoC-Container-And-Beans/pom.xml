@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Topic 23 - The Spring IoC container and beans.
+
+  Plain Spring project (no Spring Boot). One Spring library: spring-context.
+  Run it with:   mvn -q compile exec:java
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.course</groupId>
+    <artifactId>ioc-container-and-beans</artifactId>
+    <version>1.0.0</version>
+    <name>23 - Spring IoC Container and Beans</name>
+
+    <properties>
+        <maven.compiler.release>17</maven.compiler.release>
+        <!-- keep parameter names in .class files (Spring 6.1+ uses them) -->
+        <maven.compiler.parameters>true</maven.compiler.parameters>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring.version>6.2.11</spring.version>
+    </properties>
+
+    <dependencies>
+        <!-- The Spring IoC container (brings spring-core, spring-beans, spring-aop, spring-expression) -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+            <version>${spring.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- mvn compile exec:java  ->  runs com.course.ioccontainer.App.main() -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <mainClass>com.course.ioccontainer.App</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

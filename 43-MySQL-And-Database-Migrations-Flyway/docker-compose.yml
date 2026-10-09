@@ -1,0 +1,27 @@
+# Topic 43 - a MySQL 8.4 server for the "mysql" profile.
+#   Start : docker compose up -d
+#   Check : docker compose ps       (wait until STATUS says "healthy")
+#   Logs  : docker compose logs -f mysql
+#   Stop  : docker compose down      (data is kept in the volume)
+#   Reset : docker compose down -v   (deletes the data volume too!)
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: course-mysql-43
+    environment:
+      MYSQL_ROOT_PASSWORD: root_pass      # password of the "root" admin user
+      MYSQL_DATABASE: librarydb           # this database is created on first start
+      MYSQL_USER: library_user            # an app user (not root!) ...
+      MYSQL_PASSWORD: library_pass        # ... and its password
+    ports:
+      - "3306:3306"                       # <your PC port>:<container port>
+    volumes:
+      - mysql-data:/var/lib/mysql         # keep data when the container is removed
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot_pass"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mysql-data:

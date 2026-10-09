@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>57 · Messaging with RabbitMQ</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part E · Advanced Spring Boot › Topic 57</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part E · Advanced Spring Boot</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>57. Messaging with RabbitMQ</h1>
+  <p class="subtitle">Let parts of your system talk through messages instead of direct calls: publish an "order placed" event, consume it in listeners, retry failures and park bad messages in a dead-letter queue.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="57-Messaging-With-RabbitMQ"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li><strong>Synchronous vs asynchronous</strong> communication and why "fire and forget" helps.</li>
+      <li>What a <strong>message broker</strong> is, and how RabbitMQ works.</li>
+      <li>AMQP concepts: <strong>producer, exchange, queue, binding, routing key, consumer</strong>.</li>
+      <li>The three main exchange types: <strong>direct, topic, fanout</strong>.</li>
+      <li>Running RabbitMQ with Docker Compose and using the <strong>management UI</strong>.</li>
+      <li><code>spring-boot-starter-amqp</code>: declaring <code>Queue</code>/<code>Exchange</code>/<code>Binding</code> beans.</li>
+      <li>Sending with <code>RabbitTemplate</code> and a <strong>JSON message converter</strong>.</li>
+      <li>Receiving with <code>@RabbitListener</code> (and <code>@RabbitHandler</code>).</li>
+      <li><strong>Acknowledgements, retries and dead-letter queues</strong>.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../32-Request-Handling-And-Responses/lesson.html">Topic 32 · Request Handling</a>, <a href="../34-Validation/lesson.html">Topic 34 · Validation</a> and <a href="../52-Scheduling-Async-And-Events/lesson.html">Topic 52 · Async &amp; Events</a> (in-app events are the "little brother" of broker messages). Docker must be installed (it is).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>When a customer places an order in an online shop, many things should happen: send a confirmation email, update analytics, notify the warehouse, give loyalty points... If the order service <em>calls</em> each of these directly (REST calls, one after another):</p>
+  <ul>
+    <li>The customer waits for <strong>all</strong> of them to finish. Slow email server = slow checkout.</li>
+    <li>If the email service is <strong>down</strong>, the order fails — even though the order itself was fine.</li>
+    <li>Every new feature (e.g. "send SMS") means changing the order service. Everything is <strong>tightly coupled</strong>.</li>
+  </ul>
+  <p>With <strong>messaging</strong>, the order service just publishes one message — "order 42 was placed" — to a <strong>message broker</strong> and immediately answers the customer. Other services pick up the message whenever they are ready. If the email service is down for 10 minutes, the messages simply wait in a queue and are processed when it comes back.</p>
+  <p>Where you'll see it at work: order processing, email/SMS notifications, background jobs (PDF/report generation, image resizing), integrating microservices (<a href="../59-Microservices-Architecture-Introduction/lesson.html">Topic 59</a>), and smoothing out traffic spikes (queues act as a buffer). RabbitMQ is one of the most popular brokers in the world.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>📮 The post office</strong>
+    <p>You (the <strong>producer</strong>) write a letter (the <strong>message</strong>) and drop it at the post office. You do not wait at the post office until your friend reads it — you go home. That's <strong>asynchronous</strong>.</p>
+    <p>The <strong>sorting room</strong> (the <strong>exchange</strong>) looks at the address on the envelope (the <strong>routing key</strong>) and puts the letter into the right <strong>mailbox</strong> (the <strong>queue</strong>). The sorting rules ("letters for PIN 560001 go to box A") are the <strong>bindings</strong>.</p>
+    <p>Your friend (the <strong>consumer</strong>) opens their mailbox whenever they come home and reads the letters. If they are on holiday, letters wait safely in the box. If a letter cannot be delivered, it goes to the "dead letter office" — the <strong>dead-letter queue</strong>.</p>
+    <p>Compare with a phone call (synchronous REST): both people must be available at the same time, and the caller waits on the line.</p>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Synchronous vs asynchronous communication</h3>
+  <div class="grid">
+    <div class="card"><strong>Synchronous (REST call)</strong>
+      <div class="flow"><span class="box">Order</span><span class="arrow">→ call →</span><span class="box alt">Email</span></div>
+      Caller <em>waits</em> for the answer. Both must be up. Simple, immediate answer. Good when you <em>need</em> the result now (e.g. "is the product in stock?").</div>
+    <div class="card"><strong>Asynchronous (message)</strong>
+      <div class="flow"><span class="box">Order</span><span class="arrow">→</span><span class="box info">Broker</span><span class="arrow">→</span><span class="box alt">Email</span></div>
+      Sender does <em>not</em> wait. Receiver can be down for a while. Good for "tell others something happened" (events) and background work.</div>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Synchronous</th><th>Asynchronous (messaging)</th></tr>
+    <tr><td>Coupling in time</td><td>Both up at the same moment</td><td>Decoupled — receiver can be offline</td></tr>
+    <tr><td>Response</td><td>Immediate result</td><td>"Accepted" now, result later</td></tr>
+    <tr><td>Failure of receiver</td><td>Caller fails too</td><td>Messages wait in the queue</td></tr>
+    <tr><td>Traffic spikes</td><td>Receiver gets overloaded</td><td>Queue buffers the spike</td></tr>
+    <tr><td>Adding a new receiver</td><td>Change the caller</td><td>Just bind a new queue</td></tr>
+    <tr><td>Complexity</td><td>Low</td><td>Higher: broker to run, eventual consistency, duplicates</td></tr>
+  </table></div>
+
+  <h3>3.2 What is a message broker? What is RabbitMQ?</h3>
+  <p>A <strong>message broker</strong> is a server whose job is to receive messages, store them safely, and deliver them to the right consumers. <strong>RabbitMQ</strong> is an open-source broker (written in Erlang) that implements the <strong>AMQP 0-9-1</strong> protocol (Advanced Message Queuing Protocol). Spring's support for it is called <strong>Spring AMQP</strong>.</p>
+
+  <h3>3.3 The AMQP building blocks</h3>
+  <figure class="diagram">
+    <svg viewBox="0 0 760 290" role="img" aria-label="AMQP: producer to exchange, bindings to queues, consumers">
+      <style>
+        .a1{font:600 13px 'Segoe UI',sans-serif;fill:currentColor}
+        .a2{font:11.5px 'Segoe UI',sans-serif;fill:currentColor}
+      </style>
+      <rect x="10" y="115" width="110" height="50" rx="8" fill="var(--surface)" stroke="var(--java)" stroke-width="2"/>
+      <text x="30" y="137" class="a1">Producer</text><text x="22" y="154" class="a2">OrderController</text>
+      <line x1="120" y1="140" x2="215" y2="140" stroke="currentColor" stroke-width="2"/><polygon points="215,134 225,140 215,146" fill="currentColor"/>
+      <text x="125" y="128" class="a2">msg + routing key</text>
+      <text x="135" y="160" class="a2">"order.placed"</text>
+
+      <rect x="228" y="100" width="150" height="80" rx="10" fill="var(--info-soft)" stroke="var(--info)" stroke-width="2"/>
+      <text x="262" y="132" class="a1">Exchange</text><text x="240" y="152" class="a2">shop.orders.exchange</text><text x="275" y="168" class="a2">(topic)</text>
+
+      <line x1="378" y1="125" x2="500" y2="60" stroke="currentColor" stroke-width="2"/><polygon points="497,53 508,57 501,65" fill="currentColor"/>
+      <text x="395" y="78" class="a2">binding "order.placed"</text>
+      <line x1="378" y1="155" x2="500" y2="220" stroke="currentColor" stroke-width="2"/><polygon points="501,213 508,223 496,225" fill="currentColor"/>
+      <text x="400" y="215" class="a2">binding "order.#"</text>
+
+      <rect x="510" y="35" width="120" height="44" rx="6" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/>
+      <text x="524" y="54" class="a1">Queue</text><text x="518" y="70" class="a2">notification</text>
+      <rect x="510" y="200" width="120" height="44" rx="6" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/>
+      <text x="524" y="219" class="a1">Queue</text><text x="518" y="235" class="a2">analytics</text>
+
+      <line x1="630" y1="57" x2="660" y2="57" stroke="currentColor" stroke-width="2"/><polygon points="660,51 670,57 660,63" fill="currentColor"/>
+      <rect x="672" y="35" width="82" height="44" rx="6" fill="var(--surface)" stroke="var(--java)" stroke-width="2"/>
+      <text x="680" y="54" class="a1">Consumer</text><text x="680" y="70" class="a2">Notification</text>
+      <line x1="630" y1="222" x2="660" y2="222" stroke="currentColor" stroke-width="2"/><polygon points="660,216 670,222 660,228" fill="currentColor"/>
+      <rect x="672" y="200" width="82" height="44" rx="6" fill="var(--surface)" stroke="var(--java)" stroke-width="2"/>
+      <text x="680" y="219" class="a1">Consumer</text><text x="680" y="235" class="a2">Analytics</text>
+
+      <rect x="222" y="20" width="270" height="250" rx="12" fill="none" stroke="var(--muted)" stroke-dasharray="6 4"/>
+      <rect x="500" y="20" width="140" height="250" rx="12" fill="none" stroke="var(--muted)" stroke-dasharray="6 4"/>
+      <text x="300" y="262" class="a2">inside RabbitMQ (the broker)</text>
+    </svg>
+    <figcaption>Producers never write to a queue directly. They publish to an exchange; bindings decide which queues get a copy.</figcaption>
+  </figure>
+  <div class="table-wrap"><table>
+    <tr><th>Term</th><th>Meaning</th><th>Post-office picture</th></tr>
+    <tr><td><strong>Message</strong></td><td>Body (bytes, e.g. JSON) + headers/properties</td><td>A letter</td></tr>
+    <tr><td><strong>Producer</strong> (publisher)</td><td>Application that sends messages</td><td>The person posting the letter</td></tr>
+    <tr><td><strong>Exchange</strong></td><td>Receives messages and routes them to queues using bindings</td><td>The sorting room</td></tr>
+    <tr><td><strong>Routing key</strong></td><td>A label on each message, e.g. <code>order.placed</code></td><td>The address on the envelope</td></tr>
+    <tr><td><strong>Queue</strong></td><td>Stores messages until a consumer takes them (FIFO)</td><td>A mailbox</td></tr>
+    <tr><td><strong>Binding</strong></td><td>A rule linking an exchange to a queue (with a binding key/pattern)</td><td>"Letters for PIN 560001 → box A"</td></tr>
+    <tr><td><strong>Consumer</strong></td><td>Application that receives messages from a queue</td><td>The person reading the mailbox</td></tr>
+    <tr><td><strong>Ack</strong> (acknowledgement)</td><td>Consumer tells the broker "done, you can delete it"</td><td>Signing for a registered letter</td></tr>
+    <tr><td><strong>Virtual host</strong></td><td>A separate "namespace" inside one broker (default <code>/</code>)</td><td>Separate post-office branches</td></tr>
+  </table></div>
+
+  <h3>3.4 Exchange types</h3>
+  <p>The exchange type decides <strong>how</strong> routing keys are matched against bindings.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Type</th><th>Routing rule</th><th>Example</th><th>Use it for</th></tr>
+    <tr><td><strong>Direct</strong></td><td>Routing key must <em>exactly equal</em> the binding key</td><td>key <code>pdf</code> → queue bound with <code>pdf</code></td><td>Sending a task to one specific kind of worker</td></tr>
+    <tr><td><strong>Topic</strong></td><td>Pattern match on dot-separated words: <code>*</code> = exactly one word, <code>#</code> = zero or more words</td><td><code>order.*</code> matches <code>order.placed</code>; <code>order.#</code> also matches <code>order.eu.placed</code></td><td>Events with categories; flexible subscriptions</td></tr>
+    <tr><td><strong>Fanout</strong></td><td>Ignores the routing key — every bound queue gets a copy</td><td>Broadcast "sale starts tomorrow"</td><td>Broadcast / publish-subscribe</td></tr>
+    <tr><td>Headers</td><td>Matches message headers instead of the key (rare)</td><td><code>x-match: all</code></td><td>Complex attribute routing</td></tr>
+  </table></div>
+  <div class="grid">
+    <div class="card"><strong>Direct</strong>
+      <div class="flow"><span class="box">key: pdf</span><span class="arrow">→</span><span class="box info">direct</span><span class="arrow">→</span><span class="box alt">pdf queue ✔</span></div>
+      <small>The "image" queue does not get it.</small></div>
+    <div class="card"><strong>Topic</strong>
+      <div class="flow"><span class="box">order.placed</span><span class="arrow">→</span><span class="box info">topic</span><span class="arrow">→</span><span class="box alt">"order.placed" ✔<br>"order.#" ✔</span></div>
+      <small>Both patterns match, so both queues get a copy.</small></div>
+    <div class="card"><strong>Fanout</strong>
+      <div class="flow"><span class="box">any key</span><span class="arrow">→</span><span class="box info">fanout</span><span class="arrow">→</span><span class="box alt">queue A ✔<br>queue B ✔</span></div>
+      <small>Everybody gets a copy.</small></div>
+  </div>
+  <div class="callout info"><strong>ℹ️ The default exchange</strong>RabbitMQ has a nameless direct exchange <code>""</code> where every queue is automatically bound with its own name. So <code>rabbitTemplate.convertAndSend("my-queue", msg)</code> looks like "send to a queue", but really goes through this default exchange.</div>
+
+  <h3>3.5 One queue, many consumers vs. many queues</h3>
+  <p>Two patterns you must not mix up:</p>
+  <ul>
+    <li><strong>Competing consumers (work queue):</strong> several instances listen to the <em>same</em> queue. Each message goes to <strong>only one</strong> of them. Use it to share work and scale (3 email workers).</li>
+    <li><strong>Publish/subscribe:</strong> each interested service has its <em>own</em> queue bound to the exchange. Each queue gets <strong>its own copy</strong>. Use it so that notification AND analytics both see every order.</li>
+  </ul>
+
+  <h3>3.6 Acknowledgements, retries and dead-letter queues</h3>
+  <p>A message is removed from a queue only when the consumer <strong>acknowledges</strong> it. Spring does this for you (<code>AUTO</code> mode): if your <code>@RabbitListener</code> method returns normally → <strong>ack</strong>; if it throws → <strong>nack/reject</strong>.</p>
+  <p>What happens after a reject? By default Spring <em>requeues</em> the message — and if the error is permanent (bad data), it fails again, forever. This is a "poison message" loop. The fix has two parts:</p>
+  <ol>
+    <li><strong>Retry a few times</strong> (temporary errors like a network blip often succeed on the 2nd try).</li>
+    <li>After the last attempt, <strong>reject without requeue</strong>. If the queue has a <strong>dead-letter exchange</strong> (DLX) configured, RabbitMQ moves the message there, and from there into a <strong>dead-letter queue</strong> (DLQ) where a human or a special process can look at it.</li>
+  </ol>
+  <div class="flow">
+    <span class="box">notification queue</span><span class="arrow">→</span>
+    <span class="box alt">listener throws<br><small>attempt 1, 2, 3</small></span><span class="arrow">→</span>
+    <span class="box" style="border-color:var(--danger)">reject (no requeue)</span><span class="arrow">→</span>
+    <span class="box info">DLX shop.orders.dlx</span><span class="arrow">→</span>
+    <span class="box" style="border-color:var(--danger)">DLQ ...notification.dlq</span>
+  </div>
+  <pre><span class="file">application.properties (retry part)</span><code class="lang-properties">spring.rabbitmq.listener.simple.retry.enabled=true
+spring.rabbitmq.listener.simple.retry.max-attempts=3
+spring.rabbitmq.listener.simple.retry.initial-interval=1000ms
+spring.rabbitmq.listener.simple.retry.multiplier=2
+spring.rabbitmq.listener.simple.default-requeue-rejected=false</code></pre>
+  <p>These retries happen <em>inside the app</em> (waiting 1 s, then 2 s). When they are used up, Spring rejects the message (no requeue), and RabbitMQ dead-letters it.</p>
+
+  <h3>3.7 Message format: why JSON</h3>
+  <p>By default Spring AMQP uses Java serialization — binary, only readable by Java, fragile when classes change, and a known security risk. Almost every team switches to JSON by declaring a <code>Jackson2JsonMessageConverter</code> bean. Spring Boot automatically uses it for both sending and receiving. The converter also adds a <code>__TypeId__</code> header with the class name, so the receiver knows which Java type to create.</p>
+
+  <h3>3.8 Delivery guarantees in simple words</h3>
+  <ul>
+    <li>Make exchanges and queues <strong>durable</strong> and messages <strong>persistent</strong> (Spring's default) so they survive a broker restart.</li>
+    <li>RabbitMQ gives <strong>at-least-once</strong> delivery: in rare cases (crash after processing but before the ack) a message is delivered <strong>twice</strong>. So consumers should be <strong>idempotent</strong> — processing the same message twice must not send two emails or charge twice (e.g. remember processed <code>orderId</code>s).</li>
+    <li>For the producer side, <strong>publisher confirms</strong> (<code>spring.rabbitmq.publisher-confirm-type=correlated</code>) let you know the broker really received the message.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Our design (package <code>com.course.rabbitmq</code>):</p>
+  <div class="flow">
+    <span class="box">POST /api/orders</span><span class="arrow">→</span>
+    <span class="box alt">OrderEventPublisher<br><small>RabbitTemplate</small></span><span class="arrow">→</span>
+    <span class="box info">shop.orders.exchange<br><small>topic</small></span><span class="arrow">→</span>
+    <span class="box">notification queue → NotificationListener<br>analytics queue → AnalyticsListener</span>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>docker-compose.yml</code></td><td>RabbitMQ with the management plugin</td></tr>
+    <tr><td><code>pom.xml</code></td><td><code>spring-boot-starter-amqp</code>, web, validation</td></tr>
+    <tr><td><code>application.properties</code></td><td>Connection, retry settings, names of exchanges/queues</td></tr>
+    <tr><td><code>config/RabbitConfig.java</code></td><td>All exchanges, queues, bindings, DLX and the JSON converter</td></tr>
+    <tr><td><code>order/OrderPlacedEvent.java</code>, <code>OrderCancelledEvent.java</code></td><td>The messages (records)</td></tr>
+    <tr><td><code>order/OrderRequest.java</code></td><td>Validated request body</td></tr>
+    <tr><td><code>order/OrderController.java</code></td><td>REST endpoints returning 202 Accepted</td></tr>
+    <tr><td><code>order/OrderEventPublisher.java</code></td><td>Producer with <code>RabbitTemplate</code></td></tr>
+    <tr><td><code>notification/NotificationListener.java</code></td><td>Consumer; fails on purpose for <code>@fail.test</code> emails</td></tr>
+    <tr><td><code>notification/AnalyticsListener.java</code></td><td>One queue, two message types (<code>@RabbitHandler</code>)</td></tr>
+    <tr><td><code>notification/DeadLetterListener.java</code></td><td>Reads the DLQ</td></tr>
+    <tr><td><code>notification/AnnouncementListener.java</code></td><td>Fanout consumer</td></tr>
+    <tr><td><code>test/OrderControllerTest.java</code></td><td>3 tests that need no broker</td></tr>
+    <tr><td><code>requests.http</code></td><td>Sample requests</td></tr>
+  </table></div>
+
+  <h3>4.1 docker-compose.yml</h3>
+  <pre><span class="file">docker-compose.yml</span><code class="lang-yaml">services:
+  rabbitmq:
+    image: rabbitmq:3-management     # "-management" = includes the web UI
+    container_name: course-rabbitmq
+    ports:
+      - "5672:5672"                  # AMQP - the app connects here
+      - "15672:15672"                # management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest</code></pre>
+
+  <h3>4.2 Declaring the topology – RabbitConfig</h3>
+  <p>"Topology" = the exchanges, queues and bindings. We declare them as Spring beans; Spring Boot's <code>RabbitAdmin</code> creates them in RabbitMQ when the app connects (only if they don't already exist).</p>
+  <pre><span class="file">config/RabbitConfig.java (main flow)</span><code class="lang-java">@Bean
+public TopicExchange ordersExchange() {
+    return new TopicExchange(exchangeName, true, false);    // durable, not auto-delete
+}
+
+@Bean
+public Queue notificationQueue() {
+    return QueueBuilder.durable(notificationQueueName)
+            .deadLetterExchange(deadLetterExchangeName)     // where rejected messages go
+            .deadLetterRoutingKey(DEAD_LETTER_KEY)
+            .build();
+}
+
+@Bean
+public Queue analyticsQueue() {
+    return QueueBuilder.durable(analyticsQueueName).build();
+}
+
+@Bean
+public Binding notificationBinding() {
+    return BindingBuilder.bind(notificationQueue()).to(ordersExchange()).with("order.placed");
+}
+
+@Bean
+public Binding analyticsBinding() {
+    return BindingBuilder.bind(analyticsQueue()).to(ordersExchange()).with("order.#");
+}</code></pre>
+  <pre><span class="file">config/RabbitConfig.java (dead letters + fanout)</span><code class="lang-java">@Bean
+public DirectExchange deadLetterExchange() {
+    return new DirectExchange(deadLetterExchangeName, true, false);
+}
+
+@Bean
+public Binding deadLetterBinding() {
+    return BindingBuilder.bind(deadLetterQueue()).to(deadLetterExchange()).with(DEAD_LETTER_KEY);
+}
+
+@Bean
+public FanoutExchange broadcastExchange() {
+    return new FanoutExchange(broadcastExchangeName, true, false);
+}
+
+@Bean
+public Binding broadcastBinding() {
+    return BindingBuilder.bind(broadcastQueue()).to(broadcastExchange());   // no key for fanout
+}</code></pre>
+  <pre><span class="file">config/RabbitConfig.java (JSON)</span><code class="lang-java">@Bean
+public MessageConverter jsonMessageConverter(ObjectMapper objectMapper) {
+    Jackson2JsonMessageConverter converter = new Jackson2JsonMessageConverter(objectMapper);
+    DefaultJackson2JavaTypeMapper typeMapper = new DefaultJackson2JavaTypeMapper();
+    typeMapper.setTrustedPackages("com.course.rabbitmq.order", "java.lang", "java.util");
+    converter.setJavaTypeMapper(typeMapper);
+    return converter;
+}</code></pre>
+  <p>We pass Boot's <code>ObjectMapper</code> so <code>Instant</code> and <code>BigDecimal</code> are handled the same way as in our REST API. The trusted-packages list is a security measure: only our own classes may be created from the <code>__TypeId__</code> header.</p>
+
+  <h3>4.3 The producer</h3>
+  <pre><span class="file">order/OrderEventPublisher.java</span><code class="lang-java">public void publishOrderPlaced(OrderPlacedEvent event) {
+    rabbitTemplate.convertAndSend(exchange, RabbitConfig.ORDER_PLACED_KEY, event);
+    //                            ^exchange  ^routing key "order.placed"    ^object -&gt; JSON
+}
+
+public void broadcast(String announcement) {
+    rabbitTemplate.convertAndSend(broadcastExchange, "", announcement);   // fanout ignores the key
+}</code></pre>
+  <pre><span class="file">order/OrderController.java (key part)</span><code class="lang-java">@PostMapping("/orders")
+@ResponseStatus(HttpStatus.ACCEPTED)                 // 202: "accepted, will be processed later"
+public Map&lt;String, String&gt; placeOrder(@Valid @RequestBody OrderRequest request) {
+    String orderId = UUID.randomUUID().toString();
+    BigDecimal total = request.unitPrice().multiply(BigDecimal.valueOf(request.quantity()));
+    publisher.publishOrderPlaced(new OrderPlacedEvent(orderId, request.customerName(),
+            request.customerEmail(), request.product(), request.quantity(), total, Instant.now()));
+    return Map.of("orderId", orderId, "status", "ACCEPTED", "message", "...");
+}</code></pre>
+
+  <h3>4.4 The consumers</h3>
+  <pre><span class="file">notification/NotificationListener.java</span><code class="lang-java">@RabbitListener(queues = "${app.rabbit.notification-queue}")
+public void onOrderPlaced(OrderPlacedEvent event) {          // JSON -&gt; record, automatically
+    if (event.customerEmail().endsWith("@fail.test")) {
+        throw new IllegalStateException("Email server unavailable ...");   // -&gt; retry -&gt; DLQ
+    }
+    log.info("EMAIL to {}: Hi {}, your order ... is confirmed!", ...);    // returns -&gt; ACK
+}</code></pre>
+  <p>The analytics queue receives <em>two</em> message types, so we put <code>@RabbitListener</code> on the <strong>class</strong> and <code>@RabbitHandler</code> on one method per type. Spring picks the method that matches the payload type:</p>
+  <pre><span class="file">notification/AnalyticsListener.java</span><code class="lang-java">@Component
+@RabbitListener(queues = "${app.rabbit.analytics-queue}")
+public class AnalyticsListener {
+
+    @RabbitHandler
+    public void onPlaced(OrderPlacedEvent event) { ... }
+
+    @RabbitHandler
+    public void onCancelled(OrderCancelledEvent event) { ... }
+}</code></pre>
+  <pre><span class="file">notification/DeadLetterListener.java</span><code class="lang-java">@RabbitListener(queues = "${app.rabbit.dead-letter-queue}")
+public void onDeadLetter(Message message) {                     // raw message: body + headers
+    String body = new String(message.getBody(), StandardCharsets.UTF_8);
+    Object xDeath = message.getMessageProperties().getHeaders().get("x-death");
+    log.error("DEAD LETTER received - needs manual attention. body={} x-death={}", body, xDeath);
+}</code></pre>
+
+  <h3>4.5 Testing without a broker</h3>
+  <p><code>OrderControllerTest</code> uses <code>@WebMvcTest</code> with the publisher replaced by <code>@MockitoBean</code> (see <a href="../46-Testing-Spring-Boot-Applications/lesson.html">Topic 46</a>), and checks the JSON converter's round trip. For full integration tests against a real RabbitMQ, teams use <strong>Testcontainers</strong> (it starts a throw-away RabbitMQ container during the test).</p>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 Start RabbitMQ</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\57-Messaging-With-RabbitMQ"
+docker compose up -d
+docker compose ps</code></pre>
+  <p>Wait ~10 seconds, then open <code>http://localhost:15672</code> and log in with <strong>guest / guest</strong>. Explore the tabs <em>Exchanges</em> and <em>Queues</em>.</p>
+
+  <h3>5.2 Start the app</h3>
+  <pre class="terminal"><code>mvn spring-boot:run</code></pre>
+  <p>Or run <code>RabbitOrdersApplication.java</code> from VS Code. Now refresh the management UI: you will see our exchanges (<code>shop.orders.exchange</code>, <code>shop.orders.dlx</code>, <code>shop.announcements.fanout</code>) and four queues — created by our beans.</p>
+
+  <h3>5.3 Place an order</h3>
+  <pre class="terminal"><code>curl -X POST http://localhost:8080/api/orders -H "Content-Type: application/json" -d "{\"customerName\":\"Asha\",\"customerEmail\":\"asha@example.com\",\"product\":\"Laptop\",\"quantity\":1,\"unitPrice\":899.99}"</code></pre>
+  <pre class="terminal"><code>{"orderId":"5f0c...","status":"ACCEPTED","message":"Order received. A confirmation email will be sent shortly."}</code></pre>
+  <p>App log (order of lines may vary — the listeners run on their own threads):</p>
+  <pre class="terminal"><code>INFO  OrderEventPublisher  : Publishing OrderPlacedEvent 5f0c... to exchange 'shop.orders.exchange' with key 'order.placed'
+INFO  NotificationListener : Received order 5f0c... for asha@example.com
+INFO  NotificationListener : EMAIL to asha@example.com: Hi Asha, your order of 1 x Laptop (total 899.99) is confirmed!
+INFO  AnalyticsListener    : ANALYTICS: order placed (1 so far), amount 899.99</code></pre>
+
+  <h3>5.4 See retries and the dead-letter queue</h3>
+  <pre class="terminal"><code>curl -X POST http://localhost:8080/api/orders -H "Content-Type: application/json" -d "{\"customerName\":\"Ravi\",\"customerEmail\":\"ravi@fail.test\",\"product\":\"Phone\",\"quantity\":2,\"unitPrice\":250}"</code></pre>
+  <pre class="terminal"><code>WARN  NotificationListener : Email server rejected ravi@fail.test - throwing so the message is retried   (attempt 1)
+WARN  NotificationListener : Email server rejected ravi@fail.test - throwing so the message is retried   (attempt 2, +1 s)
+WARN  NotificationListener : Email server rejected ravi@fail.test - throwing so the message is retried   (attempt 3, +2 s)
+WARN  ...RejectAndDontRequeueRecoverer : Retries exhausted for message ...
+ERROR DeadLetterListener   : DEAD LETTER received - needs manual attention. body={"orderId":"...","customerName":"Ravi",...} x-death=[{reason=rejected, queue=shop.orders.notification, ...}]</code></pre>
+  <div class="callout tip"><strong>💡 Peek at messages in the UI</strong>Stop the app, place no orders, then in the management UI open <em>Queues → shop.orders.notification.dlq → Get messages</em>. While the app is stopped, publish a message from <em>Exchanges → shop.orders.exchange → Publish message</em> (routing key <code>order.placed</code>) and watch the queue's "Ready" count go up. Start the app and it drops to 0 — messages waited safely for the consumer!</div>
+
+  <h3>5.5 Cancel and broadcast</h3>
+  <pre class="terminal"><code>curl -X POST "http://localhost:8080/api/orders/abc-123/cancel?reason=found%20cheaper"
+curl -X POST http://localhost:8080/api/announcements -H "Content-Type: text/plain" -d "Big Diwali sale starts tomorrow!"</code></pre>
+  <pre class="terminal"><code>INFO  AnalyticsListener    : ANALYTICS: order abc-123 cancelled (1 so far), reason: found cheaper
+INFO  AnnouncementListener : ANNOUNCEMENT: Big Diwali sale starts tomorrow!</code></pre>
+  <p>Notice: the cancellation reached <strong>only</strong> the analytics queue, because the notification queue is bound with the exact key <code>order.placed</code>, while analytics uses <code>order.#</code>.</p>
+
+  <h3>5.6 Tests and clean-up</h3>
+  <pre class="terminal"><code>mvn test                 # 3 tests, no RabbitMQ needed
+docker compose down      # stop RabbitMQ</code></pre>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: "Connection refused" at startup</strong>
+    <code>java.net.ConnectException: Connection refused</code> — RabbitMQ isn't running (or is still starting).<br>
+    <strong>Fix:</strong> <code>docker compose up -d</code>, wait a few seconds, check <code>docker compose ps</code> shows "healthy".</div>
+
+  <div class="callout danger"><strong>🚫 Mistake: endless redelivery of a "poison" message</strong>
+    The listener throws for a bad message, Spring requeues it, it fails again... CPU at 100% and logs full of the same error.<br>
+    <strong>Fix:</strong> enable retries with a limit, set <code>default-requeue-rejected=false</code> (or throw <code>AmqpRejectAndDontRequeueException</code>) and configure a dead-letter exchange.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: changing queue arguments of an existing queue</strong>
+    You add <code>deadLetterExchange(...)</code> to a queue that already exists without it → <code>PRECONDITION_FAILED - inequivalent arg 'x-dead-letter-exchange'</code>.<br>
+    <strong>Fix:</strong> queues are immutable. Delete the queue in the management UI (or <code>docker compose down</code> for a fresh broker) and restart the app.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: no JSON converter (or mismatched converters)</strong>
+    Without the converter bean, records must be <code>Serializable</code> and messages are unreadable binary. If the producer sends JSON but the consumer has no JSON converter, you get conversion errors.<br>
+    <strong>Fix:</strong> declare one <code>Jackson2JsonMessageConverter</code> bean in every app that sends or receives.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: "The class '...' is not in the trusted packages"</strong>
+    The type header names a class from a package you didn't trust.<br>
+    <strong>Fix:</strong> add the package with <code>setTrustedPackages(...)</code>. Don't use <code>"*"</code> in production.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: sending to the queue name with the wrong exchange</strong>
+    <code>convertAndSend("shop.orders.notification", event)</code> uses the default exchange and skips our topic exchange (analytics never sees it).<br>
+    <strong>Fix:</strong> publish to the <em>exchange</em> with a <em>routing key</em>: <code>convertAndSend(exchange, "order.placed", event)</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: assuming each message arrives exactly once</strong>
+    Redeliveries happen. Sending two emails or charging twice is a real bug.<br>
+    <strong>Fix:</strong> make consumers idempotent (store processed ids, use unique constraints).</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Use JSON messages</strong> and treat them as a public contract: add fields in a backwards-compatible way; include an id and a timestamp.</li>
+    <li><strong>Name things clearly</strong>: <code>&lt;domain&gt;.&lt;entity&gt;.&lt;purpose&gt;</code>, e.g. <code>shop.orders.notification</code>. Routing keys like <code>order.placed</code>, <code>order.cancelled</code>.</li>
+    <li><strong>Durable exchanges and queues, persistent messages</strong> for important data.</li>
+    <li><strong>Always have a DLQ</strong> for each consumer queue, plus monitoring/alerts on its size.</li>
+    <li><strong>Limit retries</strong> with backoff; don't retry errors that can never succeed (validation errors) — reject them straight to the DLQ.</li>
+    <li><strong>Idempotent consumers</strong>: at-least-once delivery means duplicates can happen.</li>
+    <li><strong>Publisher confirms</strong> for critical messages; consider the <em>transactional outbox</em> pattern so "save order" and "publish event" can't get out of sync.</li>
+    <li><strong>Tune prefetch and concurrency</strong> (<code>spring.rabbitmq.listener.simple.prefetch</code>, <code>concurrency</code>) once you measure load.</li>
+    <li><strong>Keep secrets out of code</strong>: use environment variables for <code>spring.rabbitmq.username/password</code> in real environments, and never use guest/guest in production.</li>
+    <li><strong>Test with Testcontainers</strong> for real integration tests.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Messaging = asynchronous communication through a broker; the sender doesn't wait and the receiver can be offline.</li>
+    <li>Producer → <strong>exchange</strong> → (bindings + routing key) → <strong>queue</strong> → consumer.</li>
+    <li>Direct = exact key, Topic = patterns (<code>*</code> one word, <code>#</code> many), Fanout = broadcast.</li>
+    <li>Same queue + several consumers = work sharing; separate queues = everybody gets a copy.</li>
+    <li>Spring AMQP: declare <code>Queue</code>/<code>Exchange</code>/<code>Binding</code> beans, send with <code>RabbitTemplate.convertAndSend</code>, receive with <code>@RabbitListener</code>.</li>
+    <li>Use a <code>Jackson2JsonMessageConverter</code> bean for JSON.</li>
+    <li>Normal return = ack; exception = retry, then reject → dead-letter exchange → DLQ.</li>
+    <li>Design for at-least-once delivery: make consumers idempotent.</li>
+    <li>Run RabbitMQ locally with <code>rabbitmq:3-management</code>; UI on port 15672.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Explore the UI.</strong> With the app running, open the management UI, find the binding between <code>shop.orders.exchange</code> and <code>shop.orders.analytics</code>, and publish a message by hand with routing key <code>order.shipped</code>. Which queue(s) receive it? Why?</p>
+    <details><summary>Hint / solution</summary><p>Only <code>shop.orders.analytics</code>, because <code>order.#</code> matches <code>order.shipped</code>, while the notification queue is bound only to the exact key <code>order.placed</code>. (The analytics listener will log a conversion error unless you give the message a valid body and <code>__TypeId__</code> header — that is a good lesson about message contracts too!)</p></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. A second fanout subscriber.</strong> Add a queue <code>shop.announcements.audit</code> bound to the fanout exchange and a listener that logs <code>AUDIT: ...</code>. Send an announcement and check both listeners print it.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Bean
+public Queue auditQueue() {
+    return QueueBuilder.durable("shop.announcements.audit").build();
+}
+
+@Bean
+public Binding auditBinding() {
+    return BindingBuilder.bind(auditQueue()).to(broadcastExchange());
+}
+
+@Component
+public class AuditListener {
+    private static final Logger log = LoggerFactory.getLogger(AuditListener.class);
+
+    @RabbitListener(queues = "shop.announcements.audit")
+    public void onAnnouncement(String text) {
+        log.info("AUDIT: {}", text);
+    }
+}</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Shipping with a direct exchange.</strong> Create a direct exchange <code>shop.shipping</code> with two queues: <code>shipping.express</code> (key <code>express</code>) and <code>shipping.standard</code> (key <code>standard</code>). Add <code>POST /api/orders/{id}/ship?type=express</code> that publishes to the right queue.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Bean DirectExchange shippingExchange() { return new DirectExchange("shop.shipping"); }
+@Bean Queue expressQueue()  { return QueueBuilder.durable("shipping.express").build(); }
+@Bean Queue standardQueue() { return QueueBuilder.durable("shipping.standard").build(); }
+@Bean Binding expressBinding()  { return BindingBuilder.bind(expressQueue()).to(shippingExchange()).with("express"); }
+@Bean Binding standardBinding() { return BindingBuilder.bind(standardQueue()).to(shippingExchange()).with("standard"); }
+
+// controller
+@PostMapping("/orders/{id}/ship")
+@ResponseStatus(HttpStatus.ACCEPTED)
+public void ship(@PathVariable String id, @RequestParam String type) {
+    rabbitTemplate.convertAndSend("shop.shipping", type, Map.of("orderId", id));
+}</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Competing consumers.</strong> Make the notification listener process messages with 3 concurrent consumers, then send 10 orders quickly. Look at the thread names in the log.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@RabbitListener(queues = "${app.rabbit.notification-queue}", concurrency = "3")
+public void onOrderPlaced(OrderPlacedEvent event) { ... }
+// or globally in application.properties:
+// spring.rabbitmq.listener.simple.concurrency=3</code></pre>
+    <p>You'll see threads like <code>ntContainer#0-1</code>, <code>-2</code>, <code>-3</code> sharing the messages. Each message is still processed only once.</p></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Idempotent consumer.</strong> Make <code>NotificationListener</code> ignore a message whose <code>orderId</code> it has already processed. Test it by publishing the same JSON twice from the management UI.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">private final Set&lt;String&gt; processed = ConcurrentHashMap.newKeySet();
+
+@RabbitListener(queues = "${app.rabbit.notification-queue}")
+public void onOrderPlaced(OrderPlacedEvent event) {
+    if (!processed.add(event.orderId())) {          // add() returns false if already present
+        log.info("Duplicate order {} ignored", event.orderId());
+        return;                                      // still ACKed - message is removed
+    }
+    // ... send email ...
+}
+// In production, store processed ids in a database table with a UNIQUE constraint
+// (in-memory sets are lost on restart and not shared between instances).</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Don't retry bad data.</strong> If <code>totalAmount</code> is negative, the message is invalid and retrying can never help. Send it straight to the DLQ without retries.</p>
+    <details><summary>Hint / solution</summary><p>The simplest reliable way: don't throw at all. Publish the bad message to the dead-letter exchange yourself and return normally (so the original is ACKed and never retried).</p><pre><code class="lang-java">// inject RabbitTemplate and the DLX name into NotificationListener
+if (event.totalAmount().signum() &lt; 0) {
+    log.warn("Invalid order {} (negative amount) - parking it in the DLQ", event.orderId());
+    rabbitTemplate.convertAndSend(deadLetterExchange, RabbitConfig.DEAD_LETTER_KEY, event);
+    return;   // normal return = ACK, no retries
+}</code></pre>
+    <p>Without retries enabled, throwing <code>AmqpRejectAndDontRequeueException</code> would also send it to the DLQ immediately. With the retry interceptor enabled, though, every exception is retried first — which is why the manual route above is clearer here.</p></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. Why use a message broker instead of direct REST calls?</summary>
+    <p>To decouple services in time and in knowledge: the producer doesn't wait and doesn't need the consumer to be up; messages are buffered during spikes or outages; new consumers can subscribe without changing the producer. The costs are extra infrastructure, eventual consistency, harder debugging and handling duplicates/ordering.</p></details>
+  <details><summary>Q2. Explain exchange, queue, binding and routing key.</summary>
+    <p>Producers publish messages with a routing key to an exchange. Bindings connect exchanges to queues with a binding key or pattern. The exchange uses its type and the bindings to decide which queues receive a copy. Queues store messages until consumers receive and acknowledge them.</p></details>
+  <details><summary>Q3. What are the differences between direct, topic and fanout exchanges?</summary>
+    <p>Direct routes when the routing key equals the binding key exactly. Topic routes by pattern on dot-separated words (<code>*</code> = one word, <code>#</code> = zero or more). Fanout ignores the key and sends to every bound queue (broadcast). Headers exchanges route by header values.</p></details>
+  <details><summary>Q4. What is a dead-letter queue and when does a message go there?</summary>
+    <p>A DLQ is a normal queue bound to a dead-letter exchange configured on the source queue (<code>x-dead-letter-exchange</code>). A message is dead-lettered when it is rejected/nacked without requeue, when its TTL expires, or when the queue length limit is exceeded. It lets you isolate poison messages and inspect or replay them later.</p></details>
+  <details><summary>Q5. How do acknowledgements work in Spring AMQP?</summary>
+    <p>The default acknowledge mode is AUTO: the container acks when the listener returns normally and nacks/rejects when it throws (requeue by default unless <code>default-requeue-rejected=false</code> or <code>AmqpRejectAndDontRequeueException</code>). MANUAL mode lets you call <code>channel.basicAck</code> yourself; NONE auto-acks on delivery (risk of loss).</p></details>
+  <details><summary>Q6. How do you avoid duplicate processing?</summary>
+    <p>RabbitMQ provides at-least-once delivery, so duplicates are possible. Make consumers idempotent: use a unique message/business id and record processed ids (e.g. a table with a unique constraint), or design operations that are naturally idempotent (set status = SHIPPED rather than increment).</p></details>
+  <details><summary>Q7. How are messages converted to/from Java objects?</summary>
+    <p>Through a <code>MessageConverter</code>. The default <code>SimpleMessageConverter</code> handles String, byte[] and Serializable. Most apps register a <code>Jackson2JsonMessageConverter</code> bean, which writes JSON plus a <code>__TypeId__</code> header and, on the consumer side, maps JSON to the listener parameter type (restricted by trusted packages).</p></details>
+  <details><summary>Q8. What is the difference between competing consumers and publish/subscribe?</summary>
+    <p>Competing consumers: several consumers read from the same queue and each message goes to one of them — used to scale work. Publish/subscribe: each subscriber has its own queue bound to an exchange, so every subscriber receives every message — used to notify multiple services about events.</p></details>
+  <details><summary>Q9. How does RabbitMQ differ from Kafka? (preview of Topic 58)</summary>
+    <p>RabbitMQ is a traditional broker with smart routing (exchanges) where messages are removed once acknowledged; great for task queues and flexible routing. Kafka is a distributed, append-only log where messages are retained for a configured time and consumers track their own offsets; great for high-throughput event streaming and replay.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../56-GraphQL-With-Spring/lesson.html"><small>← Previous</small>56. GraphQL with Spring</a>
+    <a class="next" href="../58-Event-Streaming-With-Apache-Kafka/lesson.html"><small>Next →</small>58. Event Streaming with Apache Kafka</a>
+  </nav>
+</main>
+</body>
+</html>

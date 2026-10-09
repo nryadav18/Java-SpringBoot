@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>17 · Multithreading &amp; Concurrency</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 17</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>17. Multithreading &amp; Concurrency</h1>
+  <p class="subtitle">Make your Java programs do many things at the same time — safely — and understand why every Spring Boot web server is a multithreaded program.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="17-Multithreading-And-Concurrency"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>The difference between a <b>process</b> and a <b>thread</b>.</li>
+      <li>Three ways to create threads: <code>Thread</code>, <code>Runnable</code>, and lambdas.</li>
+      <li>The <b>thread lifecycle</b> and the methods <code>start</code>, <code>sleep</code>, <code>join</code>, <code>interrupt</code>.</li>
+      <li>What a <b>race condition</b> is, and how <code>synchronized</code>, <code>volatile</code>, <code>AtomicInteger</code> and <code>ConcurrentHashMap</code> fix shared-data problems.</li>
+      <li>Thread pools with <code>ExecutorService</code>, <code>Callable</code> and <code>Future</code>.</li>
+      <li>Modern async code with <code>CompletableFuture</code> (<code>supplyAsync</code>, <code>thenApply</code>, <code>thenCombine</code>, <code>join</code>).</li>
+      <li>What a <b>deadlock</b> is and how to avoid it.</li>
+      <li>Why all of this matters for Spring Boot: <b>each HTTP request runs on its own thread</b>, and <code>@Async</code> later.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../13-Lambdas-And-Functional-Interfaces/lesson.html">Topic 13 · Lambdas</a>, <a href="../11-Collections-Framework/lesson.html">Topic 11 · Collections</a>, <a href="../10-Exception-Handling/lesson.html">Topic 10 · Exceptions</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Until now, every program you wrote did <b>one thing at a time</b>: line 1, then line 2, then line 3. That is fine for small programs. But real software must often do <b>many things at once</b>:</p>
+  <ul>
+    <li>A <b>web server</b> must answer 500 users at the same moment. It cannot say "please wait, I am busy with another user".</li>
+    <li>A <b>food-delivery app</b> loads the restaurant list, your address, and your offers all at once, so the screen appears quickly.</li>
+    <li>A <b>bank</b> processes thousands of transfers per second and must never lose a single rupee, even when two transfers touch the same account.</li>
+  </ul>
+  <p>Java has supported this from day one through <b>threads</b>. And here is the big reason this topic is in a Spring Boot course:</p>
+  <div class="callout info"><strong>ℹ️ The Spring Boot connection</strong>
+    When you build a REST API with Spring Boot, it runs inside an embedded web server called <b>Tomcat</b>. Tomcat keeps a <b>pool of threads</b> (200 by default). <b>Every HTTP request is handled by one of these threads.</b> So your controller and service code is <i>always</i> running on many threads at the same time — even if you never write the word <code>Thread</code>. If you don't understand thread safety, you can write bugs that appear only when many users use your app. Later you will also use <code>@Async</code> and <code>@Scheduled</code> (Topic 52), which are built on the thread pools you learn today.</div>
+  <p>Interviewers love this topic too: "What is a race condition?", "synchronized vs volatile?", "What is a deadlock?" are very common questions for Java backend jobs.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🍳 A restaurant kitchen</strong>
+    <ul>
+      <li>The <b>restaurant</b> is a <b>process</b> — it has its own building, fridge and money (its own memory).</li>
+      <li>Each <b>cook</b> is a <b>thread</b> — cooks work at the same time inside the same kitchen and share the same fridge (they share memory).</li>
+      <li>If two cooks grab the last tomato at the same moment, there is a fight — that is a <b>race condition</b>.</li>
+      <li>A rule "only one cook may open the fridge at a time; take the fridge key first" is <b>synchronized</b> (a lock).</li>
+      <li>Hiring a new cook for every single order would be crazy and slow. Instead, the restaurant keeps <b>3 cooks</b> and gives them orders from a queue — that is a <b>thread pool</b> (<code>ExecutorService</code>).</li>
+      <li>When you order, you get a <b>token number</b>. You can do other things and collect your food later — that token is a <b>Future</b>.</li>
+      <li>Cook A holds the knife and waits for the cutting board; Cook B holds the cutting board and waits for the knife. Both wait forever — a <b>deadlock</b>.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Process vs Thread</h3>
+  <p>A <b>process</b> is a running program. When you open Chrome and VS Code, you have (at least) two processes. Each process has its <b>own memory</b>; one process cannot simply read another's variables.</p>
+  <p>A <b>thread</b> is a "path of execution" <i>inside</i> a process — a worker that runs your code line by line. One process can have many threads, and <b>all threads in a process share the same heap memory</b> (the same objects).</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Process</th><th>Thread</th></tr>
+    <tr><td>What is it?</td><td>A running program</td><td>A worker inside a program</td></tr>
+    <tr><td>Memory</td><td>Own, separate memory</td><td>Shares heap (objects) with other threads of the same process; has its own stack (local variables)</td></tr>
+    <tr><td>Cost to create</td><td>Heavy (slow)</td><td>Lighter (but not free!)</td></tr>
+    <tr><td>Communication</td><td>Hard (files, network, pipes)</td><td>Easy (shared objects) — but dangerous if not careful</td></tr>
+    <tr><td>Example</td><td>Your Spring Boot app (one JVM)</td><td>Each request handler thread inside it</td></tr>
+  </table></div>
+  <p>Every Java program starts with <b>one</b> thread called <code>main</code>. It runs your <code>main</code> method. You can create more threads from there.</p>
+  <div class="callout tip"><strong>💡 Important rule to remember</strong>
+    <b>Local variables</b> (inside a method) live on the thread's own <b>stack</b> → each thread has its own copy → always safe.<br>
+    <b>Fields of objects</b> live on the shared <b>heap</b> → many threads can see the same object → this is where bugs happen.</div>
+
+  <h3>3.2 Concurrency vs Parallelism</h3>
+  <p>Two words you will hear a lot:</p>
+  <ul>
+    <li><b>Concurrency</b> = dealing with many tasks at once (they make progress by taking turns). One cook who switches between 3 pans is concurrent.</li>
+    <li><b>Parallelism</b> = really doing many tasks at the <i>exact same moment</i>. Three cooks with three pans are parallel. This needs multiple CPU cores.</li>
+  </ul>
+  <p>Your laptop probably has 4–16 cores, so Java threads can run truly in parallel. The operating system's <b>scheduler</b> decides which thread runs on which core and when. <b>You cannot control the order</b> — that is why output order changes between runs.</p>
+
+  <h3>3.3 Creating threads — three ways</h3>
+  <p><b>Way 1: extend <code>Thread</code></b> and override <code>run()</code>. <code>run()</code> holds the job.</p>
+  <pre><code class="lang-java">class DownloadThread extends Thread {
+    @Override
+    public void run() {
+        System.out.println("Downloading in " + Thread.currentThread().getName());
+    }
+}
+
+Thread t1 = new DownloadThread();
+t1.start();   // creates a NEW thread, which then calls run()</code></pre>
+
+  <p><b>Way 2: implement <code>Runnable</code></b>. <code>Runnable</code> is just a <i>task</i> with one method <code>void run()</code>. You give the task to a <code>Thread</code> (the worker).</p>
+  <pre><code class="lang-java">class EmailTask implements Runnable {
+    @Override
+    public void run() {
+        System.out.println("Sending email...");
+    }
+}
+
+Thread t2 = new Thread(new EmailTask(), "emailer");   // task + optional name
+t2.start();</code></pre>
+
+  <p><b>Way 3: lambda</b>. <code>Runnable</code> is a functional interface (one abstract method — you learned this in Topic 13), so a lambda is the shortest way:</p>
+  <pre><code class="lang-java">Thread t3 = new Thread(() -&gt; System.out.println("Resizing photo..."), "photo-worker");
+t3.start();</code></pre>
+
+  <div class="table-wrap"><table>
+    <tr><th>Way</th><th>Pros</th><th>Cons</th></tr>
+    <tr><td>extends Thread</td><td>Simple to read</td><td>Your class can't extend anything else (Java has single inheritance); mixes "task" and "worker"</td></tr>
+    <tr><td>implements Runnable</td><td>Task is separate from worker; class can extend another class; the same task can be given to a thread pool</td><td>A bit more typing</td></tr>
+    <tr><td>Lambda (Runnable)</td><td>Shortest; most common in modern code</td><td>Long logic inside a lambda becomes hard to read — move it to a method</td></tr>
+  </table></div>
+
+  <div class="callout danger"><strong>🚫 start() vs run() — the #1 beginner trap</strong>
+    <code>t.start()</code> creates a new thread and that new thread calls <code>run()</code>.<br>
+    <code>t.run()</code> is just a normal method call — it runs in the <b>current</b> thread. No new thread is created! Example01 shows this: calling <code>run()</code> prints <code>[main]</code>.<br>
+    Also: you can call <code>start()</code> only <b>once</b> per Thread object. A second call throws <code>IllegalThreadStateException</code>.</div>
+
+  <h3>3.4 The thread lifecycle</h3>
+  <p>A thread moves through states. You can ask for the state with <code>t.getState()</code>. The states are values of the enum <code>Thread.State</code>:</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 720 260" role="img" aria-label="Thread lifecycle diagram" xmlns="http://www.w3.org/2000/svg" style="color:var(--text)">
+      <defs>
+        <marker id="arr17" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="20" y="30" width="120" height="44" rx="8" style="stroke:var(--info)"/>
+        <rect x="290" y="30" width="140" height="44" rx="8" style="stroke:var(--accent)"/>
+        <rect x="580" y="30" width="120" height="44" rx="8" style="stroke:var(--danger)"/>
+        <rect x="70" y="180" width="160" height="44" rx="8" style="stroke:var(--java)"/>
+        <rect x="280" y="180" width="160" height="44" rx="8" style="stroke:var(--java)"/>
+        <rect x="490" y="180" width="180" height="44" rx="8" style="stroke:var(--java)"/>
+        <line x1="140" y1="52" x2="286" y2="52" marker-end="url(#arr17)"/>
+        <line x1="430" y1="52" x2="576" y2="52" marker-end="url(#arr17)"/>
+        <line x1="320" y1="74" x2="170" y2="176" marker-end="url(#arr17)"/>
+        <line x1="185" y1="180" x2="335" y2="78" marker-end="url(#arr17)"/>
+        <line x1="350" y1="74" x2="350" y2="176" marker-end="url(#arr17)"/>
+        <line x1="370" y1="180" x2="370" y2="78" marker-end="url(#arr17)"/>
+        <line x1="400" y1="74" x2="560" y2="176" marker-end="url(#arr17)"/>
+        <line x1="545" y1="180" x2="415" y2="78" marker-end="url(#arr17)"/>
+      </g>
+      <g font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="currentColor" text-anchor="middle">
+        <text x="80" y="57" font-weight="700">NEW</text>
+        <text x="360" y="57" font-weight="700">RUNNABLE</text>
+        <text x="640" y="57" font-weight="700">TERMINATED</text>
+        <text x="150" y="207" font-weight="700">BLOCKED</text>
+        <text x="360" y="207" font-weight="700">WAITING</text>
+        <text x="580" y="207" font-weight="700">TIMED_WAITING</text>
+        <text x="213" y="44" font-size="12">start()</text>
+        <text x="503" y="44" font-size="12">run() ends</text>
+        <text x="150" y="245" font-size="12">waiting for a lock</text>
+        <text x="360" y="245" font-size="12">join(), wait()</text>
+        <text x="580" y="245" font-size="12">sleep(ms), join(ms)</text>
+      </g>
+    </svg>
+    <figcaption>Thread lifecycle: a thread starts NEW, becomes RUNNABLE after start(), may pause in BLOCKED / WAITING / TIMED_WAITING, and ends TERMINATED.</figcaption>
+  </figure>
+
+  <div class="table-wrap"><table>
+    <tr><th>State</th><th>Meaning in simple words</th><th>How it gets there</th></tr>
+    <tr><td><code>NEW</code></td><td>Thread object exists, but not started yet</td><td><code>new Thread(...)</code></td></tr>
+    <tr><td><code>RUNNABLE</code></td><td>Running, or ready to run as soon as a CPU core is free</td><td><code>start()</code></td></tr>
+    <tr><td><code>BLOCKED</code></td><td>Waiting to get a lock that another thread holds</td><td>Trying to enter a <code>synchronized</code> block that is busy</td></tr>
+    <tr><td><code>WAITING</code></td><td>Waiting with no time limit for something to happen</td><td><code>join()</code>, <code>wait()</code></td></tr>
+    <tr><td><code>TIMED_WAITING</code></td><td>Waiting, but only for a limited time</td><td><code>Thread.sleep(ms)</code>, <code>join(ms)</code></td></tr>
+    <tr><td><code>TERMINATED</code></td><td>Finished — <code>run()</code> has returned (or threw an exception)</td><td>End of <code>run()</code></td></tr>
+  </table></div>
+
+  <h3>3.5 sleep, join and interrupt</h3>
+  <ul>
+    <li><code>Thread.sleep(500)</code> — pause the <b>current</b> thread for 500 milliseconds. It is a <i>static</i> method: it always sleeps the thread that calls it.</li>
+    <li><code>t.join()</code> — the current thread waits until thread <code>t</code> has finished. Like a parent waiting at the school gate until the child comes out.</li>
+    <li><code>t.interrupt()</code> — politely ask <code>t</code> to stop. If <code>t</code> is sleeping or waiting, it wakes up with an <code>InterruptedException</code>.</li>
+  </ul>
+  <pre><code class="lang-java">Thread chef = new Thread(() -&gt; {
+    try {
+        Thread.sleep(300);                     // chef pauses (TIMED_WAITING)
+        System.out.println("Pasta is ready!");
+    } catch (InterruptedException e) {         // checked exception - must be handled
+        System.out.println("Interrupted!");
+    }
+});
+chef.start();
+chef.join();                                   // main waits for the chef
+System.out.println(chef.getState());           // TERMINATED</code></pre>
+  <div class="callout info"><strong>ℹ️ Why is InterruptedException checked?</strong>
+    Because Java wants you to <i>decide</i> what to do when someone asks your thread to stop. If you cannot handle it properly, the polite thing is to restore the flag: <code>Thread.currentThread().interrupt();</code> — you will see this in the helper methods of the examples.</div>
+
+  <h3>3.6 The race condition — the most important bug in this topic</h3>
+  <p>A <b>race condition</b> happens when two or more threads read and change the <b>same shared data</b> at the same time, and the final result depends on who was faster.</p>
+  <p>Look at this innocent line: <code>likes++;</code>. It looks like one step, but the CPU actually does <b>three</b>:</p>
+  <div class="flow">
+    <span class="box info">1. READ likes (e.g. 41)</span><span class="arrow">→</span>
+    <span class="box info">2. ADD 1 (42)</span><span class="arrow">→</span>
+    <span class="box info">3. WRITE likes = 42</span>
+  </div>
+  <p>Now imagine two threads doing it at the same time:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Time</th><th>Thread A</th><th>Thread B</th><th>likes in memory</th></tr>
+    <tr><td>1</td><td>reads 41</td><td></td><td>41</td></tr>
+    <tr><td>2</td><td></td><td>reads 41</td><td>41</td></tr>
+    <tr><td>3</td><td>adds 1 → 42, writes 42</td><td></td><td>42</td></tr>
+    <tr><td>4</td><td></td><td>adds 1 → 42, writes 42</td><td>42 ❌ (should be 43)</td></tr>
+  </table></div>
+  <p>One "like" was <b>lost</b>. This is called a <b>lost update</b>. Example03 runs 2 threads × 100,000 clicks and usually gets something like 137,452 instead of 200,000. The number changes on every run — that is what makes these bugs so nasty.</p>
+  <p>The part of code that touches shared data and must not be run by two threads at once is called the <b>critical section</b>.</p>
+
+  <h3>3.7 synchronized — one thread at a time</h3>
+  <p>Every Java object has a hidden <b>lock</b> (also called a <i>monitor</i>). The keyword <code>synchronized</code> says: "to enter this code, a thread must first take this object's lock". Only one thread can hold a lock at a time. The others wait in the <code>BLOCKED</code> state.</p>
+  <pre><code class="lang-java">class SafeLikeCounter {
+    private int likes = 0;
+
+    synchronized void like() {      // locks on 'this' object
+        likes++;
+    }
+
+    synchronized int getLikes() {   // reading also needs the lock to see the latest value
+        return likes;
+    }
+}</code></pre>
+  <p>You can also lock just a small <b>block</b> instead of the whole method. Smaller locked areas = less waiting = faster:</p>
+  <pre><code class="lang-java">private final Object lock = new Object();
+
+void like() {
+    validate();                 // runs in parallel, no lock needed
+    synchronized (lock) {       // only this part is locked
+        likes++;
+    }
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Form</th><th>Which lock is used</th></tr>
+    <tr><td><code>synchronized void m()</code></td><td>The object itself (<code>this</code>)</td></tr>
+    <tr><td><code>static synchronized void m()</code></td><td>The class object (<code>MyClass.class</code>) — one lock for all instances</td></tr>
+    <tr><td><code>synchronized (someObject) { ... }</code></td><td><code>someObject</code></td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Locks have a price</strong>
+    Threads waiting for a lock do nothing useful. Lock only what you must, for as short a time as possible. And never call slow things (network, database) while holding a lock if you can avoid it.</div>
+
+  <h3>3.8 volatile — "always read the fresh value"</h3>
+  <p>For speed, each CPU core has its own <b>cache</b>. A thread may keep reading an old copy of a variable from its cache and never notice that another thread changed it. This is a <b>visibility</b> problem.</p>
+  <p>Marking a field <code>volatile</code> tells Java: "reads and writes of this variable always go to main memory, so every thread sees the latest value".</p>
+  <pre><code class="lang-java">private volatile boolean running = true;
+
+public void run() {
+    while (running) {   // sees the change made by another thread
+        processOrder();
+    }
+}
+
+public void stop() { running = false; }</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th></th><th><code>volatile</code></th><th><code>synchronized</code></th></tr>
+    <tr><td>Visibility (see latest value)</td><td>✅ Yes</td><td>✅ Yes</td></tr>
+    <tr><td>Atomicity (read-modify-write like <code>count++</code> as one step)</td><td>❌ No</td><td>✅ Yes</td></tr>
+    <tr><td>Blocks other threads?</td><td>No</td><td>Yes (one at a time)</td></tr>
+    <tr><td>Typical use</td><td>Simple flags: <code>running</code>, <code>shutdownRequested</code></td><td>Updating shared state with several steps</td></tr>
+  </table></div>
+
+  <h3>3.9 Thread pools with ExecutorService</h3>
+  <p>Creating a new <code>Thread</code> for every small task is expensive (each thread needs memory for its stack, about 1&nbsp;MB, and time to create). And if 10,000 users arrive, 10,000 threads could crash your machine.</p>
+  <p>A <b>thread pool</b> creates a fixed number of worker threads once and <b>reuses</b> them. You just submit tasks; they wait in a queue until a worker is free.</p>
+  <div class="flow">
+    <span class="box alt">Your code: submit(task)</span><span class="arrow">→</span>
+    <span class="box info">Task queue [t4, t5, t6...]</span><span class="arrow">→</span>
+    <span class="box">Worker threads (1, 2, 3)</span><span class="arrow">→</span>
+    <span class="box alt">Result (Future)</span>
+  </div>
+  <pre><code class="lang-java">ExecutorService kitchen = Executors.newFixedThreadPool(3);  // 3 cooks
+
+kitchen.submit(() -&gt; System.out.println("Cooking order 1"));  // Runnable: no result
+kitchen.submit(() -&gt; System.out.println("Cooking order 2"));
+
+kitchen.shutdown();                                    // stop accepting new tasks
+kitchen.awaitTermination(5, TimeUnit.SECONDS);          // wait for running ones to finish</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Factory method</th><th>What you get</th><th>When</th></tr>
+    <tr><td><code>Executors.newFixedThreadPool(n)</code></td><td>Exactly n threads</td><td>Most common; predictable</td></tr>
+    <tr><td><code>Executors.newSingleThreadExecutor()</code></td><td>1 thread, tasks run one by one in order</td><td>Background jobs that must not overlap</td></tr>
+    <tr><td><code>Executors.newCachedThreadPool()</code></td><td>Creates threads as needed, reuses idle ones</td><td>Many short tasks (careful: no upper limit!)</td></tr>
+    <tr><td><code>Executors.newScheduledThreadPool(n)</code></td><td>Can run tasks after a delay or repeatedly</td><td>Timers ("every 10 seconds") — Spring's <code>@Scheduled</code> uses this idea</td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Always shut down your pool</strong>
+    Pool threads are not daemon threads: if you forget <code>shutdown()</code>, your program may never exit. (In Spring, the framework manages pools for you and shuts them down when the app stops.)</div>
+
+  <h3>3.10 Callable and Future — tasks that return a result</h3>
+  <p><code>Runnable.run()</code> returns <code>void</code> and cannot throw checked exceptions. When you need a <b>result</b>, use <code>Callable&lt;V&gt;</code>, whose method is <code>V call() throws Exception</code>.</p>
+  <p>When you submit a <code>Callable</code>, you immediately get back a <code>Future&lt;V&gt;</code> — a "token" for a result that will exist later.</p>
+  <pre><code class="lang-java">Callable&lt;Double&gt; calculateBill = () -&gt; {
+    Thread.sleep(200);      // slow work
+    return 249.50;
+};
+
+Future&lt;Double&gt; futureBill = kitchen.submit(calculateBill);
+System.out.println(futureBill.isDone());   // false - still working
+Double bill = futureBill.get();            // WAITS here until the result is ready
+System.out.println(bill);                  // 249.5</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Future method</th><th>What it does</th></tr>
+    <tr><td><code>get()</code></td><td>Waits (blocks) and returns the result. Throws <code>ExecutionException</code> if the task failed.</td></tr>
+    <tr><td><code>get(2, TimeUnit.SECONDS)</code></td><td>Waits at most 2 seconds, else <code>TimeoutException</code></td></tr>
+    <tr><td><code>isDone()</code></td><td>Is the task finished?</td></tr>
+    <tr><td><code>cancel(true)</code></td><td>Try to cancel the task</td></tr>
+  </table></div>
+  <p>The weakness of <code>Future</code>: the only way to use the result is to call <code>get()</code> and <b>block</b>. You cannot say "when it's ready, do this next". That is what <code>CompletableFuture</code> fixes.</p>
+
+  <h3>3.11 CompletableFuture — chaining async steps</h3>
+  <p><code>CompletableFuture</code> (Java 8+) lets you build a <b>pipeline</b> of steps that run when the previous one finishes, without blocking in between. It feels like the Streams API (Topic 14), but over time.</p>
+  <pre><code class="lang-java">String title = CompletableFuture
+        .supplyAsync(() -&gt; fetchProductName(1))      // 1. start in background
+        .thenApply(name -&gt; name.toUpperCase())       // 2. transform when ready
+        .thenApply(name -&gt; "*** " + name + " ***")   // 3. transform again
+        .join();                                     // 4. wait for the final value
+// *** WIRELESS MOUSE ***</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>Simple meaning</th><th>Similar to</th></tr>
+    <tr><td><code>supplyAsync(supplier)</code></td><td>Start a task that returns a value</td><td><code>submit(Callable)</code></td></tr>
+    <tr><td><code>runAsync(runnable)</code></td><td>Start a task with no result</td><td><code>submit(Runnable)</code></td></tr>
+    <tr><td><code>thenApply(fn)</code></td><td>Transform the result</td><td><code>stream.map</code></td></tr>
+    <tr><td><code>thenAccept(consumer)</code></td><td>Use the result, return nothing</td><td><code>forEach</code></td></tr>
+    <tr><td><code>thenCompose(fn)</code></td><td>Next step is itself async (returns a CompletableFuture)</td><td><code>flatMap</code></td></tr>
+    <tr><td><code>thenCombine(other, fn)</code></td><td>Combine results of two independent futures</td><td>"zip"</td></tr>
+    <tr><td><code>exceptionally(fn)</code></td><td>Fallback value if something failed</td><td><code>catch</code></td></tr>
+    <tr><td><code>allOf(f1, f2, f3)</code></td><td>Completes when all complete</td><td>wait for all</td></tr>
+    <tr><td><code>join()</code></td><td>Wait and get the result (unchecked exception on failure)</td><td><code>get()</code></td></tr>
+  </table></div>
+  <p><b>thenCombine</b> is the star for backend work: call two services <i>in parallel</i> and combine the answers. Two calls of 300&nbsp;ms each take ~300&nbsp;ms total instead of 600&nbsp;ms:</p>
+  <pre><code class="lang-java">CompletableFuture&lt;String&gt; nameF  = CompletableFuture.supplyAsync(() -&gt; fetchProductName(1), pool);
+CompletableFuture&lt;Double&gt; priceF = CompletableFuture.supplyAsync(() -&gt; fetchPrice(1), pool);
+
+String line = nameF.thenCombine(priceF, (name, price) -&gt; name + " costs Rs." + price).join();</code></pre>
+  <div class="callout tip"><strong>💡 Which threads run supplyAsync?</strong>
+    Without a second argument, the shared <code>ForkJoinPool.commonPool()</code>. In real applications pass your own pool: <code>supplyAsync(task, myPool)</code>. Spring's <code>@Async</code> methods can return <code>CompletableFuture</code> — you will meet them in Topic 52.</div>
+
+  <h3>3.12 Thread-safe tools: Atomic classes and ConcurrentHashMap</h3>
+  <p>The package <code>java.util.concurrent</code> gives you ready-made thread-safe classes, so you often don't need <code>synchronized</code> at all.</p>
+  <p><b>AtomicInteger / AtomicLong</b> — a number with thread-safe operations. Internally they use a special CPU instruction called <i>compare-and-swap</i> (CAS), which is very fast and needs no lock.</p>
+  <pre><code class="lang-java">AtomicInteger visits = new AtomicInteger(0);
+visits.incrementAndGet();          // safe "++"
+visits.addAndGet(10);              // safe "+= 10"
+visits.compareAndSet(11, 0);       // "if it is 11, set it to 0" - atomically</code></pre>
+  <p><b>ConcurrentHashMap</b> — a <code>Map</code> that many threads can use at the same time. A normal <code>HashMap</code> is <b>not</b> thread-safe: updates get lost and its internal structure can even break.</p>
+  <pre><code class="lang-java">Map&lt;String, Integer&gt; pageVisits = new ConcurrentHashMap&lt;&gt;();
+pageVisits.merge("/home", 1, Integer::sum);                  // atomic "count + 1"
+userCache.computeIfAbsent(101, id -&gt; loadUserFromDb(id));    // atomic "load if missing"</code></pre>
+  <div class="callout warn"><strong>⚠️ Thread-safe map ≠ thread-safe code</strong>
+    This is still a race, even with ConcurrentHashMap:<br>
+    <code>if (!map.containsKey(k)) { map.put(k, v); }</code> — two threads can both pass the <code>if</code>.<br>
+    Use the atomic single-call methods instead: <code>putIfAbsent</code>, <code>computeIfAbsent</code>, <code>merge</code>, <code>compute</code>.</div>
+  <div class="table-wrap"><table>
+    <tr><th>Not thread-safe</th><th>Thread-safe alternative</th></tr>
+    <tr><td><code>int count; count++</code></td><td><code>AtomicInteger</code> / <code>LongAdder</code></td></tr>
+    <tr><td><code>HashMap</code></td><td><code>ConcurrentHashMap</code></td></tr>
+    <tr><td><code>ArrayList</code></td><td><code>CopyOnWriteArrayList</code> (many reads, few writes) or <code>Collections.synchronizedList</code></td></tr>
+    <tr><td><code>LinkedList</code> as a queue</td><td><code>ConcurrentLinkedQueue</code>, <code>LinkedBlockingQueue</code></td></tr>
+    <tr><td><code>SimpleDateFormat</code> (old)</td><td><code>DateTimeFormatter</code> (immutable — Topic 16)</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Immutable objects are always thread-safe</strong>
+    If an object can never change after creation (like <code>String</code>, records with immutable fields, <code>LocalDate</code>, <code>List.of(...)</code>), many threads can share it with zero risk. That is one big reason modern Java loves immutability.</div>
+
+  <h3>3.13 Deadlock</h3>
+  <p>A <b>deadlock</b> happens when two (or more) threads each hold a lock and wait for the lock the other holds. Nobody can move. The program does not crash — it just <b>freezes</b> forever, which is even worse.</p>
+  <div class="flow">
+    <span class="box alt">Thread 1 holds Account A 🔒</span><span class="arrow">→ wants →</span>
+    <span class="box info">Account B 🔒 (held by Thread 2)</span>
+  </div>
+  <div class="flow">
+    <span class="box info">Thread 2 holds Account B 🔒</span><span class="arrow">→ wants →</span>
+    <span class="box alt">Account A 🔒 (held by Thread 1)</span>
+  </div>
+  <p>Four conditions are all needed for a deadlock: (1) locks are exclusive, (2) a thread holds one lock while waiting for another, (3) locks can't be taken away by force, (4) there is a circular wait. Break any one and there is no deadlock.</p>
+  <p><b>How to avoid it:</b></p>
+  <ul>
+    <li><b>Lock ordering</b> — always take locks in the same global order (e.g. smaller account id first). This breaks the circular wait. Example08 does exactly this.</li>
+    <li><b>Timeouts</b> — <code>ReentrantLock.tryLock(1, SECONDS)</code> gives up instead of waiting forever.</li>
+    <li><b>Hold fewer locks</b> — keep locked areas small; avoid calling other objects' synchronized methods while holding a lock.</li>
+    <li><b>Use higher-level tools</b> (ConcurrentHashMap, Atomic*, queues) instead of manual locks.</li>
+  </ul>
+  <p>To find a deadlock in a frozen program, take a <b>thread dump</b>: run <code>jstack &lt;pid&gt;</code> (comes with the JDK; find the pid with <code>jps</code>). It prints "Found one Java-level deadlock" with the details.</p>
+
+  <h3>3.14 Why this matters for web servers and Spring</h3>
+  <div class="flow">
+    <span class="box alt">User 1 request</span><span class="arrow">→</span><span class="box info">Tomcat thread http-nio-8080-exec-1</span><span class="arrow">→</span><span class="box">Same ProductController object</span>
+  </div>
+  <div class="flow">
+    <span class="box alt">User 2 request</span><span class="arrow">→</span><span class="box info">Tomcat thread http-nio-8080-exec-2</span><span class="arrow">→</span><span class="box">Same ProductController object</span>
+  </div>
+  <ul>
+    <li>Spring creates <b>one</b> object (a "singleton bean") of each controller and service. All request threads use that same object at the same time.</li>
+    <li>So: <b>never store per-request data in fields</b> of controllers/services. Use method parameters and local variables. Example09 shows what goes wrong otherwise: users get other users' greetings!</li>
+    <li>Fields that hold other beans (like a repository) are fine, because they are set once at startup and never changed.</li>
+    <li>Shared counters/caches must use thread-safe types (<code>AtomicInteger</code>, <code>ConcurrentHashMap</code>).</li>
+    <li>Later you'll use <code>@Async</code> (run a method on a background pool), <code>@Scheduled</code> (run every N seconds), and <code>@Transactional</code> (tied to the current thread).</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ Virtual threads (Java 21+)</strong>
+    Normal Java threads ("platform threads") map 1:1 to operating-system threads, which are heavy — you can have thousands, not millions. Java 21 added <b>virtual threads</b>: super-light threads managed by the JVM, so you can have millions of them. A web server can then use one cheap virtual thread per request. Spring Boot 3.2+ can switch to them with one property (<code>spring.threads.virtual.enabled=true</code>) — but only on Java 21+. This course uses Java 17, so we just mention them. Everything you learned today (race conditions, thread safety) still applies to virtual threads.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>Example01_CreatingThreads.java</code></td><td>Three ways to create threads, thread names, <code>start()</code> vs <code>run()</code></td></tr>
+    <tr><td><code>Example02_SleepJoinAndLifecycle.java</code></td><td>Printing thread states; <code>sleep</code>, <code>join</code>, <code>interrupt</code></td></tr>
+    <tr><td><code>Example03_RaceConditionAndSynchronized.java</code></td><td>A likes counter losing updates, fixed with synchronized method and block</td></tr>
+    <tr><td><code>Example04_VolatileFlag.java</code></td><td>Stopping a background worker with a <code>volatile</code> flag</td></tr>
+    <tr><td><code>Example05_ExecutorServiceAndFuture.java</code></td><td>A kitchen with 3 cooks: thread pool, Callable, Future, invokeAll, shutdown</td></tr>
+    <tr><td><code>Example06_CompletableFuture.java</code></td><td>Product page built from parallel "service calls"</td></tr>
+    <tr><td><code>Example07_ConcurrentHashMapAndAtomic.java</code></td><td>Page-visit counting: AtomicInteger, ConcurrentHashMap vs HashMap</td></tr>
+    <tr><td><code>Example08_DeadlockDemo.java</code></td><td>Bank-transfer deadlock (safely detected) and the lock-ordering fix</td></tr>
+    <tr><td><code>Example09_WebServerSimulation.java</code></td><td>A pretend Tomcat: stateful vs stateless controller</td></tr>
+  </table></div>
+
+  <h3>Example01 — creating threads</h3>
+  <pre><span class="file">Example01_CreatingThreads.java (main part)</span><code class="lang-java">Thread t1 = new DownloadThread("report.pdf");                       // way 1
+Thread t2 = new Thread(new EmailTask("riya@example.com"), "emailer"); // way 2
+Thread t3 = new Thread(() -&gt;                                         // way 3
+        System.out.println("[" + Thread.currentThread().getName() + "] resizing photo.jpg"),
+        "photo-worker");
+
+t1.start(); t2.start(); t3.start();
+t1.join();  t2.join();  t3.join();   // wait for all three
+
+Thread wrong = new Thread(() -&gt; ..., "never-started");
+wrong.run();   // runs in "main" - no new thread!</code></pre>
+  <p><code>Thread.currentThread().getName()</code> shows which thread runs a line. The three worker lines may print in any order — the scheduler decides. The <code>run()</code> line prints <code>[main]</code>, proving no new thread was made.</p>
+
+  <h3>Example02 — states</h3>
+  <p>It prints the chef thread's state at four moments: <code>NEW</code> (created), <code>RUNNABLE</code> (just started), <code>TIMED_WAITING</code> (inside <code>sleep(300)</code>), <code>TERMINATED</code> (after <code>join()</code>). Then a "sleepy" thread is woken early with <code>interrupt()</code> and lands in its <code>catch (InterruptedException e)</code> block.</p>
+
+  <h3>Example03 — race condition</h3>
+  <pre><span class="file">Example03_RaceConditionAndSynchronized.java (key parts)</span><code class="lang-java">void like() { likes++; }                  // UNSAFE: read-add-write can interleave
+
+synchronized void like() { likes++; }     // SAFE: one thread at a time
+
+void like() {
+    synchronized (lock) { likes++; }      // SAFE: only the critical section is locked
+}</code></pre>
+  <p>Two threads each call <code>like()</code> 100,000 times. The unsafe counter ends with a random number below 200,000; both safe versions always show 200,000.</p>
+
+  <h3>Example04 — volatile</h3>
+  <p>The worker loops <code>while (running)</code>. Main sleeps 200&nbsp;ms then calls <code>stop()</code>, which sets <code>running = false</code>. Because the field is <code>volatile</code>, the worker sees the change and exits. Try removing <code>volatile</code>: on many machines the JIT compiler then "optimizes" the loop to <code>while(true)</code> and the program hangs.</p>
+
+  <h3>Example05 — thread pool</h3>
+  <pre><span class="file">Example05_ExecutorServiceAndFuture.java (key parts)</span><code class="lang-java">ExecutorService kitchen = Executors.newFixedThreadPool(3);
+
+for (int orderNo = 1; orderNo &lt;= 6; orderNo++) {
+    int id = orderNo;                    // copy: lambdas need effectively final variables
+    kitchen.submit(() -&gt; System.out.println("Order " + id + " is cooked by "
+                                            + Thread.currentThread().getName()));
+}
+
+Future&lt;Double&gt; futureBill = kitchen.submit(calculateBill);   // Callable
+Double bill = futureBill.get();                                // waits
+
+List&lt;Future&lt;String&gt;&gt; results = kitchen.invokeAll(dishes);  // run all, wait for all
+
+kitchen.shutdown();
+kitchen.awaitTermination(5, TimeUnit.SECONDS);</code></pre>
+  <p>Six orders, but only the names <code>pool-1-thread-1</code>, <code>-2</code>, <code>-3</code> appear — threads are reused. Three dishes of 300&nbsp;ms each finish in about 300&nbsp;ms because they run in parallel.</p>
+
+  <h3>Example06 — CompletableFuture</h3>
+  <p>Four mini-scenarios: a simple chain (<code>supplyAsync → thenApply → join</code>), two parallel calls combined (<code>thenCombine</code>), a failing "review service" with a fallback (<code>exceptionally</code> returns 0.0 instead of crashing the page), and <code>allOf</code> to wait for three calls before building the page.</p>
+  <pre><span class="file">Example06_CompletableFuture.java (fallback)</span><code class="lang-java">double rating = CompletableFuture
+        .supplyAsync(() -&gt; fetchRating(1), pool)     // throws IllegalStateException
+        .exceptionally(ex -&gt; {
+            System.out.println("Could not load rating: " + ex.getCause().getMessage());
+            return 0.0;                                // fallback value
+        })
+        .join();</code></pre>
+  <p>Note <code>ex.getCause()</code>: the exception arrives wrapped in a <code>CompletionException</code>; the real one is inside.</p>
+
+  <h3>Example07 — Atomic &amp; ConcurrentHashMap</h3>
+  <p>A pool of 8 threads records 30,000 page visits. <code>AtomicInteger</code> and <code>ConcurrentHashMap.merge</code> give exact numbers; the plain <code>HashMap</code> loses updates. It also shows <code>compareAndSet</code> and a tiny cache with <code>computeIfAbsent</code> (the "loading user" message prints only once).</p>
+
+  <h3>Example08 — deadlock</h3>
+  <pre><span class="file">Example08_DeadlockDemo.java (bad vs good)</span><code class="lang-java">// BAD: T1 locks A then B, T2 locks B then A  -&gt; circular wait
+synchronized (from) { synchronized (to) { ... } }
+
+// GOOD: always lock the smaller id first, whatever the direction
+Account first  = from.id &lt; to.id ? from : to;
+Account second = from.id &lt; to.id ? to : from;
+synchronized (first) { synchronized (second) { ... } }</code></pre>
+  <p>The deadlocked threads are marked <code>setDaemon(true)</code> (a daemon thread does not keep the JVM alive) and we use <code>join(1000)</code> so the demo can detect the freeze and still exit.</p>
+
+  <h3>Example09 — web server simulation</h3>
+  <p>One controller object is shared by 4 "request threads" (like Tomcat). The bad controller writes the user name into a <b>field</b>, sleeps, then reads the field — by then another thread has overwritten it, so users get the wrong greeting. The good controller uses a <b>local variable</b> and an <code>AtomicInteger</code>; every response is correct.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <p><b>In VS Code:</b> open the folder <code>D:\Java-SpringBoot\17-Multithreading-And-Concurrency</code>, open any <code>ExampleNN_...java</code> file and click the small <b>▶ Run</b> link above <code>main</code> (from the Extension Pack for Java). Output appears in the terminal panel.</p>
+  <p><b>From the terminal</b> (single-file launch, no compile step):</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\17-Multithreading-And-Concurrency"
+java Example01_CreatingThreads.java
+java Example03_RaceConditionAndSynchronized.java
+java Example06_CompletableFuture.java</code></pre>
+  <p>Expected output of <code>Example03</code> (first number differs on every run):</p>
+  <pre class="terminal"><code>Unsafe counter  : 137452 (expected 200000)
+Synchronized    : 200000 (expected 200000)
+Synchronized blk: 200000 (expected 200000)</code></pre>
+  <p>Expected output of <code>Example06</code>:</p>
+  <pre class="terminal"><code>== 1) Simple chain ==
+*** WIRELESS MOUSE ***
+
+== 2) Name + price in parallel ==
+Wireless Mouse costs Rs.799.0
+Took about 300 ms (parallel), not 600 ms
+
+== 3) Handling a failing service ==
+Could not load rating: Review service is down!
+Rating shown on page: 0.0
+
+== 4) Whole product page ==
+Product: Wireless Mouse | Price: 799.0 | In stock: 42
+Stock alert check: OK</code></pre>
+  <p>Expected output of <code>Example08</code>:</p>
+  <pre class="terminal"><code>DEADLOCK! T1 (A-&gt;B) is BLOCKED and T2 (B-&gt;A) is BLOCKED
+Each thread holds one account lock and waits for the other.
+
+With lock ordering: both transfers finished.
+Account 1 balance = 950, Account 2 balance = 1050</code></pre>
+  <div class="callout tip"><strong>💡 Run them several times</strong>
+    Multithreaded output changes between runs. Run Example01, 03, 07 and 09 three or four times and watch the order and the "wrong" numbers change. Seeing this with your own eyes is the best way to understand concurrency bugs.</div>
+  <div class="callout info"><strong>ℹ️ See your threads live</strong>
+    While a program runs, open another terminal and type <code>jps</code> (lists Java processes) and then <code>jstack &lt;pid&gt;</code> to print every thread and its state. Or use <b>VisualVM</b> / <b>JDK Mission Control</b> for a graphical view.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>🚫 Mistake: calling run() instead of start()</strong>
+    The code runs, but in the current thread — no parallelism at all. <br><strong>Fix:</strong> always call <code>start()</code> (or, better, submit the task to an <code>ExecutorService</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: using <code>count++</code> or a HashMap from many threads</strong>
+    It "works on my machine" with one user, and loses data in production with many. <br><strong>Fix:</strong> use <code>AtomicInteger</code>, <code>ConcurrentHashMap</code>, or <code>synchronized</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: thinking volatile makes count++ safe</strong>
+    <code>volatile</code> only guarantees visibility, not atomicity. <br><strong>Fix:</strong> <code>AtomicInteger.incrementAndGet()</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting shutdown() on an ExecutorService</strong>
+    The program never ends because pool threads are still alive. <br><strong>Fix:</strong> <code>shutdown()</code> + <code>awaitTermination(...)</code> (or try-with-resources on Java 19+, where ExecutorService became AutoCloseable).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: swallowing InterruptedException</strong>
+    <code>catch (InterruptedException e) { }</code> hides the stop request. <br><strong>Fix:</strong> stop the work, or at least call <code>Thread.currentThread().interrupt()</code> to restore the flag.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: calling future.get() immediately after submit()</strong>
+    <code>pool.submit(task).get()</code> waits right away — you gained nothing over running it directly. <br><strong>Fix:</strong> submit all tasks first, then collect results (or use <code>CompletableFuture.allOf</code>).</div>
+  <div class="callout danger"><strong>🚫 Mistake: storing request data in fields of a Spring bean</strong>
+    One controller object serves all users at once (Example09). <br><strong>Fix:</strong> keep controllers and services <b>stateless</b>: use parameters and local variables.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: locking in different orders</strong>
+    Leads to deadlocks under load. <br><strong>Fix:</strong> pick one global lock order and always follow it.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><b>Prefer high-level tools:</b> <code>ExecutorService</code> and <code>CompletableFuture</code> over raw <code>new Thread()</code>; <code>java.util.concurrent</code> classes over manual <code>synchronized</code>/<code>wait</code>/<code>notify</code>.</li>
+    <li><b>Prefer immutability:</b> immutable objects (records, <code>String</code>, <code>List.of</code>) need no locking.</li>
+    <li><b>Keep shared mutable state to a minimum.</b> Less sharing = fewer bugs.</li>
+    <li><b>Keep locked sections short</b> and never do slow I/O while holding a lock if possible.</li>
+    <li><b>Name your threads</b> (or use a <code>ThreadFactory</code>) — it makes logs and thread dumps readable. Spring lets you set a thread-name prefix for its pools.</li>
+    <li><b>Size pools deliberately:</b> CPU-heavy work ≈ number of cores (<code>Runtime.getRuntime().availableProcessors()</code>); I/O-heavy work (waiting for DB/network) can use more.</li>
+    <li><b>Always shut down</b> pools you create; in Spring, let the framework own them (as beans).</li>
+    <li><b>Handle failures in async code</b> (<code>exceptionally</code>, <code>handle</code>) — an exception in a background thread is easy to miss.</li>
+    <li><b>Spring beans should be stateless.</b> If you need per-request data, pass it as parameters.</li>
+    <li><b>Test concurrency</b> by running code many times with many threads; such bugs rarely show up in a single run.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>A <b>process</b> is a running program; <b>threads</b> are workers inside it that share the same heap memory.</li>
+    <li>Create threads with <code>Thread</code>, <code>Runnable</code> or a lambda — and always call <code>start()</code>, not <code>run()</code>.</li>
+    <li>Thread states: NEW → RUNNABLE → (BLOCKED / WAITING / TIMED_WAITING) → TERMINATED. <code>sleep</code> pauses, <code>join</code> waits for another thread.</li>
+    <li>A <b>race condition</b> happens when threads change shared data at the same time; <code>count++</code> is not atomic.</li>
+    <li><code>synchronized</code> = one thread at a time (atomicity + visibility); <code>volatile</code> = visibility only.</li>
+    <li><b>Thread pools</b> (<code>ExecutorService</code>) reuse threads; <code>Callable</code> returns a value via a <code>Future</code>.</li>
+    <li><code>CompletableFuture</code> chains async steps: <code>supplyAsync</code>, <code>thenApply</code>, <code>thenCombine</code>, <code>exceptionally</code>, <code>join</code>.</li>
+    <li>Use <code>AtomicInteger</code> and <code>ConcurrentHashMap</code> for shared counters and maps.</li>
+    <li>A <b>deadlock</b> is a circular wait for locks; avoid it with a consistent lock order.</li>
+    <li>In Spring Boot each request runs on its own thread, so beans must be <b>stateless</b> and thread-safe. Java 21 adds virtual threads.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Countdown threads.</b> Start two threads named "Rocket-A" and "Rocket-B". Each counts down from 5 to 1, printing <code>Rocket-A: 5</code> etc., sleeping 200&nbsp;ms between numbers. Main waits for both and prints "Lift off!".</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public class Countdown {
+    public static void main(String[] args) throws InterruptedException {
+        Runnable countdown = () -&gt; {
+            for (int i = 5; i &gt;= 1; i--) {
+                System.out.println(Thread.currentThread().getName() + ": " + i);
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        };
+        Thread a = new Thread(countdown, "Rocket-A");
+        Thread b = new Thread(countdown, "Rocket-B");
+        a.start(); b.start();
+        a.join();  b.join();          // wait for both
+        System.out.println("Lift off!");
+    }
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Fix the bank.</b> A <code>BankAccount</code> has <code>int balance = 0</code> and a method <code>deposit(int amount)</code> that does <code>balance += amount</code>. 4 threads each deposit 1 rupee 10,000 times. Show that the result is wrong, then fix it in two different ways.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// Fix 1: synchronized
+class BankAccount {
+    private int balance;
+    synchronized void deposit(int amount) { balance += amount; }
+    synchronized int getBalance() { return balance; }
+}
+
+// Fix 2: AtomicInteger
+class AtomicBankAccount {
+    private final AtomicInteger balance = new AtomicInteger();
+    void deposit(int amount) { balance.addAndGet(amount); }
+    int getBalance() { return balance.get(); }
+}
+
+// Test with a pool:
+ExecutorService pool = Executors.newFixedThreadPool(4);
+BankAccount acc = new BankAccount();
+for (int t = 0; t &lt; 4; t++) {
+    pool.submit(() -&gt; { for (int i = 0; i &lt; 10_000; i++) acc.deposit(1); });
+}
+pool.shutdown();
+pool.awaitTermination(5, TimeUnit.SECONDS);
+System.out.println(acc.getBalance());   // 40000 every time</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Parallel word count.</b> You have 4 sentences (Strings). Using an <code>ExecutorService</code> with 4 threads and <code>Callable&lt;Integer&gt;</code>, count the words in each sentence in parallel, then add up the results using the Futures.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">List&lt;String&gt; sentences = List.of(
+        "Java is fun", "Threads run in parallel",
+        "Spring Boot uses thread pools", "Practice makes perfect");
+
+ExecutorService pool = Executors.newFixedThreadPool(4);
+List&lt;Future&lt;Integer&gt;&gt; futures = new ArrayList&lt;&gt;();
+for (String s : sentences) {
+    Callable&lt;Integer&gt; task = () -&gt; s.split("\\s+").length;
+    futures.add(pool.submit(task));        // submit ALL first...
+}
+int total = 0;
+for (Future&lt;Integer&gt; f : futures) {
+    total += f.get();                      // ...then collect
+}
+pool.shutdown();
+System.out.println("Total words = " + total);   // 15</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Order summary with CompletableFuture.</b> Write three fake methods, each sleeping 500&nbsp;ms: <code>getCustomerName()</code> → "Asha", <code>getOrderTotal()</code> → 1200.0, <code>getDeliveryEta()</code> → "30 min". Fetch all three in parallel and print <code>Asha, your order of Rs.1200.0 arrives in 30 min</code>. Measure that it takes ~500&nbsp;ms, not 1500&nbsp;ms.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">long start = System.currentTimeMillis();
+CompletableFuture&lt;String&gt; name  = CompletableFuture.supplyAsync(() -&gt; getCustomerName());
+CompletableFuture&lt;Double&gt; total = CompletableFuture.supplyAsync(() -&gt; getOrderTotal());
+CompletableFuture&lt;String&gt; eta   = CompletableFuture.supplyAsync(() -&gt; getDeliveryEta());
+
+String msg = name
+        .thenCombine(total, (n, t) -&gt; n + ", your order of Rs." + t)
+        .thenCombine(eta, (text, e) -&gt; text + " arrives in " + e)
+        .join();
+
+System.out.println(msg);
+System.out.println("Took " + (System.currentTimeMillis() - start) + " ms");</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>Producer–consumer.</b> One "orders" thread puts 10 order numbers into a <code>BlockingQueue&lt;Integer&gt;</code> (use <code>ArrayBlockingQueue</code> with capacity 3). Two "delivery" threads take orders from the queue and print who delivers which order. Use a special value (e.g. <code>-1</code>, called a "poison pill") to tell consumers to stop.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">BlockingQueue&lt;Integer&gt; queue = new ArrayBlockingQueue&lt;&gt;(3);
+
+Thread producer = new Thread(() -&gt; {
+    try {
+        for (int i = 1; i &lt;= 10; i++) {
+            queue.put(i);                 // blocks if the queue is full
+            System.out.println("Placed order " + i);
+        }
+        queue.put(-1); queue.put(-1);     // one poison pill per consumer
+    } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+});
+
+Runnable deliver = () -&gt; {
+    try {
+        while (true) {
+            int order = queue.take();     // blocks if the queue is empty
+            if (order == -1) break;
+            System.out.println(Thread.currentThread().getName() + " delivers order " + order);
+            Thread.sleep(100);
+        }
+    } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+};
+
+Thread d1 = new Thread(deliver, "Rider-1");
+Thread d2 = new Thread(deliver, "Rider-2");
+producer.start(); d1.start(); d2.start();
+producer.join(); d1.join(); d2.join();</code></pre>
+    <p>This pattern is exactly what message brokers like RabbitMQ and Kafka do between applications (Topics 57–58).</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>Create and break a deadlock.</b> Write two objects <code>pen</code> and <code>paper</code>. Student-1 locks pen then paper; Student-2 locks paper then pen. Observe the freeze with <code>jstack</code>. Then fix it using a <code>ReentrantLock</code> with <code>tryLock(500, TimeUnit.MILLISECONDS)</code> — if a student can't get both, they release what they hold and try again.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">ReentrantLock pen = new ReentrantLock();
+ReentrantLock paper = new ReentrantLock();
+
+void write(String who, ReentrantLock first, ReentrantLock second) throws InterruptedException {
+    while (true) {
+        if (first.tryLock(500, TimeUnit.MILLISECONDS)) {
+            try {
+                if (second.tryLock(500, TimeUnit.MILLISECONDS)) {
+                    try {
+                        System.out.println(who + " is writing");
+                        return;                       // success
+                    } finally { second.unlock(); }
+                }
+            } finally { first.unlock(); }             // give back and retry
+        }
+        Thread.sleep(50);                             // small back-off
+    }
+}</code></pre></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between a process and a thread?</summary>
+    <p>A process is a running program with its own memory space. A thread is a unit of execution inside a process. Threads of the same process share heap memory (objects), but each has its own stack (local variables, call frames). Threads are cheaper to create and communicate easily, but shared memory brings thread-safety problems.</p></details>
+  <details><summary>Q2. What is the difference between start() and run()?</summary>
+    <p><code>start()</code> asks the JVM to create a new thread, which then calls <code>run()</code>. Calling <code>run()</code> directly is a normal method call in the current thread — no concurrency. <code>start()</code> can be called only once per Thread object.</p></details>
+  <details><summary>Q3. Runnable vs Callable?</summary>
+    <p><code>Runnable.run()</code> returns nothing and cannot throw checked exceptions. <code>Callable&lt;V&gt;.call()</code> returns a value of type V and may throw checked exceptions. Submitting a Callable to an ExecutorService gives you a <code>Future&lt;V&gt;</code>.</p></details>
+  <details><summary>Q4. What is a race condition? How do you prevent it?</summary>
+    <p>A race condition is when the result depends on the timing of threads accessing shared mutable data — e.g. two threads doing <code>count++</code> and losing an update because increment is read-modify-write. Prevent it with mutual exclusion (<code>synchronized</code>, <code>ReentrantLock</code>), atomic classes (<code>AtomicInteger</code>), thread-safe collections (<code>ConcurrentHashMap</code>), or by avoiding shared mutable state (immutability, local variables).</p></details>
+  <details><summary>Q5. What is the difference between synchronized and volatile?</summary>
+    <p><code>volatile</code> guarantees visibility: a write by one thread is immediately seen by others, and it prevents certain reorderings. It does not make compound actions atomic. <code>synchronized</code> provides both mutual exclusion (only one thread in the block) and visibility (changes are flushed when the lock is released). Use volatile for simple flags, synchronized/atomics for read-modify-write.</p></details>
+  <details><summary>Q6. Why use a thread pool instead of creating threads manually?</summary>
+    <p>Creating threads is expensive (memory for stacks, OS work). A pool reuses a limited number of threads, controls the maximum concurrency (protects the machine from thousands of threads), queues extra tasks, and provides a clean API (submit, Future, shutdown). Web servers like Tomcat use a thread pool for requests.</p></details>
+  <details><summary>Q7. Future vs CompletableFuture?</summary>
+    <p><code>Future</code> only lets you check <code>isDone()</code> or block with <code>get()</code>. <code>CompletableFuture</code> implements Future and adds non-blocking composition: <code>thenApply</code>, <code>thenCompose</code>, <code>thenCombine</code>, <code>allOf</code>/<code>anyOf</code>, error handling with <code>exceptionally</code>/<code>handle</code>, and can be completed manually. It allows building async pipelines without blocking threads.</p></details>
+  <details><summary>Q8. What is a deadlock and how can you avoid it?</summary>
+    <p>A deadlock is when two or more threads wait forever for locks held by each other (circular wait). Avoid it by acquiring locks in a consistent global order, using timeouts (<code>tryLock</code>), holding as few locks as possible for as short as possible, and preferring higher-level concurrency utilities. Detect with a thread dump (<code>jstack</code>), which reports Java-level deadlocks.</p></details>
+  <details><summary>Q9. How does ConcurrentHashMap differ from HashMap and Collections.synchronizedMap?</summary>
+    <p><code>HashMap</code> is not thread-safe. <code>Collections.synchronizedMap</code> wraps every method with one lock — safe but only one thread at a time. <code>ConcurrentHashMap</code> allows concurrent reads and fine-grained locking/CAS for writes (per bucket), so it scales much better, offers atomic operations (<code>putIfAbsent</code>, <code>computeIfAbsent</code>, <code>merge</code>), and its iterators never throw ConcurrentModificationException. It does not allow null keys or values.</p></details>
+  <details><summary>Q10. Are Spring singleton beans thread-safe?</summary>
+    <p>Not automatically. Spring creates one instance and all request threads use it concurrently. A bean is thread-safe only if it is stateless (or its state is immutable or managed with thread-safe types). That is why controllers and services should not keep per-request data in fields; dependencies injected once at startup are fine.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../16-File-IO-And-Date-Time/lesson.html"><small>← Previous</small>16. File I/O &amp; Date-Time</a>
+    <a class="next" href="../18-Annotations-And-Reflection/lesson.html"><small>Next →</small>18. Annotations &amp; Reflection</a>
+  </nav>
+</main>
+</body>
+</html>

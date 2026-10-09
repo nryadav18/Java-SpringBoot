@@ -1,0 +1,27 @@
+# ------------------------------------------------------------
+# Topic 50 - a LOCAL Authorization Server (Keycloak) for learning OAuth2 / OIDC for free.
+#
+#   docker compose up -d          start Keycloak (first start takes ~30-60 s)
+#   docker compose logs -f        watch until you see "Running the server in development mode"
+#   docker compose down           stop it
+#
+# Admin console : http://localhost:8180  (admin / admin)
+# Realm "course" is imported from ./keycloak/realm-course.json:
+#   users  : alice / alice123 (role user)      boss / boss123 (roles user, admin)
+#   client : course-client / course-secret
+# Issuer : http://localhost:8180/realms/course
+#
+# start-dev = development mode (HTTP, in-memory-ish H2 storage). NEVER use it in production.
+# ------------------------------------------------------------
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.7
+    container_name: course-keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8180:8080"
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro

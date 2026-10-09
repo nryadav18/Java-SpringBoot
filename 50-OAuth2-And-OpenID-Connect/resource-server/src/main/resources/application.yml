@@ -1,0 +1,28 @@
+# ------------------------------------------------------------
+# Topic 50 - OAuth2 Resource Server
+# ------------------------------------------------------------
+server:
+  port: 8081      # 8080 is used by the login client, 8180 by Keycloak
+
+spring:
+  application:
+    name: resource-server
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # WHO do we trust? Tokens must have "iss" = this value.
+          # The public keys are found via <issuer>/.well-known/openid-configuration -> "jwks_uri".
+          # Spring contacts the issuer lazily (on the first request with a token),
+          # so the app starts even when Keycloak is not running yet.
+          #   Keycloak : http://localhost:8180/realms/course
+          #   Auth0    : https://<your-tenant>.auth0.com/
+          #   Okta     : https://<your-domain>.okta.com/oauth2/default
+          issuer-uri: ${ISSUER_URI:http://localhost:8180/realms/course}
+          # Optional extra check: the token must be meant for US ("aud" claim).
+          # Keycloak puts "account" in aud by default, so we leave it commented out.
+          # audiences: course-api
+
+logging:
+  level:
+    org.springframework.security: INFO

@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>63 · Inter-Service Communication with OpenFeign</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part F · Microservices &amp; Spring Cloud › Topic 63</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag adv">Part F · Microservices &amp; Spring Cloud</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>63. Inter-Service Communication with OpenFeign</h1>
+  <p class="subtitle">Call another microservice by writing just a Java interface — and handle errors, timeouts, logging and load balancing like a professional.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="63-Inter-Service-Communication-With-OpenFeign"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What a <em>declarative</em> HTTP client is and why it saves so much code.</li>
+      <li>How to set up <code>spring-cloud-starter-openfeign</code>, <code>@EnableFeignClients</code> and <code>@FeignClient</code>.</li>
+      <li>How Feign works together with Eureka for <strong>client-side load balancing</strong>.</li>
+      <li>How to turn remote errors into your own exceptions with an <strong>ErrorDecoder</strong>.</li>
+      <li>How to set <strong>timeouts</strong>, turn on <strong>logging</strong>, and add headers with a <strong>RequestInterceptor</strong>.</li>
+      <li>When to choose Feign, <code>RestClient</code> or <code>@HttpExchange</code> (comparison table).</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know:
+    <a href="../45-Consuming-External-APIs-RestClient-WebClient/lesson.html">Topic 45 · RestClient &amp; @HttpExchange</a>,
+    <a href="../59-Microservices-Architecture-Introduction/lesson.html">Topic 59 · Microservices intro</a> and
+    <a href="../60-Service-Discovery-With-Eureka/lesson.html">Topic 60 · Eureka</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>In a microservice system, services <strong>talk to each other all day long</strong>. An order service must ask the
+    product service for prices. A payment service must ask the user service for an address. A shipping service must
+    tell the notification service to send an SMS.</p>
+  <p>In topic 59 you wrote these calls by hand with <code>RestClient</code>: build the URL, set the method, send,
+    read the body, convert JSON, check the status code… For one call it is fine. But a real company service may call
+    <strong>10 other services with 50 different endpoints</strong>. All that “plumbing” code is boring, repeated and easy to get wrong.</p>
+  <p><strong>OpenFeign</strong> removes the plumbing. You write a small Java <em>interface</em> that <em>describes</em> the
+    remote API, and Spring generates the real HTTP code for you at startup. Your business code then simply calls
+    <code>productClient.getProductById(1L)</code> — as if the product service were a local class.</p>
+  <div class="callout info"><strong>ℹ️ Where you will see this at work</strong>
+    Feign has been the most popular way to do service-to-service calls in Spring Cloud projects for almost 10 years.
+    Banks, e-commerce sites and telecom companies running Spring Cloud almost always have <code>@FeignClient</code>
+    interfaces in their code. Even if your new project uses <code>@HttpExchange</code> (the newer Spring way), you will
+    meet Feign in existing code and in interviews.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>📱 Speed dial on your phone</strong>
+    To call your mum you do not type <code>+91 98xxx xxxxx</code> every time. You save her once as a contact
+    called <strong>“Mum”</strong> and then just tap the name. The phone handles the number, the network, the ringing.
+    <br><br>
+    A <code>@FeignClient</code> is that contact card:
+    <ul>
+      <li>The <strong>contact name</strong> (“Mum”) = <code>name = "product-service"</code>.</li>
+      <li>The <strong>phone number</strong> saved on the card = the <code>url</code> (or Eureka looks it up for you, like a phone book).</li>
+      <li>Each <strong>button</strong> on the card (Call, Message, Video) = each method in the interface (<code>getProductById</code>, <code>reduceStock</code>…).</li>
+      <li>“The number you are calling is not reachable” = an exception that your <strong>ErrorDecoder</strong> turns into a clear message.</li>
+      <li>“Hang up if nobody answers in 20 seconds” = the <strong>read timeout</strong>.</li>
+    </ul>
+    You think about <em>whom</em> you call and <em>why</em> — never about the wires.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The problem: hand-written HTTP calls</h3>
+  <p>Here is how order-service would fetch a product with <code>RestClient</code> (topic 45). It works, but count the
+    technical details you must remember each time:</p>
+  <pre><code class="lang-java">ProductResponse product = restClient.get()
+        .uri("http://localhost:8081/api/products/{id}", id)   // host, port, path
+        .retrieve()
+        .onStatus(status -&gt; status.value() == 404,               // error handling
+                  (req, res) -&gt; { throw new ProductNotFoundException("..."); })
+        .body(ProductResponse.class);                            // JSON -&gt; Java</code></pre>
+  <p>Now repeat this for <code>getAllProducts</code>, <code>reduceStock</code>, <code>searchProducts</code>… in every service.
+    That is the pain Feign solves.</p>
+
+  <h3>3.2 What is a declarative HTTP client?</h3>
+  <p><strong>Imperative</strong> = you tell the computer <em>how</em> to do something, step by step.
+    <strong>Declarative</strong> = you only say <em>what</em> you want, and a framework works out the how.</p>
+  <p>With Feign you <em>declare</em> the remote API:</p>
+  <pre><code class="lang-java">@FeignClient(name = "product-service", url = "http://localhost:8081")
+public interface ProductClient {
+
+    @GetMapping("/api/products/{id}")
+    ProductResponse getProductById(@PathVariable("id") Long id);
+}</code></pre>
+  <p>That is the <strong>whole</strong> client. No class implements this interface — Spring creates a hidden object
+    (a <strong>proxy</strong>, the same idea as AOP proxies in topic 27) that does the HTTP work whenever you call a method.</p>
+
+  <div class="callout info"><strong>ℹ️ A little history (useful for interviews)</strong>
+    <ul>
+      <li><strong>Feign</strong> was created at Netflix (around 2013) — like Eureka.</li>
+      <li>It moved to the community and was renamed <strong>OpenFeign</strong> (<code>io.github.openfeign</code>).</li>
+      <li><strong>Spring Cloud OpenFeign</strong> is the Spring integration: it lets you use the familiar Spring MVC
+        annotations (<code>@GetMapping</code>, <code>@PathVariable</code>…), Spring's JSON converters, Spring Cloud LoadBalancer and Spring Boot config.</li>
+      <li>Today the Spring team calls Spring Cloud OpenFeign <strong>“feature complete”</strong>: it is maintained and fully
+        supported, but new features go into Spring's own <code>@HttpExchange</code> interfaces. Still very widely used.</li>
+    </ul></div>
+
+  <h3>3.3 Setting it up — 3 small steps</h3>
+  <p><strong>Step 1 — dependency + Spring Cloud BOM.</strong> The BOM (Bill Of Materials, topic 20) chooses versions of
+    all Spring Cloud jars that work together. You never write a version on the starter itself.</p>
+  <pre><span class="file">order-service/pom.xml</span><code class="lang-xml">&lt;properties&gt;
+    &lt;java.version&gt;17&lt;/java.version&gt;
+    &lt;spring-cloud.version&gt;2025.0.0&lt;/spring-cloud.version&gt;
+&lt;/properties&gt;
+
+&lt;dependencies&gt;
+    &lt;dependency&gt;
+        &lt;groupId&gt;org.springframework.cloud&lt;/groupId&gt;
+        &lt;artifactId&gt;spring-cloud-starter-openfeign&lt;/artifactId&gt;
+    &lt;/dependency&gt;
+&lt;/dependencies&gt;
+
+&lt;dependencyManagement&gt;
+    &lt;dependencies&gt;
+        &lt;dependency&gt;
+            &lt;groupId&gt;org.springframework.cloud&lt;/groupId&gt;
+            &lt;artifactId&gt;spring-cloud-dependencies&lt;/artifactId&gt;
+            &lt;version&gt;${spring-cloud.version}&lt;/version&gt;
+            &lt;type&gt;pom&lt;/type&gt;
+            &lt;scope&gt;import&lt;/scope&gt;
+        &lt;/dependency&gt;
+    &lt;/dependencies&gt;
+&lt;/dependencyManagement&gt;</code></pre>
+  <p><strong>Step 2 — switch Feign on</strong> with <code>@EnableFeignClients</code> on your main class. It tells Spring:
+    “scan this package and its sub-packages for <code>@FeignClient</code> interfaces and create a bean for each one”.</p>
+  <pre><code class="lang-java">@SpringBootApplication
+@EnableFeignClients
+public class OrderServiceApplication { ... }</code></pre>
+  <p><strong>Step 3 — write the interface</strong> with <code>@FeignClient</code> and inject it wherever you need it
+    (constructor injection, as always).</p>
+
+  <h3>3.4 Anatomy of <code>@FeignClient</code></h3>
+  <div class="table-wrap"><table>
+    <tr><th>Attribute</th><th>Meaning</th><th>Example</th></tr>
+    <tr><td><code>name</code> (or <code>value</code>)</td><td>Logical name of the remote service. Used for Eureka lookup AND as the key for config in <code>application.yml</code>. Required.</td><td><code>"product-service"</code></td></tr>
+    <tr><td><code>url</code></td><td>Fixed base URL. If set, Eureka/load balancing is <strong>skipped</strong>. If empty, the name is resolved through the load balancer. Supports <code>${...}</code> placeholders.</td><td><code>"${clients.product-service.url:}"</code></td></tr>
+    <tr><td><code>path</code></td><td>Common prefix added to every method's path.</td><td><code>"/api/products"</code></td></tr>
+    <tr><td><code>configuration</code></td><td>Class with extra beans (ErrorDecoder, RequestInterceptor, Retryer…) for <em>this</em> client only.</td><td><code>ProductClientConfig.class</code></td></tr>
+    <tr><td><code>contextId</code></td><td>Needed when you have <em>two</em> Feign interfaces for the same service name (avoids bean name clash).</td><td><code>"productAdminClient"</code></td></tr>
+    <tr><td><code>fallback</code> / <code>fallbackFactory</code></td><td>Class used when the call fails and a circuit breaker is enabled (topic 64).</td><td><code>ProductClientFallback.class</code></td></tr>
+    <tr><td><code>dismiss404</code></td><td>Treat 404 as “empty” instead of an error.</td><td><code>true</code></td></tr>
+  </table></div>
+
+  <h3>3.5 What happens when you call a Feign method?</h3>
+  <p>Let's follow <code>productClient.getProductById(1L)</code> step by step:</p>
+  <div class="flow">
+    <span class="box">OrderService<br><small>calls method</small></span><span class="arrow">→</span>
+    <span class="box alt">Feign proxy<br><small>reads annotations</small></span><span class="arrow">→</span>
+    <span class="box info">RequestInterceptors<br><small>add headers</small></span><span class="arrow">→</span>
+    <span class="box info">LoadBalancer<br><small>name → host:port</small></span><span class="arrow">→</span>
+    <span class="box alt">HTTP client<br><small>sends GET</small></span><span class="arrow">→</span>
+    <span class="box">product-service</span>
+  </div>
+  <div class="flow">
+    <span class="box">product-service<br><small>answers</small></span><span class="arrow">→</span>
+    <span class="box alt">2xx? Decoder<br><small>JSON → ProductResponse</small></span><span class="arrow">or</span>
+    <span class="box info">4xx/5xx? ErrorDecoder<br><small>→ your exception</small></span><span class="arrow">→</span>
+    <span class="box">back to OrderService</span>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th>Feign building block</th><th>Job</th><th>Spring Cloud default</th></tr>
+    <tr><td><strong>Contract</strong></td><td>Understands the annotations on your interface.</td><td><code>SpringMvcContract</code> (so you can use <code>@GetMapping</code>…)</td></tr>
+    <tr><td><strong>Encoder</strong></td><td>Turns a Java object (the <code>@RequestBody</code>) into JSON.</td><td><code>SpringEncoder</code> (Jackson)</td></tr>
+    <tr><td><strong>Decoder</strong></td><td>Turns the JSON answer into your return type.</td><td><code>ResponseEntityDecoder</code> (Jackson)</td></tr>
+    <tr><td><strong>ErrorDecoder</strong></td><td>Turns a non-2xx answer into an exception.</td><td><code>ErrorDecoder.Default</code> → <code>FeignException</code></td></tr>
+    <tr><td><strong>Client</strong></td><td>Actually sends bytes over the network.</td><td><code>Client.Default</code> (Java's <code>HttpURLConnection</code>); can switch to Apache HttpClient 5 or OkHttp</td></tr>
+    <tr><td><strong>Retryer</strong></td><td>Decides whether to retry.</td><td><code>Retryer.NEVER_RETRY</code></td></tr>
+    <tr><td><strong>Logger.Level</strong></td><td>How much to log.</td><td><code>NONE</code></td></tr>
+  </table></div>
+
+  <h3>3.6 Writing the interface methods</h3>
+  <p>You use the <strong>same annotations as in a controller</strong>, but “from the other side”: in a controller they
+    <em>read</em> the request, in a Feign client they <em>build</em> the request.</p>
+  <pre><code class="lang-java">@FeignClient(name = "product-service", url = "${clients.product-service.url:}", path = "/api/products")
+public interface ProductClient {
+
+    @GetMapping                                   // GET /api/products
+    List&lt;ProductResponse&gt; getAllProducts();
+
+    @GetMapping("/{id}")                          // GET /api/products/7
+    ProductResponse getProductById(@PathVariable("id") Long id);
+
+    @GetMapping("/search")                        // GET /api/products/search?name=mouse&amp;page=0
+    List&lt;ProductResponse&gt; search(@RequestParam("name") String name,
+                                 @RequestParam("page") int page);
+
+    @PostMapping                                  // POST /api/products  with JSON body
+    ProductResponse create(@RequestBody CreateProductRequest body);
+
+    @GetMapping("/{id}")                          // send a header too
+    ProductResponse getWithHeader(@PathVariable("id") Long id,
+                                  @RequestHeader("X-Request-Id") String requestId);
+
+    @GetMapping("/{id}")                          // need status code + headers? return ResponseEntity
+    ResponseEntity&lt;ProductResponse&gt; getRaw(@PathVariable("id") Long id);
+}</code></pre>
+  <div class="callout warn"><strong>⚠️ Always write the name inside <code>@PathVariable("id")</code> and <code>@RequestParam("name")</code></strong>
+    In a controller Spring can often guess the name from the parameter. In a Feign interface it frequently cannot, and you get
+    <code>IllegalStateException: PathVariable annotation was empty on param 0</code> at startup. Writing the name is a 2-second habit that avoids it.</div>
+
+  <h3>3.7 Feign + Eureka = client-side load balancing</h3>
+  <p>Remember topic 60: services register in Eureka, and a <code>@LoadBalanced</code> client can call
+    <code>http://product-service/...</code> by <em>name</em>. Feign does that <strong>automatically</strong> when the
+    <code>url</code> attribute is empty:</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 640 220" width="640" role="img" aria-label="Feign with Eureka load balancing">
+      <g style="font: 13px sans-serif; fill: currentColor">
+        <rect x="10" y="85" width="140" height="50" rx="8" style="fill:none; stroke:var(--java); stroke-width:2"/>
+        <text x="80" y="107" text-anchor="middle">order-service</text>
+        <text x="80" y="124" text-anchor="middle" style="font-size:11px">ProductClient</text>
+        <rect x="245" y="10" width="150" height="46" rx="8" style="fill:none; stroke:var(--info); stroke-width:2"/>
+        <text x="320" y="30" text-anchor="middle">Eureka :8761</text>
+        <text x="320" y="47" text-anchor="middle" style="font-size:11px">phone book</text>
+        <rect x="470" y="60" width="160" height="46" rx="8" style="fill:none; stroke:var(--accent); stroke-width:2"/>
+        <text x="550" y="88" text-anchor="middle">product-service :8081</text>
+        <rect x="470" y="150" width="160" height="46" rx="8" style="fill:none; stroke:var(--accent); stroke-width:2"/>
+        <text x="550" y="178" text-anchor="middle">product-service :9081</text>
+        <line x1="150" y1="95" x2="245" y2="40" style="stroke:var(--muted); stroke-width:1.5; stroke-dasharray:4 3"/>
+        <text x="160" y="60" style="font-size:11px">1. where is product-service?</text>
+        <line x1="150" y1="105" x2="470" y2="83" style="stroke:currentColor; stroke-width:2"/>
+        <line x1="150" y1="118" x2="470" y2="173" style="stroke:currentColor; stroke-width:2"/>
+        <text x="270" y="128" style="font-size:11px">2. call #1 → :8081, call #2 → :9081 (round robin)</text>
+      </g>
+    </svg>
+    <figcaption>Feign asks Spring Cloud LoadBalancer, which asks Eureka for the list of instances and picks one per call.</figcaption>
+  </figure>
+  <p>In this topic's code the URL comes from a property, so the project runs <strong>without</strong> Eureka by default:</p>
+  <pre><span class="file">order-service/src/main/resources/application.yml (parts)</span><code class="lang-yaml">clients:
+  product-service:
+    url: http://localhost:8081      # default: fixed URL, no Eureka needed
+
+---
+spring:
+  config:
+    activate:
+      on-profile: eureka
+clients:
+  product-service:
+    url: ""                         # empty =&gt; Feign uses the NAME + load balancer
+eureka:
+  client:
+    enabled: true</code></pre>
+  <p>The eureka client starter (already in the pom) brings Spring Cloud LoadBalancer with it. Default strategy: <strong>round robin</strong> (take turns).</p>
+
+  <h3>3.8 Error handling — <code>FeignException</code> and the <code>ErrorDecoder</code></h3>
+  <p>When the remote service answers with a 4xx or 5xx status, Feign by default throws a <code>FeignException</code>
+    sub-class: <code>FeignException.NotFound</code> (404), <code>FeignException.BadRequest</code> (400),
+    <code>FeignException.InternalServerError</code> (500)… Your service code would then be full of
+    <code>catch (FeignException.NotFound e)</code> blocks. Better: translate once, in an <strong>ErrorDecoder</strong>.</p>
+  <pre><span class="file">ProductClientErrorDecoder.java (short)</span><code class="lang-java">public class ProductClientErrorDecoder implements ErrorDecoder {
+
+    private final ErrorDecoder defaultDecoder = new ErrorDecoder.Default();
+
+    @Override
+    public Exception decode(String methodKey, Response response) {
+        return switch (response.status()) {
+            case 404 -&gt; new ProductNotFoundException("Product not found in product-service");
+            case 409 -&gt; new OutOfStockException("Not enough stock in product-service");
+            case 500, 502, 503, 504 -&gt; new ProductServiceUnavailableException("...");
+            default  -&gt; defaultDecoder.decode(methodKey, response);   // let Feign handle the rest
+        };
+    }
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ Two very different kinds of failure</strong>
+    <ul>
+      <li><strong>The server answered with an error</strong> (404, 500…) → the <code>ErrorDecoder</code> is called.</li>
+      <li><strong>No answer at all</strong> (service not running = “connection refused”, or slower than the read timeout) →
+        there is no response to decode. Feign throws <code>feign.RetryableException</code>. Handle it in your
+        <code>@RestControllerAdvice</code> (we return <strong>504 Gateway Timeout</strong>), or — much better — use a circuit breaker (topic 64).</li>
+    </ul></div>
+
+  <h3>3.9 Timeouts — never wait forever</h3>
+  <p>A <strong>connect timeout</strong> limits how long we try to <em>open</em> the connection (“is anybody there?”).
+    A <strong>read timeout</strong> limits how long we wait for the <em>answer</em> once connected.</p>
+  <pre><code class="lang-yaml">spring:
+  cloud:
+    openfeign:
+      client:
+        config:
+          default:                 # all Feign clients
+            connect-timeout: 2000  # milliseconds
+            read-timeout: 5000
+          product-service:         # only this client (overrides default)
+            connect-timeout: 1000
+            read-timeout: 2000</code></pre>
+  <p>Why so important? Each waiting call blocks one Tomcat thread. If product-service hangs and you wait 60 seconds per
+    call, a few hundred users can use up <strong>all</strong> threads of order-service — now order-service is “down” too.
+    That chain reaction is called a <strong>cascading failure</strong> (deep dive in topic 64).</p>
+
+  <h3>3.10 Logging what Feign sends and receives</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Logger.Level</th><th>What is logged</th><th>Use it when</th></tr>
+    <tr><td><code>NONE</code></td><td>Nothing (default)</td><td>Production, normal days</td></tr>
+    <tr><td><code>BASIC</code></td><td>Method, URL, status code, time taken</td><td>Production, if you want a light trail</td></tr>
+    <tr><td><code>HEADERS</code></td><td>BASIC + request/response headers</td><td>Debugging auth/header problems</td></tr>
+    <tr><td><code>FULL</code></td><td>HEADERS + bodies + metadata</td><td>Local development / learning only (may log personal data!)</td></tr>
+  </table></div>
+  <p>Two settings are needed, and beginners always forget the second one:</p>
+  <pre><code class="lang-yaml">spring.cloud.openfeign.client.config.product-service.logger-level: full   # 1. what Feign logs
+
+logging:
+  level:
+    com.course.feign.order.client.ProductClient: DEBUG                       # 2. let DEBUG lines through</code></pre>
+  <p>Feign writes its lines at <code>DEBUG</code> level using the interface name as logger name. Without (2), the default
+    level <code>INFO</code> hides them all.</p>
+
+  <h3>3.11 RequestInterceptor — add something to every request</h3>
+  <p>An interceptor runs <em>before every request</em> of a client. Typical uses: pass the user's JWT token along
+    (topic 49), add an API key, add a correlation id (topic 65).</p>
+  <pre><code class="lang-java">@Bean
+public RequestInterceptor callerHeaderInterceptor() {
+    return template -&gt; template.header("X-Caller-Service", "order-service");
+}
+
+// Real-life example: forward the incoming JWT to the next service
+@Bean
+public RequestInterceptor bearerTokenForwarder() {
+    return template -&gt; {
+        var attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attrs != null) {
+            String auth = attrs.getRequest().getHeader("Authorization");
+            if (auth != null) template.header("Authorization", auth);
+        }
+    };
+}</code></pre>
+
+  <h3>3.12 Configuration: YAML or Java, global or per client</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Where</th><th>Scope</th><th>Good for</th></tr>
+    <tr><td><code>spring.cloud.openfeign.client.config.default.*</code></td><td>All clients</td><td>Timeouts, logger level</td></tr>
+    <tr><td><code>spring.cloud.openfeign.client.config.&lt;name&gt;.*</code></td><td>One client</td><td>Overrides for one slow/fast service</td></tr>
+    <tr><td><code>@FeignClient(configuration = X.class)</code></td><td>One client</td><td>Beans: ErrorDecoder, RequestInterceptor, Retryer</td></tr>
+    <tr><td><code>@EnableFeignClients(defaultConfiguration = X.class)</code></td><td>All clients</td><td>Global beans</td></tr>
+  </table></div>
+  <div class="callout danger"><strong>🚨 The <code>@Configuration</code> trap</strong>
+    The class you pass to <code>@FeignClient(configuration = ...)</code> should <strong>not</strong> have
+    <code>@Configuration</code> (or must live outside the component-scan packages). If component scanning picks it up,
+    its beans become <em>global</em> and silently apply to <strong>every</strong> Feign client — e.g. your product
+    ErrorDecoder would also decode errors from the payment service.</div>
+  <p>If the same setting is in YAML and Java, YAML wins by default (<code>spring.cloud.openfeign.client.default-to-properties=true</code>).</p>
+
+  <h3>3.13 Retries</h3>
+  <p>Spring Cloud OpenFeign uses <code>Retryer.NEVER_RETRY</code> by default — a failed call is <strong>not</strong>
+    repeated. You can add a bean <code>new Retryer.Default(100, 1000, 3)</code> (start 100 ms, max 1 s, 3 attempts),
+    but most teams prefer Resilience4j's <code>@Retry</code> (next topic) because it combines nicely with a circuit breaker.</p>
+  <div class="callout warn"><strong>⚠️ Only retry safe operations</strong>
+    Retrying <code>GET</code> is safe. Retrying <code>POST /reduce-stock</code> may reduce the stock <em>twice</em> if the
+    first call actually succeeded but the answer got lost. That is why idempotency (topic 32/44) matters.</div>
+
+  <h3>3.14 A preview: Feign with a fallback</h3>
+  <p>With <code>spring-cloud-starter-circuitbreaker-resilience4j</code> on the classpath and
+    <code>spring.cloud.openfeign.circuitbreaker.enabled=true</code>, Feign can call a <strong>fallback</strong>
+    class when the remote call fails:</p>
+  <pre><code class="lang-java">@FeignClient(name = "product-service", fallback = ProductClientFallback.class)
+public interface ProductClient { ... }
+
+@Component
+class ProductClientFallback implements ProductClient {
+    @Override
+    public ProductResponse getProductById(Long id) {
+        return new ProductResponse(id, "Unknown product", 0, 0);   // safe default
+    }
+    // ... other methods
+}</code></pre>
+  <p>Topic 64 explains circuit breakers properly — for now just know the door exists.</p>
+
+  <h3>3.15 Feign vs RestClient vs <code>@HttpExchange</code></h3>
+  <p>Since Spring 6 you can also write a <em>declarative</em> interface without Spring Cloud, using
+    <code>@HttpExchange</code> (you saw it in topic 45). The same product client looks like this:</p>
+  <pre><code class="lang-java">@HttpExchange("/api/products")
+public interface ProductHttpClient {
+    @GetExchange("/{id}")
+    ProductResponse getProductById(@PathVariable Long id);
+}
+
+@Bean
+ProductHttpClient productHttpClient(RestClient.Builder builder) {
+    RestClient restClient = builder.baseUrl("http://localhost:8081").build();
+    return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(restClient))
+            .build()
+            .createClient(ProductHttpClient.class);
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>OpenFeign (<code>@FeignClient</code>)</th><th><code>RestClient</code></th><th><code>@HttpExchange</code> interface</th></tr>
+    <tr><td>Style</td><td>Declarative (interface)</td><td>Imperative (fluent code)</td><td>Declarative (interface)</td></tr>
+    <tr><td>Comes from</td><td>Spring Cloud (extra BOM)</td><td>Spring Framework 6.1+</td><td>Spring Framework 6+</td></tr>
+    <tr><td>Setup effort</td><td>Very low: <code>@EnableFeignClients</code></td><td>Low</td><td>Medium: need a small factory bean (Boot 4 / Framework 7 add auto-registration)</td></tr>
+    <tr><td>Eureka / load balancing</td><td>Built in (empty url)</td><td>With <code>@LoadBalanced RestClient.Builder</code></td><td>Via a <code>@LoadBalanced</code> builder</td></tr>
+    <tr><td>Config in YAML (timeouts, logging)</td><td>Yes, per client</td><td>No, in code</td><td>No, in code</td></tr>
+    <tr><td>Error mapping</td><td><code>ErrorDecoder</code></td><td><code>.onStatus(...)</code> / <code>defaultStatusHandler</code></td><td>Same as the underlying RestClient</td></tr>
+    <tr><td>Reactive (WebClient) support</td><td>No (blocking)</td><td>No (blocking); use WebClient</td><td>Yes, can sit on WebClient too</td></tr>
+    <tr><td>Status</td><td>Feature complete, maintained</td><td>Actively developed</td><td>Actively developed — Spring's recommended direction</td></tr>
+    <tr><td>Choose it when…</td><td>Existing Spring Cloud projects, many clients, want YAML config</td><td>One-off or very custom calls</td><td>New projects that like interfaces</td></tr>
+  </table></div>
+
+  <!-- ============================================================ -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>This topic contains <strong>two Spring Boot projects</strong>. Domain: an online shop.</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>product-service/…/ProductController.java</code></td><td>Plain REST API (port 8081): list, get, reduce stock. <code>?delayMs=</code> makes it slow on purpose. Knows nothing about Feign.</td></tr>
+    <tr><td><code>product-service/…/Product.java</code></td><td>A record: id, name, price, stock.</td></tr>
+    <tr><td><code>order-service/…/OrderServiceApplication.java</code></td><td><code>@EnableFeignClients</code>.</td></tr>
+    <tr><td><code>order-service/…/client/ProductClient.java</code></td><td>The <code>@FeignClient</code> interface with 4 methods.</td></tr>
+    <tr><td><code>order-service/…/config/ProductClientConfig.java</code></td><td>Per-client beans: ErrorDecoder + RequestInterceptor (no <code>@Configuration</code>!).</td></tr>
+    <tr><td><code>order-service/…/exception/ProductClientErrorDecoder.java</code></td><td>404 → ProductNotFoundException, 409 → OutOfStockException, 5xx → ProductServiceUnavailableException.</td></tr>
+    <tr><td><code>order-service/…/exception/GlobalExceptionHandler.java</code></td><td>Turns those exceptions (and <code>RetryableException</code>) into <code>ProblemDetail</code> responses.</td></tr>
+    <tr><td><code>order-service/…/service/OrderService.java</code></td><td>Business logic: fetch product, check stock, reduce stock, save order.</td></tr>
+    <tr><td><code>order-service/…/controller/OrderController.java</code></td><td>REST endpoints of order-service (port 8082).</td></tr>
+    <tr><td><code>order-service/src/main/resources/application.yml</code></td><td>Timeouts, logger level, URL, optional <code>eureka</code> profile.</td></tr>
+    <tr><td><code>requests.http</code></td><td>10 ready-made requests.</td></tr>
+  </table></div>
+
+  <h3>4.1 The Feign client</h3>
+  <pre><span class="file">order-service/src/main/java/com/course/feign/order/client/ProductClient.java</span><code class="lang-java">@FeignClient(
+        name = "product-service",
+        url = "${clients.product-service.url:}",
+        path = "/api/products",
+        configuration = ProductClientConfig.class)
+public interface ProductClient {
+
+    @GetMapping
+    List&lt;ProductResponse&gt; getAllProducts();
+
+    @GetMapping("/{id}")
+    ProductResponse getProductById(@PathVariable("id") Long id);
+
+    @GetMapping("/{id}")
+    ProductResponse getProductSlowly(@PathVariable("id") Long id, @RequestParam("delayMs") long delayMs);
+
+    @PostMapping("/{id}/reduce-stock")
+    ProductResponse reduceStock(@PathVariable("id") Long id, @RequestParam("quantity") int quantity);
+}</code></pre>
+  <ul>
+    <li><code>url = "${clients.product-service.url:}"</code> — the part after the colon is the default value; here it is
+      <em>empty</em>. So if the property is missing or blank, Feign falls back to the load balancer.</li>
+    <li><code>path</code> — saves us from writing <code>/api/products</code> four times.</li>
+    <li><code>getProductSlowly</code> — the same endpoint with an extra query parameter. Two Java methods may map to the
+      same URL; Feign does not care.</li>
+    <li><code>ProductResponse</code> is order-service's <strong>own</strong> record. We do not import product-service's class —
+      services stay independent and can be deployed separately.</li>
+  </ul>
+
+  <h3>4.2 The per-client configuration</h3>
+  <pre><span class="file">order-service/…/config/ProductClientConfig.java</span><code class="lang-java">public class ProductClientConfig {          // NOT @Configuration on purpose
+
+    @Bean
+    public ErrorDecoder productErrorDecoder() {
+        return new ProductClientErrorDecoder();
+    }
+
+    @Bean
+    public RequestInterceptor callerHeaderInterceptor() {
+        return template -&gt; template.header("X-Caller-Service", "order-service");
+    }
+}</code></pre>
+
+  <h3>4.3 The error decoder</h3>
+  <p>Besides the <code>switch</code> you saw in 3.8, it reads the error body for the log. Note
+    <code>response.body()</code> is a stream that can be read <strong>only once</strong>, and it may be <code>null</code>:</p>
+  <pre><code class="lang-java">private String readBody(Response response) {
+    if (response.body() == null) {
+        return "";
+    }
+    try (Reader reader = response.body().asReader(StandardCharsets.UTF_8)) {
+        return Util.toString(reader);
+    } catch (IOException e) {
+        return "&lt;unreadable body&gt;";
+    }
+}</code></pre>
+
+  <h3>4.4 The service — remote calls that look local</h3>
+  <pre><span class="file">order-service/…/service/OrderService.java (core)</span><code class="lang-java">public OrderResponse placeOrder(OrderRequest request) {
+    // Remote call #1 (404 -&gt; ProductNotFoundException thanks to the ErrorDecoder)
+    ProductResponse product = productClient.getProductById(request.productId());
+
+    if (product.stock() &lt; request.quantity()) {
+        throw new OutOfStockException("Only " + product.stock() + " left of '" + product.name() + "'");
+    }
+
+    // Remote call #2 (409 -&gt; OutOfStockException)
+    ProductResponse updated = productClient.reduceStock(product.id(), request.quantity());
+
+    long orderId = idSequence.incrementAndGet();
+    OrderResponse order = new OrderResponse(orderId, product.id(), product.name(),
+            request.quantity(), product.price() * request.quantity(), updated.stock(), "CONFIRMED");
+    orders.put(orderId, order);
+    return order;
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ Why check stock twice?</strong>
+    The local check gives a fast, friendly message. But between our check and our <code>reduceStock</code> call another
+    customer could buy the last item — so product-service checks <em>again</em> (409). The <strong>owner of the data</strong>
+    always has the final word. (Making the two calls one atomic action across services is the job of the <em>Saga</em> pattern.)</div>
+
+  <h3>4.5 Global exception handler</h3>
+  <pre><span class="file">order-service/…/exception/GlobalExceptionHandler.java (part)</span><code class="lang-java">@ExceptionHandler(ProductNotFoundException.class)
+public ProblemDetail handleNotFound(ProductNotFoundException ex) {
+    return problem(HttpStatus.NOT_FOUND, "Product not found", ex.getMessage());
+}
+
+@ExceptionHandler(RetryableException.class)       // no answer at all: down or too slow
+public ProblemDetail handleNoAnswer(RetryableException ex) {
+    return problem(HttpStatus.GATEWAY_TIMEOUT, "Product service did not answer",
+            "product-service is down or too slow. Please try again later.");
+}</code></pre>
+
+  <h3>4.6 application.yml of order-service</h3>
+  <pre><span class="file">order-service/src/main/resources/application.yml (main part)</span><code class="lang-yaml">server:
+  port: 8082
+spring:
+  application:
+    name: order-service
+  cloud:
+    openfeign:
+      client:
+        config:
+          default:
+            connect-timeout: 2000
+            read-timeout: 5000
+            logger-level: basic
+          product-service:
+            connect-timeout: 1000
+            read-timeout: 2000
+            logger-level: full
+clients:
+  product-service:
+    url: http://localhost:8081
+logging:
+  level:
+    com.course.feign.order.client.ProductClient: DEBUG
+eureka:
+  client:
+    enabled: false        # Eureka switched off unless you use the "eureka" profile</code></pre>
+
+  <!-- ============================================================ -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 In VS Code</h3>
+  <ol>
+    <li>Open the folder <code>63-Inter-Service-Communication-With-OpenFeign</code> in VS Code. The Java extension detects both Maven projects.</li>
+    <li>Open the <strong>Spring Boot Dashboard</strong> (left side bar). You will see <code>product-service</code> and <code>order-service</code>.</li>
+    <li>Start <strong>product-service first</strong>, then order-service (▶ button next to each).</li>
+    <li>Open <code>requests.http</code> and click <em>Send Request</em> above each block.</li>
+  </ol>
+  <h3>5.2 From the terminal (two windows)</h3>
+  <pre class="terminal"><code># Terminal 1
+cd "D:\Java-SpringBoot\63-Inter-Service-Communication-With-OpenFeign\product-service"
+mvn spring-boot:run
+
+# Terminal 2
+cd "D:\Java-SpringBoot\63-Inter-Service-Communication-With-OpenFeign\order-service"
+mvn spring-boot:run</code></pre>
+  <h3>5.3 Try it with curl</h3>
+  <p>On Windows PowerShell use <code>curl.exe</code> (plain <code>curl</code> is an alias for a different command there). The JSON quotes are escaped with <code>\"</code>.</p>
+  <pre class="terminal"><code>curl.exe http://localhost:8082/api/orders/products
+
+curl.exe -X POST http://localhost:8082/api/orders -H "Content-Type: application/json" -d "{\"productId\":1,\"quantity\":2}"</code></pre>
+  <p>Expected answer (201 Created):</p>
+  <pre class="terminal"><code>{"orderId":1001,"productId":1,"productName":"Wireless Mouse","quantity":2,"totalPrice":1598.0,"stockLeft":23,"status":"CONFIRMED"}</code></pre>
+  <p>Unknown product → product-service says 404 → ErrorDecoder → our ProblemDetail:</p>
+  <pre class="terminal"><code>curl.exe -X POST http://localhost:8082/api/orders -H "Content-Type: application/json" -d "{\"productId\":99,\"quantity\":1}"
+
+{"type":"about:blank","title":"Product not found","status":404,"detail":"Product not found in product-service","instance":"/api/orders"}</code></pre>
+  <p>Out of stock (product 3 has stock 0):</p>
+  <pre class="terminal"><code>{"type":"about:blank","title":"Out of stock","status":409,"detail":"Only 0 left of 'USB-C Hub'","instance":"/api/orders"}</code></pre>
+  <p>Timeout demo — product-service sleeps 3 s, our read timeout is 2 s:</p>
+  <pre class="terminal"><code>curl.exe "http://localhost:8082/api/orders/timeout-demo?productId=1&amp;delayMs=3000"
+
+{"type":"about:blank","title":"Product service did not answer","status":504,"detail":"product-service is down or too slow. Please try again later.","instance":"/api/orders/timeout-demo"}</code></pre>
+  <p>Look at the order-service console — <code>logger-level: full</code> shows every detail of the HTTP exchange, including our interceptor's header:</p>
+  <pre class="terminal"><code>DEBUG ... ProductClient : [ProductClient#getProductById] ---&gt; GET http://localhost:8081/api/products/1 HTTP/1.1
+DEBUG ... ProductClient : [ProductClient#getProductById] X-Caller-Service: order-service
+DEBUG ... ProductClient : [ProductClient#getProductById] ---&gt; END HTTP (0-byte body)
+DEBUG ... ProductClient : [ProductClient#getProductById] &lt;--- HTTP/1.1 200 (12ms)
+DEBUG ... ProductClient : [ProductClient#getProductById] content-type: application/json
+DEBUG ... ProductClient : [ProductClient#getProductById] {"id":1,"name":"Wireless Mouse","price":799.0,"stock":25}
+DEBUG ... ProductClient : [ProductClient#getProductById] &lt;--- END HTTP (57-byte body)</code></pre>
+  <p>Also try: stop product-service (Ctrl + C) and place an order → you get the 504 answer immediately (connection refused).</p>
+
+  <h3>5.4 Optional: with Eureka and two product instances</h3>
+  <ol>
+    <li>Start the Eureka server from <a href="../60-Service-Discovery-With-Eureka/lesson.html">topic 60</a> (<code>http://localhost:8761</code>).</li>
+    <li>Start product-service twice with the <code>eureka</code> profile on two ports:</li>
+  </ol>
+  <pre class="terminal"><code>cd product-service
+mvn spring-boot:run -Dspring-boot.run.profiles=eureka
+# second terminal:
+mvn spring-boot:run -Dspring-boot.run.profiles=eureka -Dspring-boot.run.arguments=--server.port=9081
+
+cd ..\order-service
+mvn spring-boot:run -Dspring-boot.run.profiles=eureka</code></pre>
+  <p>Call <code>GET http://localhost:8082/api/orders/products</code> a few times and watch the logs: the
+    <code>[port 8081]</code> and <code>[port 9081]</code> lines alternate — round-robin load balancing with zero code.</p>
+  <p>Stop everything with <strong>Ctrl + C</strong> in each terminal.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting <code>@EnableFeignClients</code></strong>
+    Error: <code>No qualifying bean of type 'ProductClient' available</code>.<br>
+    <strong>Fix:</strong> add <code>@EnableFeignClients</code> to the main class, and keep the Feign interfaces in the same package or a sub-package (or use <code>@EnableFeignClients(basePackages = "...")</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>@PathVariable</code> without a name</strong>
+    Error at startup: <code>PathVariable annotation was empty on param 0</code>.<br>
+    <strong>Fix:</strong> <code>@PathVariable("id") Long id</code>, <code>@RequestParam("quantity") int quantity</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: no <code>url</code> and no Eureka</strong>
+    Error: <code>Load balancer does not contain an instance for the service product-service</code>.<br>
+    <strong>Fix:</strong> either set <code>url</code>, or make sure Eureka is running and product-service is registered (check the dashboard on :8761).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: “logger-level: full but I see nothing”</strong>
+    <strong>Fix:</strong> also set <code>logging.level.&lt;your.client.Interface&gt;=DEBUG</code>.</div>
+  <div class="callout danger"><strong>🚨 Mistake: <code>@Configuration</code> on the per-client config class</strong>
+    Its ErrorDecoder/interceptors suddenly apply to every Feign client — strange errors in unrelated calls.<br>
+    <strong>Fix:</strong> remove <code>@Configuration</code>, reference it only via <code>@FeignClient(configuration = ...)</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: version mismatch</strong>
+    Writing a version on <code>spring-cloud-starter-openfeign</code> or using a Spring Cloud release that does not fit Spring Boot 3.5 → <code>ClassNotFoundException</code>/<code>NoSuchMethodError</code> at startup.<br>
+    <strong>Fix:</strong> import the Spring Cloud BOM <code>2025.0.0</code> (made for Boot 3.5) and do not write versions on Spring Cloud starters.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: sharing a “common-models” jar between services</strong>
+    It feels like less typing, but now changing a class in product-service forces a release of order-service.<br>
+    <strong>Fix:</strong> each service keeps its own small DTOs (<code>ProductResponse</code>). Only copy the fields you need.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: treating a Feign call like a local call</strong>
+    It looks like a normal method, so people call it inside loops (<code>for each item → productClient.getProductById</code>) — 100 items = 100 network calls.<br>
+    <strong>Fix:</strong> add a batch endpoint (<code>GET /api/products?ids=1,2,3</code>) and call it once.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Always set timeouts</strong> — per client, based on how fast that service normally is (e.g. 2–5 s, never “infinite”).</li>
+    <li><strong>Translate errors with an ErrorDecoder</strong> and never leak <code>FeignException</code> details (internal URLs!) to your own clients.</li>
+    <li><strong>Protect calls with a circuit breaker + fallback</strong> (topic 64). A slow dependency must not take you down.</li>
+    <li><strong>Log BASIC in production</strong>, FULL only locally — bodies may contain personal data.</li>
+    <li><strong>Pass security context along</strong> with a <code>RequestInterceptor</code> (JWT) or use service-to-service OAuth2 client credentials.</li>
+    <li><strong>Keep the URL in configuration</strong>, never hard-coded; use Eureka/Kubernetes DNS names in real environments.</li>
+    <li><strong>Retry only idempotent calls</strong> (GET, PUT with full replace) or use idempotency keys for POST.</li>
+    <li><strong>Version your APIs</strong> (<code>/api/v1/...</code>) so a provider can change without breaking its consumers; consider contract tests (Spring Cloud Contract, Pact).</li>
+    <li><strong>One Feign interface per remote service</strong>, named after it (<code>ProductClient</code>, <code>PaymentClient</code>), in a <code>client</code> package.</li>
+    <li>For <strong>new</strong> projects, also evaluate <code>@HttpExchange</code> — Spring's actively developed declarative client.</li>
+    <li>Prefer a production-grade HTTP client (add <code>io.github.openfeign:feign-hc5</code> for Apache HttpClient 5 with connection pooling) for high traffic.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>OpenFeign = <strong>declarative</strong> HTTP client: write an interface, Spring generates the implementation (a proxy).</li>
+    <li>Setup: <code>spring-cloud-starter-openfeign</code> + Spring Cloud BOM + <code>@EnableFeignClients</code> + <code>@FeignClient</code>.</li>
+    <li>Use Spring MVC annotations in the interface; always name <code>@PathVariable</code>/<code>@RequestParam</code>.</li>
+    <li>Empty <code>url</code> → name resolved via Spring Cloud LoadBalancer + Eureka (round robin).</li>
+    <li><code>ErrorDecoder</code> handles 4xx/5xx; <code>RetryableException</code> means no answer (down / timeout).</li>
+    <li>Set connect/read timeouts per client in YAML; logging needs logger-level <em>and</em> DEBUG.</li>
+    <li><code>RequestInterceptor</code> adds headers (auth, correlation id) to every call.</li>
+    <li>Per-client config classes must not be picked up by component scanning.</li>
+    <li>Feign is feature complete; <code>@HttpExchange</code> is Spring's modern alternative.</li>
+  </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Get one order's product name.</strong> Add a method to <code>ProductClient</code> that calls
+      <code>GET /api/products/{id}</code> and use it in a new endpoint <code>GET /api/orders/product-name/{id}</code> that returns only the name as text.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// OrderController - reuse the existing client method
+@GetMapping("/product-name/{id}")
+public String productName(@PathVariable Long id) {
+    return orderService.productName(id);
+}
+
+// OrderService
+public String productName(Long id) {
+    return productClient.getProductById(id).name();
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Change the log level.</strong> Switch product-service's Feign logger to <code>headers</code> and the default to <code>none</code>. What changes in the console?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-yaml">spring:
+  cloud:
+    openfeign:
+      client:
+        config:
+          default:
+            logger-level: none
+          product-service:
+            logger-level: headers   # method, URL, status AND headers - but no JSON bodies</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Search through Feign.</strong> Add <code>GET /api/products/search?maxPrice=1000</code> to product-service (return products with price ≤ maxPrice). Add the matching Feign method and an order-service endpoint <code>GET /api/orders/cheap-products?maxPrice=1000</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// product-service ProductController
+@GetMapping("/search")
+public List&lt;Product&gt; search(@RequestParam double maxPrice) {
+    return products.values().stream()
+            .filter(p -&gt; p.price() &lt;= maxPrice)
+            .toList();
+}
+
+// order-service ProductClient
+@GetMapping("/search")
+List&lt;ProductResponse&gt; search(@RequestParam("maxPrice") double maxPrice);
+
+// order-service OrderController
+@GetMapping("/cheap-products")
+public List&lt;ProductResponse&gt; cheap(@RequestParam double maxPrice) {
+    return productClient.search(maxPrice);   // or go through OrderService
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Forward a request id.</strong> Write a <code>RequestInterceptor</code> that copies the incoming <code>X-Request-Id</code> header (if present) to the outgoing Feign request. In product-service, log the header.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Bean
+public RequestInterceptor requestIdForwarder() {
+    return template -&gt; {
+        var attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attrs != null) {
+            String id = attrs.getRequest().getHeader("X-Request-Id");
+            if (id != null) {
+                template.header("X-Request-Id", id);
+            }
+        }
+    };
+}
+
+// product-service: add a parameter to findById
+// @RequestHeader(value = "X-Request-Id", required = false) String requestId
+// log.info("request id = {}", requestId);</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Rewrite the client with <code>@HttpExchange</code>.</strong> Create <code>ProductHttpClient</code> with the same four methods, register it as a bean, and add a property switch <code>clients.mode=feign|http-exchange</code> that decides which one <code>OrderService</code> uses.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@HttpExchange("/api/products")
+public interface ProductHttpClient {
+    @GetExchange List&lt;ProductResponse&gt; getAllProducts();
+    @GetExchange("/{id}") ProductResponse getProductById(@PathVariable("id") Long id);
+    @PostExchange("/{id}/reduce-stock")
+    ProductResponse reduceStock(@PathVariable("id") Long id, @RequestParam("quantity") int quantity);
+}
+
+@Configuration
+class HttpExchangeConfig {
+    @Bean
+    ProductHttpClient productHttpClient(RestClient.Builder builder,
+                                        @Value("${clients.product-service.url}") String url) {
+        RestClient rc = builder.baseUrl(url).build();
+        return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(rc))
+                .build().createClient(ProductHttpClient.class);
+    }
+}
+// Idea for the switch: define your own interface ProductGateway with two
+// implementations annotated @ConditionalOnProperty(name="clients.mode", havingValue="feign")
+// and havingValue="http-exchange" (topic 26).</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Load balancing proof.</strong> Run Eureka + two product-service instances (5.4). Make product-service include its port in the JSON (<code>"servedBy":"8081"</code>) and call <code>/api/orders/products</code> six times. Explain the pattern you see.</p>
+    <details><summary>Hint / solution</summary><p>Add a <code>servedBy</code> field to a wrapper response, or a response header <code>X-Served-By</code> (read it with a Feign method returning <code>ResponseEntity&lt;List&lt;ProductResponse&gt;&gt;</code>). You will see 8081, 9081, 8081, 9081… — Spring Cloud LoadBalancer's default <code>RoundRobinLoadBalancer</code>. Note: each product-service has its own in-memory stock, which is exactly why real services use a shared database per service, not per instance.</p></details>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is OpenFeign and why would you use it?</summary>
+    <p>A declarative HTTP client. You describe a remote REST API with a Java interface and annotations, and Spring Cloud OpenFeign generates a proxy implementation at runtime. It removes boilerplate (URL building, JSON conversion, error handling) and integrates with Spring MVC annotations, Spring Cloud LoadBalancer/Eureka, Spring Boot configuration and circuit breakers.</p></details>
+  <details><summary>Q2. How does Feign create an implementation for an interface?</summary>
+    <p><code>@EnableFeignClients</code> registers a <code>FeignClientFactoryBean</code> for each <code>@FeignClient</code> interface. At startup it builds a JDK dynamic proxy. When a method is called, the proxy uses the Contract (SpringMvcContract) to read the annotations, builds a <code>RequestTemplate</code>, applies interceptors, encodes the body, sends it via the configured <code>Client</code>, then decodes the response or calls the <code>ErrorDecoder</code>.</p></details>
+  <details><summary>Q3. How does Feign do load balancing?</summary>
+    <p>If <code>url</code> is not set, the <code>name</code> is treated as a service id. Feign wraps its client in a load-balancing client that asks Spring Cloud LoadBalancer for an instance; the LoadBalancer gets the instance list from a discovery client (Eureka, Consul, Kubernetes) and picks one (round robin by default). This is <em>client-side</em> load balancing — no extra hop through a load-balancer server.</p></details>
+  <details><summary>Q4. How do you handle errors from a Feign client?</summary>
+    <p>Implement <code>ErrorDecoder</code> to map HTTP status codes to domain exceptions (404 → NotFound, 409 → Conflict, 5xx → Unavailable) and register it globally or per client. Connection failures and read timeouts produce <code>RetryableException</code> — handle them with a circuit breaker/fallback or an exception handler. Never expose raw Feign errors to your own API clients.</p></details>
+  <details><summary>Q5. How do you configure timeouts in Spring Cloud OpenFeign?</summary>
+    <p>With <code>spring.cloud.openfeign.client.config.default.connect-timeout</code>/<code>read-timeout</code> for all clients, or <code>...config.&lt;clientName&gt;.*</code> for one client; or with a <code>Request.Options</code> bean in a configuration class. Connect timeout = time to establish the TCP connection; read timeout = time to wait for data.</p></details>
+  <details><summary>Q6. What are the Feign logger levels and what is the gotcha?</summary>
+    <p>NONE, BASIC, HEADERS, FULL. Feign logs at DEBUG level using the client interface's logger, so you must also set <code>logging.level.&lt;client-interface&gt;=DEBUG</code>, otherwise nothing appears.</p></details>
+  <details><summary>Q7. Why should a Feign configuration class not be annotated with @Configuration?</summary>
+    <p>Classes referenced in <code>@FeignClient(configuration=...)</code> are loaded into a child context for that client. If component scanning also picks them up (because of <code>@Configuration</code> in a scanned package), their beans land in the main context and become the default for <em>all</em> Feign clients.</p></details>
+  <details><summary>Q8. Feign vs RestTemplate vs RestClient vs WebClient vs @HttpExchange?</summary>
+    <p>RestTemplate: old blocking template API (maintenance mode). RestClient: modern fluent blocking client (Spring 6.1). WebClient: reactive, non-blocking. @HttpExchange: Spring's own declarative interfaces, running on RestClient or WebClient. Feign: Spring Cloud's declarative client with YAML config and built-in discovery integration, feature complete. For new code Spring recommends RestClient or @HttpExchange; Feign remains common in existing Spring Cloud systems.</p></details>
+  <details><summary>Q9. Does Feign retry failed requests?</summary>
+    <p>In Spring Cloud OpenFeign the default <code>Retryer</code> is <code>NEVER_RETRY</code>. You can register <code>Retryer.Default</code>, but retries are usually done with Resilience4j <code>@Retry</code>, and only for idempotent operations.</p></details>
+  <details><summary>Q10. How do you pass the user's JWT from one service to the next with Feign?</summary>
+    <p>Register a <code>RequestInterceptor</code> that reads the <code>Authorization</code> header of the current incoming request (via <code>RequestContextHolder</code>, or the <code>SecurityContext</code>) and adds it to the outgoing <code>RequestTemplate</code>. For calls not triggered by a user, use OAuth2 client-credentials tokens instead.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../62-Centralized-Configuration-With-Config-Server/lesson.html"><small>← Previous</small>62. Centralized Configuration with Config Server</a>
+    <a class="next" href="../64-Resilience-With-Resilience4j/lesson.html"><small>Next →</small>64. Resilience with Resilience4j</a>
+  </nav>
+</main>
+</body>
+</html>

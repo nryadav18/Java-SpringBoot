@@ -1,0 +1,46 @@
+### Topic 37 - Student API on H2 with JdbcTemplate / NamedParameterJdbcTemplate / JdbcClient
+### Watch the console: every SQL statement is logged (DEBUG level).
+
+@base = http://localhost:8080/api/students
+
+### 1. All students (SELECT ... ORDER BY id)
+GET {{base}}
+
+### 2. Filter by course (WHERE LOWER(course) = LOWER(?))
+GET {{base}}?course=java
+
+### 3. One student (queryForObject / optional)
+GET {{base}}/3
+
+### 4. Missing student -> 404 ProblemDetail
+GET {{base}}/999
+
+### 5. Create -> INSERT + KeyHolder returns the generated id -> 201 + Location
+POST {{base}}
+Content-Type: application/json
+
+{ "name": "Kiran Kumar", "email": "kiran@college.edu", "course": "Java", "marks": 88, "enrolledOn": "2026-07-01" }
+
+### 6. Same email again -> UNIQUE constraint -> DuplicateKeyException -> 409
+POST {{base}}
+Content-Type: application/json
+
+{ "name": "Kiran Again", "email": "kiran@college.edu", "course": "SQL", "marks": 50, "enrolledOn": "2026-07-02" }
+
+### 7. Invalid input -> 400 (validation, topic 34)
+POST {{base}}
+Content-Type: application/json
+
+{ "name": "", "email": "bad", "course": "Java", "marks": 150, "enrolledOn": "2099-01-01" }
+
+### 8. Update student 6 -> UPDATE ... WHERE id = ?
+PUT {{base}}/6
+Content-Type: application/json
+
+{ "name": "Kiran K", "email": "kiran@college.edu", "course": "Spring", "marks": 91, "enrolledOn": "2026-07-01" }
+
+### 9. GROUP BY statistics
+GET {{base}}/stats
+
+### 10. Delete -> 204, then 404
+DELETE {{base}}/6

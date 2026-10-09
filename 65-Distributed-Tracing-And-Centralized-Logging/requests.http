@@ -1,0 +1,37 @@
+### Topic 65 - Distributed tracing (VS Code "REST Client")
+### Start: docker compose up -d (Zipkin), payment-service (8082), order-service (8081).
+
+@order = http://localhost:8081
+
+### 1. Place an order - the response contains the traceId. Compare it with BOTH consoles.
+POST {{order}}/api/orders
+Content-Type: application/json
+
+{ "item": "Pizza Margherita", "amount": 450.0 }
+
+### 2. Same, but WE choose the correlation id (look for it in both consoles)
+POST {{order}}/api/orders
+Content-Type: application/json
+correlation-id: checkout-42
+
+{ "item": "Gaming Laptop", "amount": 75000.0 }
+
+### 3. Continue an EXISTING trace (what an upstream service would send) - W3C traceparent header
+###    format: version-traceId(32 hex)-parentSpanId(16 hex)-flags
+POST {{order}}/api/orders
+Content-Type: application/json
+traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+
+{ "item": "Coffee", "amount": 120.0 }
+
+### 4. Current trace/span ids from Java code
+GET {{order}}/api/orders/trace-info
+
+### 5. Invalid order - see the error recorded on the span in Zipkin
+POST {{order}}/api/orders
+Content-Type: application/json
+
+{ "item": "", "amount": 0 }
+
+### 6. Zipkin API: last traces of order-service (UI: http://localhost:9411)
+GET http://localhost:9411/api/v2/traces?serviceName=order-service&limit=5

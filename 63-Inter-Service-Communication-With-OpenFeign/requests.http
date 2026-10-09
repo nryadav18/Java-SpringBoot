@@ -1,0 +1,47 @@
+### Topic 63 - OpenFeign sample requests (VS Code "REST Client" extension: click "Send Request")
+### Start product-service (8081) first, then order-service (8082).
+
+@product = http://localhost:8081
+@order = http://localhost:8082
+
+### 1. product-service directly - all products
+GET {{product}}/api/products
+
+### 2. product-service directly - one product
+GET {{product}}/api/products/1
+
+### 3. order-service -> Feign -> product-service : product list
+GET {{order}}/api/orders/products
+
+### 4. Place an order (happy path) -> 201 Created
+POST {{order}}/api/orders
+Content-Type: application/json
+
+{ "productId": 1, "quantity": 2 }
+
+### 5. Product does not exist -> product-service 404 -> ErrorDecoder -> 404 ProblemDetail
+POST {{order}}/api/orders
+Content-Type: application/json
+
+{ "productId": 99, "quantity": 1 }
+
+### 6. Out of stock (product 3 has stock 0) -> 409
+POST {{order}}/api/orders
+Content-Type: application/json
+
+{ "productId": 3, "quantity": 1 }
+
+### 7. Validation error (quantity 0) -> 400, product-service is never called
+POST {{order}}/api/orders
+Content-Type: application/json
+
+{ "productId": 1, "quantity": 0 }
+
+### 8. All orders placed so far
+GET {{order}}/api/orders
+
+### 9. Timeout demo: product-service waits 3 s, Feign read-timeout is 2 s -> 504
+GET {{order}}/api/orders/timeout-demo?productId=1&delayMs=3000
+
+### 10. Same call but fast enough (1 s) -> 200
+GET {{order}}/api/orders/timeout-demo?productId=1&delayMs=1000

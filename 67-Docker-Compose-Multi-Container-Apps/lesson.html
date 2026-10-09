@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>67 · Docker Compose: Multi-Container Apps</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part F · Microservices &amp; Spring Cloud › Topic 67</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag adv">Part F · Microservices &amp; Cloud</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>67. Docker Compose: Multi-Container Apps</h1>
+  <p class="subtitle">Start your Spring Boot app, its MySQL database (and even Redis) together with ONE command — and understand every line of the file that makes it happen.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="67-Docker-Compose-Multi-Container-Apps"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Why one container is not enough for a real application, and what Docker Compose solves.</li>
+      <li>The <code>docker-compose.yml</code> file explained line by line: <code>services</code>, <code>image</code>, <code>build</code>, <code>ports</code>, <code>environment</code>, <code>env_file</code>, <code>volumes</code>, <code>networks</code>, <code>depends_on</code>, <code>healthcheck</code>, <code>restart</code>, <code>profiles</code>.</li>
+      <li>How containers find each other: <strong>the service name is the hostname</strong>.</li>
+      <li>How to pass database settings to Spring Boot with environment variables and a Spring profile.</li>
+      <li>Keeping secrets in a <code>.env</code> file (and out of Git).</li>
+      <li>Named volumes vs bind mounts, and why your data survives <code>docker compose down</code>.</li>
+      <li>The daily commands: <code>up --build</code>, <code>ps</code>, <code>logs -f</code>, <code>exec</code>, <code>stop</code>, <code>down</code>, <code>down -v</code>.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../66-Docker-For-Spring-Boot/lesson.html">Topic 66 · Docker for Spring Boot</a> (images, containers, Dockerfile, port mapping) and
+    <a href="../43-MySQL-And-Database-Migrations-Flyway/lesson.html">Topic 43 · MySQL</a> (connection properties). Profiles come from <a href="../29-Configuration-Properties-And-Profiles/lesson.html">Topic 29</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>In topic 66 you put <em>one</em> Spring Boot app into <em>one</em> container. Nice! But a real application is never alone. Even a small online shop needs:</p>
+  <ul>
+    <li>the <strong>Spring Boot app</strong> itself,</li>
+    <li>a <strong>database</strong> (MySQL or PostgreSQL),</li>
+    <li>often a <strong>cache</strong> (Redis), a <strong>message broker</strong> (RabbitMQ / Kafka), maybe a fake mail server for testing.</li>
+  </ul>
+  <p>With plain Docker you would type a long <code>docker run ...</code> command for each one, create a network by hand, remember all the passwords, start them in the right order, and type it all again tomorrow. That is slow and easy to get wrong.</p>
+  <p><strong>Docker Compose</strong> lets you write all of that down <em>once</em>, in a single YAML file called <code>docker-compose.yml</code>. Then:</p>
+  <pre class="terminal"><code>docker compose up -d     # start EVERYTHING
+docker compose down      # stop EVERYTHING</code></pre>
+  <p>Where you will see it at work:</p>
+  <ul>
+    <li><strong>Day one at a new job:</strong> "Clone the repo and run <code>docker compose up</code>." Your whole local environment is ready in two minutes — no installing MySQL on your laptop.</li>
+    <li><strong>Integration testing</strong> on a developer machine or in CI (topic 68).</li>
+    <li><strong>Demos and small servers:</strong> many small companies run their whole product on one VM with Compose.</li>
+    <li>You already used it in this course! Topics 43 (MySQL), 51 (Redis), 57 (RabbitMQ), 58 (Kafka) and 65 (Zipkin) all had a <code>docker-compose.yml</code>. Now you will finally understand every line.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🎼 Compose is the orchestra's sheet music</strong>
+    Each musician (container) knows how to play their own instrument — the violinist is your Spring Boot app, the drummer is MySQL, the flute is Redis.
+    But somebody has to write down <em>who plays, in which order, who waits for whom, and who sits next to whom</em>. That is the <strong>sheet music</strong> = <code>docker-compose.yml</code>.
+    The conductor (<code>docker compose up</code>) reads it and starts everybody correctly. The violinist does not start before the drummer gives the beat (<code>depends_on</code> + <code>healthcheck</code>).
+    And everyone in the orchestra calls each other by name ("Hey, <em>mysql</em>!"), not by seat number (IP address).
+  </div>
+  <div class="callout analogy"><strong>🏠 Second analogy: a shared house</strong>
+    The <strong>network</strong> is the house: everyone inside can talk to each other by name. <strong>Ports</strong> are the front doors to the street (your PC). A <strong>volume</strong> is the storage room in the basement: even if a roommate moves out (container removed), the boxes (data) stay.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The problem: doing it by hand with <code>docker run</code></h3>
+  <p>Without Compose, starting our app + MySQL looks like this (do NOT type it, just look at how painful it is):</p>
+  <pre class="terminal"><code>docker network create library-net
+docker volume create mysql-data
+docker run -d --name mysql --network library-net ^
+  -e MYSQL_ROOT_PASSWORD=root123 -e MYSQL_DATABASE=librarydb ^
+  -e MYSQL_USER=library -e MYSQL_PASSWORD=library123 ^
+  -v mysql-data:/var/lib/mysql -p 3307:3306 mysql:8.4
+# ...wait until MySQL is ready (how long? nobody knows)...
+docker build -t library-app:1.0.0 .
+docker run -d --name app --network library-net ^
+  -e SPRING_PROFILES_ACTIVE=docker -e DB_HOST=mysql ^
+  -p 8080:8080 library-app:1.0.0</code></pre>
+  <p>Seven commands, many flags, a "wait" you have to guess. With Compose all of this becomes <strong>one file</strong> and <strong>one command</strong>.</p>
+
+  <h3>3.2 What is Docker Compose?</h3>
+  <p><strong>Docker Compose</strong> is a tool (built into Docker Desktop and Docker Engine as the <code>docker compose</code> sub-command) that:</p>
+  <ol>
+    <li>reads a YAML file describing several containers ("services"),</li>
+    <li>creates the network(s) and volume(s) they need,</li>
+    <li>builds images when needed,</li>
+    <li>starts the containers in the right order,</li>
+    <li>and can stop and remove all of them again with one command.</li>
+  </ol>
+  <div class="callout info"><strong>ℹ️ <code>docker compose</code> vs <code>docker-compose</code></strong>
+    The old tool was a separate Python program called <code>docker-compose</code> (with a dash). Today it is "Compose V2", a plugin: <code>docker compose</code> (with a space). Use the space version. The file name <code>docker-compose.yml</code> is still fine (<code>compose.yaml</code> is also accepted).
+    You also do not need the old <code>version: "3.8"</code> line at the top any more — it is ignored.
+  </div>
+
+  <h3>3.3 YAML in 2 minutes</h3>
+  <p>YAML is a text format for configuration. You met it in topic 29 (<code>application.yml</code>). The rules that matter here:</p>
+  <ul>
+    <li><strong>Indentation is meaning.</strong> Use spaces, never tabs. Two spaces per level is the habit.</li>
+    <li><code>key: value</code> — a map entry. A space after the colon is required.</li>
+    <li><code>- item</code> — a list item.</li>
+    <li><code>#</code> starts a comment.</li>
+    <li>Quote values that look like numbers or contain <code>:</code> — e.g. <code>"8080:8080"</code>, <code>"3306"</code>.</li>
+  </ul>
+  <pre><code class="lang-yaml">services:            # a map
+  app:               # a key inside "services"
+    ports:           # a list follows
+      - "8080:8080"  # list item (quoted because of the colon)</code></pre>
+
+  <h3>3.4 The big picture of our project</h3>
+  <p>Here is what our <code>docker-compose.yml</code> builds:</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 680 300" width="680" role="img" aria-label="Compose architecture: your PC talks to app on 8080 and mysql on 3307; app talks to mysql inside the backend network; mysql stores data in a named volume">
+      <rect x="10" y="10" width="140" height="280" rx="10" fill="none" stroke="currentColor" stroke-width="2"/>
+      <text x="80" y="35" text-anchor="middle" fill="currentColor" font-size="15" font-weight="bold">Your PC</text>
+      <text x="80" y="140" text-anchor="middle" fill="currentColor" font-size="13">browser / curl</text>
+      <text x="80" y="200" text-anchor="middle" fill="currentColor" font-size="13">DB tool</text>
+      <rect x="200" y="10" width="470" height="210" rx="10" fill="none" stroke="var(--info)" stroke-width="2" stroke-dasharray="6 4"/>
+      <text x="435" y="32" text-anchor="middle" fill="var(--info)" font-size="14">network "backend" (service names = hostnames)</text>
+      <rect x="240" y="100" width="150" height="70" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+      <text x="315" y="130" text-anchor="middle" fill="currentColor" font-size="15" font-weight="bold">app</text>
+      <text x="315" y="152" text-anchor="middle" fill="currentColor" font-size="12">Spring Boot :8080</text>
+      <rect x="480" y="100" width="150" height="70" rx="8" fill="none" stroke="var(--java)" stroke-width="2"/>
+      <text x="555" y="130" text-anchor="middle" fill="currentColor" font-size="15" font-weight="bold">mysql</text>
+      <text x="555" y="152" text-anchor="middle" fill="currentColor" font-size="12">MySQL 8.4 :3306</text>
+      <line x1="390" y1="135" x2="476" y2="135" stroke="currentColor" stroke-width="2"/>
+      <text x="433" y="125" text-anchor="middle" fill="currentColor" font-size="11">mysql:3306</text>
+      <line x1="150" y1="135" x2="236" y2="135" stroke="currentColor" stroke-width="2"/>
+      <text x="193" y="125" text-anchor="middle" fill="currentColor" font-size="11">:8080</text>
+      <path d="M150 195 C 300 250, 450 250, 555 172" fill="none" stroke="currentColor" stroke-width="2"/>
+      <text x="330" y="212" text-anchor="middle" fill="currentColor" font-size="11">localhost:3307</text>
+      <rect x="480" y="245" width="150" height="40" rx="8" fill="none" stroke="currentColor" stroke-width="2"/>
+      <text x="555" y="270" text-anchor="middle" fill="currentColor" font-size="13">volume mysql-data</text>
+      <line x1="555" y1="170" x2="555" y2="243" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3"/>
+    </svg>
+    <figcaption>Two services on one private network. Ports open doors to your PC. The volume keeps MySQL's data.</figcaption>
+  </figure>
+
+  <h3>3.5 Services</h3>
+  <p>A <strong>service</strong> is one kind of container in your app: <code>app</code>, <code>mysql</code>, <code>redis</code>. The name you choose (the key under <code>services:</code>) is very important — it becomes the <strong>hostname</strong> other containers use.</p>
+  <p>Each service gets its container either from a ready-made image or by building one:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Key</th><th>Meaning</th><th>Example</th></tr>
+    <tr><td><code>image:</code></td><td>Download (pull) this image from Docker Hub and run it.</td><td><code>image: mysql:8.4</code></td></tr>
+    <tr><td><code>build:</code></td><td>Build an image from a Dockerfile in this folder.</td><td><code>build: .</code></td></tr>
+    <tr><td><code>build:</code> + <code>image:</code></td><td>Build it AND give the result this name/tag.</td><td>our <code>app</code> service</td></tr>
+  </table></div>
+
+  <h3>3.6 Ports: <code>"HOST:CONTAINER"</code></h3>
+  <p>Same as <code>docker run -p</code> in topic 66. The left number is the port on <em>your PC</em>; the right number is the port <em>inside the container</em>.</p>
+  <pre><code class="lang-yaml">ports:
+  - "3307:3306"   # localhost:3307 on your PC  →  port 3306 inside the mysql container</code></pre>
+  <div class="callout tip"><strong>💡 Containers don't need ports to talk to each other</strong>
+    <code>ports:</code> is only for traffic coming from <strong>outside</strong> (your browser, your DB tool). Inside the network the app talks to <code>mysql:3306</code> directly — the container port — even if you removed the <code>ports:</code> line from mysql. In production you often <em>don't</em> publish the database port at all: safer.
+  </div>
+
+  <h3>3.7 Networks and "service name = hostname"</h3>
+  <p>Compose puts all services on a network (we named ours <code>backend</code>; if you don't name one, Compose creates <code>&lt;project&gt;_default</code> automatically). Docker runs a small <strong>DNS server</strong> on that network. DNS is the "phone book" of networks: you ask for a name, it answers with an IP address.</p>
+  <div class="flow">
+    <span class="box">app asks: "where is <em>mysql</em>?"</span><span class="arrow">→</span>
+    <span class="box info">Docker DNS</span><span class="arrow">→</span>
+    <span class="box alt">"172.20.0.2"</span><span class="arrow">→</span>
+    <span class="box">app connects to 172.20.0.2:3306</span>
+  </div>
+  <p>That is why our Spring config says <code>jdbc:mysql://mysql:3306/librarydb</code>. Container IPs change every restart; names don't.</p>
+  <div class="callout danger"><strong>🚫 The #1 beginner bug: <code>localhost</code> inside a container</strong>
+    Inside the <code>app</code> container, <code>localhost</code> means <em>the app container itself</em> — not your PC and not MySQL. So <code>jdbc:mysql://localhost:3306/...</code> fails with "Communications link failure / Connection refused". Use the <strong>service name</strong>: <code>mysql</code>.
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th>Who connects?</th><th>Address to use</th></tr>
+    <tr><td>App running <strong>inside</strong> Compose → MySQL</td><td><code>mysql:3306</code> (service name + container port)</td></tr>
+    <tr><td>App running on your PC (<code>mvn spring-boot:run</code>) → MySQL in Compose</td><td><code>localhost:3307</code> (host port)</td></tr>
+    <tr><td>DBeaver / MySQL Workbench on your PC → MySQL in Compose</td><td><code>localhost:3307</code></td></tr>
+    <tr><td>Your browser → app in Compose</td><td><code>localhost:8080</code></td></tr>
+  </table></div>
+
+  <h3>3.8 Environment variables: <code>environment</code>, <code>env_file</code> and <code>.env</code></h3>
+  <p>Containers are configured with <strong>environment variables</strong> (key=value pairs the operating system gives to a program). There are three related ideas — beginners mix them up, so let's separate them clearly:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Thing</th><th>Who reads it?</th><th>Purpose</th></tr>
+    <tr><td><code>environment:</code> in a service</td><td>The container (your app / MySQL)</td><td>Set variables <em>inside</em> that one container.</td></tr>
+    <tr><td><code>env_file: - app.env</code></td><td>The container</td><td>Same, but read the list of variables from a file.</td></tr>
+    <tr><td><code>.env</code> file next to the compose file</td><td><strong>Compose itself</strong></td><td>Fills in <code>${VARIABLE}</code> placeholders <em>in docker-compose.yml</em> before anything starts.</td></tr>
+  </table></div>
+  <pre><code class="lang-yaml">environment:
+  MYSQL_PASSWORD: ${DB_PASSWORD:-library123}
+  #               │   │            └─ default if DB_PASSWORD is not set anywhere
+  #               │   └─ name looked up in your shell or in .env
+  #               └─ ${...} = "substitute a value here"</code></pre>
+  <p>So the flow for a password is: <code>.env</code> → Compose substitutes it into the YAML → <code>environment:</code> passes it into the container → Spring Boot reads <code>${DB_PASSWORD}</code> in <code>application-docker.properties</code>.</p>
+  <div class="flow">
+    <span class="box alt">.env<br><small>DB_PASSWORD=s3cret</small></span><span class="arrow">→</span>
+    <span class="box info">docker-compose.yml<br><small>${DB_PASSWORD}</small></span><span class="arrow">→</span>
+    <span class="box">container env<br><small>DB_PASSWORD=s3cret</small></span><span class="arrow">→</span>
+    <span class="box">Spring property<br><small>${DB_PASSWORD}</small></span>
+  </div>
+  <div class="callout tip"><strong>💡 Spring Boot reads env vars automatically ("relaxed binding")</strong>
+    An env var <code>SPRING_DATASOURCE_URL</code> overrides the property <code>spring.datasource.url</code>. Rule: UPPER CASE, dots become underscores. That's why <code>LOGGING_LEVEL_COM_COURSE=DEBUG</code> in <code>app.env</code> sets <code>logging.level.com.course=DEBUG</code>. You saw the priority order in topic 29: env vars beat <code>application.properties</code>.
+  </div>
+
+  <h3>3.9 Volumes: where data lives</h3>
+  <p>A container's own file system is <strong>temporary</strong>. Delete the container → its files are gone. For a database that would be a disaster. <strong>Volumes</strong> store files outside the container.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Type</th><th>Syntax</th><th>Stored where?</th><th>Use it for</th></tr>
+    <tr><td><strong>Named volume</strong></td><td><code>mysql-data:/var/lib/mysql</code></td><td>Managed by Docker (you don't care where)</td><td>Database data, anything the app writes</td></tr>
+    <tr><td><strong>Bind mount</strong></td><td><code>./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro</code></td><td>A real file/folder on your PC</td><td>Config files, init scripts, source code in dev</td></tr>
+  </table></div>
+  <p>The <code>:ro</code> at the end means <em>read-only</em>: the container may read the file but not change it.</p>
+  <p>Named volumes must also be declared at the bottom of the file under the top-level <code>volumes:</code> key.</p>
+  <div class="callout warn"><strong>⚠️ <code>down</code> vs <code>down -v</code></strong>
+    <code>docker compose down</code> removes containers and the network but <strong>keeps</strong> named volumes → your books are still there next time.
+    <code>docker compose down -v</code> also deletes the volumes → <strong>all data is gone</strong> (useful when you want a fresh start, scary in production).
+  </div>
+
+  <h3>3.10 <code>depends_on</code> and healthchecks — starting in the right order</h3>
+  <p>If the app starts before MySQL is ready, Spring Boot fails with "Connection refused" and exits. We need: "start <code>app</code> only after <code>mysql</code> is <em>really ready</em>".</p>
+  <p>A plain <code>depends_on: [mysql]</code> only waits until the MySQL <em>container has started</em> — but MySQL needs 10–30 seconds more to initialise. That's not enough.</p>
+  <p>The fix has two parts:</p>
+  <ol>
+    <li>A <strong>healthcheck</strong> on <code>mysql</code>: a command Docker runs regularly. Exit code 0 = healthy.</li>
+    <li><code>depends_on</code> with <code>condition: service_healthy</code> on <code>app</code>.</li>
+  </ol>
+  <pre><code class="lang-yaml">mysql:
+  healthcheck:
+    test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+    interval: 10s      # run the check every 10 s
+    timeout: 5s        # a check that takes longer counts as failed
+    retries: 10        # after 10 failures in a row → "unhealthy"
+    start_period: 30s  # failures during the first 30 s don't count
+
+app:
+  depends_on:
+    mysql:
+      condition: service_healthy   # wait for the green light</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th><code>condition</code></th><th>Waits until…</th></tr>
+    <tr><td><code>service_started</code> (default)</td><td>the container has started (not necessarily ready)</td></tr>
+    <tr><td><code>service_healthy</code></td><td>its healthcheck passes ✅ — use this for databases</td></tr>
+    <tr><td><code>service_completed_successfully</code></td><td>a one-time job (e.g. a migration container) finished with exit code 0</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ What is <code>$$</code>?</strong>
+    Compose replaces <code>$NAME</code> in the YAML with values from <code>.env</code>. We want the <em>shell inside the container</em> to read <code>$MYSQL_ROOT_PASSWORD</code> instead, so we write <code>$$</code> = "a literal dollar sign, please don't touch".
+  </div>
+  <p>Our <code>app</code> service also has a healthcheck: it calls Spring Boot Actuator's <code>/actuator/health</code> (topic 53) with <code>curl</code>. <code>docker compose ps</code> then shows <code>(healthy)</code> next to each service.</p>
+
+  <h3>3.11 <code>restart</code> policies</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Value</th><th>Behaviour</th></tr>
+    <tr><td><code>no</code> (default)</td><td>Never restart automatically.</td></tr>
+    <tr><td><code>on-failure</code></td><td>Restart only if the process crashed (exit code ≠ 0).</td></tr>
+    <tr><td><code>always</code></td><td>Always restart, even after you stopped it and Docker restarts.</td></tr>
+    <tr><td><code>unless-stopped</code></td><td>Like <code>always</code>, but respects a manual <code>docker compose stop</code>. Good default.</td></tr>
+  </table></div>
+
+  <h3>3.12 Profiles: optional services (Redis)</h3>
+  <p>Sometimes you want a service only <em>sometimes</em>. Give it <code>profiles: ["cache"]</code> and it is <strong>skipped</strong> by a normal <code>docker compose up</code>. Start it on demand:</p>
+  <pre class="terminal"><code>docker compose --profile cache up -d</code></pre>
+  <div class="callout warn"><strong>⚠️ Compose profiles ≠ Spring profiles</strong>
+    Same word, two different things. <strong>Compose profiles</strong> choose which <em>containers</em> start. <strong>Spring profiles</strong> (<code>SPRING_PROFILES_ACTIVE=docker</code>) choose which <em>properties files</em> the app loads. Our project uses both.
+  </div>
+
+  <h3>3.13 <code>build</code> and <code>up --build</code></h3>
+  <p>For our <code>app</code> service Compose runs the <code>Dockerfile</code> (a multi-stage build like in topic 66: Maven builds the jar, then a small JRE image runs it). Important:</p>
+  <ul>
+    <li><code>docker compose up</code> builds the image <strong>only if it does not exist yet</strong>.</li>
+    <li>After changing Java code, use <code>docker compose up -d --build</code> to rebuild — otherwise you run the OLD code and wonder why nothing changed.</li>
+  </ul>
+
+  <h3>3.14 The project name</h3>
+  <p>The top-level <code>name: library</code> sets the <strong>project name</strong>. All resources get it as a prefix: containers <code>library-app-1</code>, <code>library-mysql-1</code>, network <code>library_backend</code>, volume <code>library_mysql-data</code>. Without it, Compose uses the folder name.</p>
+
+  <h3>3.15 The command cheat sheet</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Command</th><th>What it does</th></tr>
+    <tr><td><code>docker compose up -d</code></td><td>Create and start everything in the background (<code>-d</code> = detached).</td></tr>
+    <tr><td><code>docker compose up -d --build</code></td><td>Same, but rebuild images first.</td></tr>
+    <tr><td><code>docker compose ps</code></td><td>List the services, their state and health.</td></tr>
+    <tr><td><code>docker compose logs -f app</code></td><td>Follow (live) logs of one service. Ctrl+C to stop watching.</td></tr>
+    <tr><td><code>docker compose logs --tail 50 mysql</code></td><td>Last 50 log lines.</td></tr>
+    <tr><td><code>docker compose exec mysql mysql -ulibrary -p librarydb</code></td><td>Run a command inside a running container (here: a MySQL shell).</td></tr>
+    <tr><td><code>docker compose stop</code> / <code>start</code></td><td>Pause / resume containers without removing them.</td></tr>
+    <tr><td><code>docker compose restart app</code></td><td>Restart one service.</td></tr>
+    <tr><td><code>docker compose down</code></td><td>Stop and remove containers + network. Volumes stay.</td></tr>
+    <tr><td><code>docker compose down -v</code></td><td>…and delete the volumes too (data wiped).</td></tr>
+    <tr><td><code>docker compose config</code></td><td>Print the final file with all <code>${...}</code> filled in — great for debugging.</td></tr>
+    <tr><td><code>docker compose pull</code></td><td>Download newer versions of the images.</td></tr>
+  </table></div>
+
+  <h3>3.16 Spring Boot's own Docker Compose support (bonus)</h3>
+  <p>Since Spring Boot 3.1 there is a dependency <code>spring-boot-docker-compose</code>. When it's on the classpath and you run the app from your IDE, Spring Boot <em>itself</em> runs <code>docker compose up</code> and sets the datasource URL for you. It's handy in development. We don't use it here because we want you to understand the manual way first — the dependency only hides these same steps.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>docker-compose.yml</code></td><td>⭐ The star of this topic: app + mysql + optional redis.</td></tr>
+    <tr><td><code>Dockerfile</code></td><td>Multi-stage build of the jar; installs <code>curl</code> for the healthcheck; non-root user.</td></tr>
+    <tr><td><code>.dockerignore</code></td><td>Keeps <code>target/</code>, <code>.env</code> etc. out of the build context.</td></tr>
+    <tr><td><code>.env.example</code></td><td>Template for your private <code>.env</code> (passwords).</td></tr>
+    <tr><td><code>app.env</code></td><td>Non-secret env vars for the app (<code>JAVA_OPTS</code>, log level).</td></tr>
+    <tr><td><code>.gitignore</code></td><td>Makes sure <code>.env</code> never reaches Git.</td></tr>
+    <tr><td><code>db/init.sql</code></td><td>Creates the <code>books</code> table and 3 sample books on MySQL's first start.</td></tr>
+    <tr><td><code>src/main/java/com/course/composeapp/ComposeAppApplication.java</code></td><td>Main class.</td></tr>
+    <tr><td><code>.../book/Book.java</code>, <code>BookRepository.java</code>, <code>BookRequest.java</code></td><td>Entity, Spring Data repository, request DTO (record).</td></tr>
+    <tr><td><code>.../book/BookController.java</code></td><td>REST API + <code>/api/books/where</code> that shows which DB is used.</td></tr>
+    <tr><td><code>src/main/resources/application.properties</code></td><td>Default: H2 in memory (run without Docker).</td></tr>
+    <tr><td><code>src/main/resources/application-docker.properties</code></td><td>Profile <code>docker</code>: MySQL with values from env vars.</td></tr>
+    <tr><td><code>requests.http</code></td><td>Sample requests for the REST Client extension.</td></tr>
+  </table></div>
+
+  <h3>4.1 <code>docker-compose.yml</code> — line by line</h3>
+  <pre><span class="file">docker-compose.yml (part 1: the database)</span><code class="lang-yaml">name: library
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
+      MYSQL_DATABASE: ${DB_NAME:-librarydb}
+      MYSQL_USER: ${DB_USER:-library}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-library123}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s</code></pre>
+  <ul>
+    <li><code>image: mysql:8.4</code> — the official MySQL image, version pinned. Never use <code>latest</code>: tomorrow it could be a different major version.</li>
+    <li><code>MYSQL_ROOT_PASSWORD</code>, <code>MYSQL_DATABASE</code>, <code>MYSQL_USER</code>, <code>MYSQL_PASSWORD</code> — documented settings of the MySQL image. On the <em>first</em> start (empty volume) it creates the database and the user. Changing them later has no effect unless you wipe the volume.</li>
+    <li><code>"3307:3306"</code> — we publish to 3307 so it doesn't clash with a MySQL you may have installed on Windows.</li>
+    <li><code>mysql-data:/var/lib/mysql</code> — <code>/var/lib/mysql</code> is where MySQL keeps its files. We put that folder in a named volume.</li>
+    <li><code>/docker-entrypoint-initdb.d/</code> — a special folder: the MySQL image runs every <code>.sql</code> file there on first start. We bind-mount our <code>init.sql</code> into it.</li>
+  </ul>
+
+  <pre><span class="file">docker-compose.yml (part 2: our app)</span><code class="lang-yaml">  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: library-app:1.0.0
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:-librarydb}
+      DB_USER: ${DB_USER:-library}
+      DB_PASSWORD: ${DB_PASSWORD:-library123}
+    env_file:
+      - app.env
+    ports:
+      - "8080:8080"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s</code></pre>
+  <ul>
+    <li><code>build.context: .</code> — the folder that is sent to Docker for building. <code>.dockerignore</code> filters it.</li>
+    <li><code>SPRING_PROFILES_ACTIVE: docker</code> — activates <code>application-docker.properties</code>.</li>
+    <li><code>DB_HOST: mysql</code> — the service name. <code>DB_PORT: "3306"</code> — the <em>container</em> port, not 3307!</li>
+    <li>Notice that the app and MySQL read the <em>same</em> <code>${DB_USER}</code> / <code>${DB_PASSWORD}</code> from <code>.env</code> — one source of truth, they always match.</li>
+    <li>Inside the app's healthcheck, <code>localhost</code> is correct: the check runs inside the app container and checks the app itself.</li>
+  </ul>
+
+  <pre><span class="file">docker-compose.yml (part 3: optional redis, networks, volumes)</span><code class="lang-yaml">  redis:
+    image: redis:7.4-alpine
+    profiles: ["cache"]
+    ...
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  mysql-data:</code></pre>
+  <p><code>bridge</code> is the normal single-machine network driver. <code>mysql-data:</code> with nothing after the colon means "a named volume with default settings".</p>
+
+  <h3>4.2 <code>application-docker.properties</code> — the bridge between Compose and Spring</h3>
+  <pre><span class="file">src/main/resources/application-docker.properties</span><code class="lang-properties">spring.datasource.url=jdbc:mysql://${DB_HOST:mysql}:${DB_PORT:3306}/${DB_NAME:librarydb}
+spring.datasource.username=${DB_USER:library}
+spring.datasource.password=${DB_PASSWORD:library123}
+spring.jpa.hibernate.ddl-auto=validate</code></pre>
+  <p>In Spring, <code>${DB_HOST:mysql}</code> means "the value of <code>DB_HOST</code>, or <code>mysql</code> if missing" (Spring uses <code>:</code> for the default; Compose uses <code>:-</code> — small difference, easy to mix up). The table is created by <code>init.sql</code>, so Hibernate only <em>validates</em> that the entity matches it.</p>
+  <p>The default <code>application.properties</code> uses H2 instead, so you can still run the app with <code>mvn spring-boot:run</code> and no Docker at all. Same Java code, different config: that's the twelve-factor "config in the environment" idea from topic 59.</p>
+
+  <h3>4.3 <code>BookController.java</code></h3>
+  <pre><span class="file">src/main/java/com/course/composeapp/book/BookController.java (key part)</span><code class="lang-java">@GetMapping("/where")
+public Map&lt;String, Object&gt; where() {
+    // Inside Compose this shows jdbc:mysql://mysql:3306/librarydb
+    return Map.of("datasourceUrl", datasourceUrl, "bookCount", repository.count());
+}</code></pre>
+  <p>A tiny "debug" endpoint: it proves which database you are connected to. Run it once with <code>mvn spring-boot:run</code> (you'll see <code>jdbc:h2:mem:...</code>) and once with Compose (you'll see <code>jdbc:mysql://mysql:3306/...</code> and <code>bookCount: 3</code> from <code>init.sql</code>). Don't ship such an endpoint to production — it leaks internal details.</p>
+
+  <h3>4.4 The <code>Dockerfile</code></h3>
+  <pre><span class="file">Dockerfile</span><code>FROM maven:3.9.11-eclipse-temurin-17 AS build
+WORKDIR /workspace
+COPY pom.xml .
+RUN mvn -B -q dependency:go-offline
+COPY src ./src
+RUN mvn -B -q -DskipTests package
+
+FROM eclipse-temurin:17-jre
+RUN apt-get update \
+ &amp;&amp; apt-get install -y --no-install-recommends curl \
+ &amp;&amp; rm -rf /var/lib/apt/lists/*
+RUN groupadd --system spring &amp;&amp; useradd --system --gid spring spring
+WORKDIR /app
+COPY --from=build /workspace/target/app.jar app.jar
+USER spring
+EXPOSE 8080
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]</code></pre>
+  <p>Exactly the topic 66 pattern, plus <code>curl</code> for the healthcheck, and <code>$JAVA_OPTS</code> so <code>app.env</code> can pass JVM flags. Because the build happens <em>inside</em> Docker, you don't even need Maven installed to run <code>docker compose up --build</code>.</p>
+
+  <h3>4.5 Secrets: <code>.env.example</code>, <code>.env</code>, <code>.gitignore</code></h3>
+  <pre><span class="file">.env.example</span><code class="lang-properties">MYSQL_ROOT_PASSWORD=change-me-root
+DB_NAME=librarydb
+DB_USER=library
+DB_PASSWORD=change-me-app</code></pre>
+  <p>The pattern every team uses: commit <code>.env.example</code> with dummy values; each developer copies it to <code>.env</code> and puts real values in; <code>.env</code> is listed in <code>.gitignore</code> (and in <code>.dockerignore</code> so it isn't baked into the image).</p>
+
+  <!-- ============================================================ -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 Without Docker (quick check)</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\67-Docker-Compose-Multi-Container-Apps"
+mvn spring-boot:run</code></pre>
+  <p>Open <a href="http://localhost:8080/api/books/where">http://localhost:8080/api/books/where</a> → <code>{"datasourceUrl":"jdbc:h2:mem:librarydb","bookCount":0}</code>. Stop with Ctrl+C.</p>
+
+  <h3>5.2 With Docker Compose</h3>
+  <p>Make sure Docker Desktop is running (whale icon in the system tray). Then in a terminal (VS Code: <em>Terminal → New Terminal</em>):</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\67-Docker-Compose-Multi-Container-Apps"
+Copy-Item .env.example .env          # once (PowerShell). In cmd: copy .env.example .env
+docker compose config                # optional: see the file with values filled in
+docker compose up -d --build         # build the app image, start mysql, wait, start app</code></pre>
+  <p>Typical output:</p>
+  <pre class="terminal"><code>[+] Building 95.2s (15/15) FINISHED
+[+] Running 4/4
+ ✔ Network library_backend      Created
+ ✔ Volume "library_mysql-data"  Created
+ ✔ Container library-mysql-1    Healthy
+ ✔ Container library-app-1      Started</code></pre>
+  <p>The first build takes a few minutes (it downloads Maven dependencies inside Docker). Next builds are much faster thanks to layer caching.</p>
+  <pre class="terminal"><code>docker compose ps</code></pre>
+  <pre class="terminal"><code>NAME              IMAGE               SERVICE   STATUS                    PORTS
+library-app-1     library-app:1.0.0   app       Up 50 seconds (healthy)   0.0.0.0:8080-&gt;8080/tcp
+library-mysql-1   mysql:8.4           mysql     Up 80 seconds (healthy)   0.0.0.0:3307-&gt;3306/tcp</code></pre>
+
+  <h3>5.3 Try the API</h3>
+  <pre class="terminal"><code>curl http://localhost:8080/api/books/where
+curl http://localhost:8080/api/books
+curl -X POST http://localhost:8080/api/books -H "Content-Type: application/json" -d "{\"title\":\"Docker Deep Dive\",\"author\":\"Nigel Poulton\"}"</code></pre>
+  <pre class="terminal"><code>{"datasourceUrl":"jdbc:mysql://mysql:3306/librarydb","bookCount":3}
+[{"id":1,"title":"Clean Code","author":"Robert C. Martin"},{"id":2,"title":"Effective Java","author":"Joshua Bloch"},{"id":3,"title":"Spring in Action","author":"Craig Walls"}]
+{"id":4,"title":"Docker Deep Dive","author":"Nigel Poulton"}</code></pre>
+  <p>(On Windows PowerShell, <code>curl</code> may be an alias of <code>Invoke-WebRequest</code>; use <code>curl.exe</code> to get the real curl, or simply use <code>requests.http</code> in VS Code.)</p>
+
+  <h3>5.4 Look inside</h3>
+  <pre class="terminal"><code>docker compose logs -f app                                   # Ctrl+C to stop following
+docker compose exec mysql mysql -ulibrary -p librarydb       # password from your .env
+mysql&gt; SELECT * FROM books;
+mysql&gt; exit</code></pre>
+
+  <h3>5.5 Prove that data survives</h3>
+  <pre class="terminal"><code>docker compose down          # containers gone...
+docker compose up -d         # ...back again
+curl http://localhost:8080/api/books   # "Docker Deep Dive" is still there (volume!)
+
+docker compose down -v       # now also delete the volume
+docker compose up -d         # fresh database: only the 3 books from init.sql</code></pre>
+
+  <h3>5.6 Optional Redis</h3>
+  <pre class="terminal"><code>docker compose --profile cache up -d
+docker compose exec redis redis-cli ping     # → PONG
+docker compose --profile cache down</code></pre>
+
+  <div class="callout tip"><strong>💡 VS Code tip</strong>
+    Install the <strong>Docker</strong> (Container Tools) extension. Right-click <code>docker-compose.yml</code> → <em>Compose Up</em>. The Docker side panel shows containers, logs and volumes with a click.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>🚫 Mistake: using <code>localhost</code> to reach another container</strong>
+    <code>jdbc:mysql://localhost:3306/librarydb</code> inside the app container → <em>Communications link failure</em>.<br><strong>Fix:</strong> use the service name: <code>jdbc:mysql://mysql:3306/librarydb</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: using the HOST port between containers</strong>
+    Writing <code>mysql:3307</code> in the app's config. 3307 exists only on your PC.<br><strong>Fix:</strong> container-to-container always uses the container port (<code>3306</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: plain <code>depends_on</code> without a healthcheck</strong>
+    The app starts while MySQL is still initialising and crashes.<br><strong>Fix:</strong> add a healthcheck to <code>mysql</code> and <code>condition: service_healthy</code> to the app (and <code>restart: unless-stopped</code> as a safety net).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "I changed my code but nothing changed"</strong>
+    <code>docker compose up</code> reused the old image.<br><strong>Fix:</strong> <code>docker compose up -d --build</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "I changed MYSQL_PASSWORD but login fails"</strong>
+    The MySQL image only reads these variables on the <em>first</em> start with an empty volume. The old user/password are stored in the volume.<br><strong>Fix:</strong> in development, <code>docker compose down -v</code> and start again (this deletes data!). Same reason <code>init.sql</code> runs only once.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: "port is already allocated"</strong>
+    Something on your PC already uses 8080 or 3307 (maybe the app from <code>mvn spring-boot:run</code> is still running).<br><strong>Fix:</strong> stop the other program, or change the LEFT number: <code>"8081:8080"</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: tabs or wrong indentation in YAML</strong>
+    Errors like <em>"yaml: line 12: did not find expected key"</em> or <em>"services.app Additional property ... is not allowed"</em>.<br><strong>Fix:</strong> spaces only; run <code>docker compose config</code> to validate.</div>
+  <div class="callout danger"><strong>🚫 Mistake: committing <code>.env</code> with real passwords</strong>
+    Once in Git history, a secret is compromised.<br><strong>Fix:</strong> <code>.env</code> in <code>.gitignore</code>, commit only <code>.env.example</code>. If it happened, change the password.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: running <code>docker compose down -v</code> "to fix things"</strong>
+    It deletes your database. Fine on your laptop, a disaster on a server.<br><strong>Fix:</strong> use plain <code>down</code> unless you really want to wipe data.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Pin image versions</strong> (<code>mysql:8.4</code>, <code>redis:7.4-alpine</code>), never <code>latest</code>.</li>
+    <li><strong>Healthchecks for every service</strong> and <code>depends_on: condition: service_healthy</code> for real readiness.</li>
+    <li><strong>Secrets out of the YAML and out of Git</strong>: <code>.env</code> + <code>.env.example</code>. In production, use a real secret store (Kubernetes Secrets, Vault, cloud secret managers — topic 69).</li>
+    <li><strong>Named volumes for data</strong>, bind mounts for config/init files (read-only <code>:ro</code> when possible).</li>
+    <li><strong>Don't publish database ports</strong> in production — only the app (or the gateway) needs to be reachable from outside.</li>
+    <li><strong>Make your app resilient anyway</strong>: even with healthchecks, the database can restart later. Spring Boot's Hikari pool reconnects; <code>restart: unless-stopped</code> covers crashes.</li>
+    <li><strong>One concern per container</strong>: app and DB in separate services, never both in one container.</li>
+    <li><strong>Use the same images everywhere</strong>: the image you test locally with Compose is the one CI builds (topic 68) and Kubernetes runs (topic 69).</li>
+    <li><strong>Keep the default profile Docker-free</strong> (H2) so a newcomer can still run <code>mvn spring-boot:run</code> with nothing installed.</li>
+    <li><strong>Know the limits</strong>: Compose runs on <em>one</em> machine. For many machines, self-healing and rolling updates you need an orchestrator like Kubernetes (topic 69).</li>
+    <li>Use <code>compose.override.yml</code> (auto-loaded) for personal local tweaks, and <code>-f docker-compose.prod.yml</code> for environment-specific variations, instead of copying the whole file.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Docker Compose describes a multi-container app in one YAML file and starts/stops it with one command.</li>
+    <li>A <strong>service</strong> = one kind of container; its name is its <strong>hostname</strong> on the Compose network.</li>
+    <li><code>ports: "HOST:CONTAINER"</code> is only for access from your PC; containers talk via <code>service:containerPort</code>.</li>
+    <li><code>environment</code>/<code>env_file</code> set variables in a container; <code>.env</code> fills <code>${...}</code> in the YAML.</li>
+    <li>Spring Boot reads env vars automatically (relaxed binding) — perfect for container config.</li>
+    <li>Named volumes keep data across <code>down</code>; <code>down -v</code> deletes it.</li>
+    <li><code>depends_on</code> + <code>condition: service_healthy</code> + a healthcheck = correct start order.</li>
+    <li><code>up -d --build</code> after code changes; <code>logs -f</code>, <code>ps</code>, <code>exec</code> to look inside.</li>
+    <li>Compose profiles select optional services; Spring profiles select config files — different things.</li>
+  </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Change the app port.</strong> Make the app reachable at <code>http://localhost:9090</code> on your PC without changing any Java or properties file.</p>
+    <details><summary>Hint / solution</summary><p>Only the HOST side of the mapping changes:</p><pre><code class="lang-yaml">  app:
+    ports:
+      - "9090:8080"</code></pre><p>Then <code>docker compose up -d</code> (Compose recreates the container). The app inside still listens on 8080.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Find the IP.</strong> Prove that service names are just DNS names. Run a command inside the app container that resolves the name <code>mysql</code>.</p>
+    <details><summary>Hint / solution</summary><pre class="terminal"><code>docker compose exec app getent hosts mysql
+# 172.20.0.2      mysql
+docker network inspect library_backend</code></pre><p>The IP may differ on your machine — that's exactly why we never hard-code it.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Add Adminer.</strong> Add a web database UI service using the image <code>adminer:4.8.1</code> on host port 8081, connected to the same network, starting after MySQL is healthy. Log in to MySQL through it.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-yaml">  adminer:
+    image: adminer:4.8.1
+    ports:
+      - "8081:8080"
+    networks:
+      - backend
+    depends_on:
+      mysql:
+        condition: service_healthy</code></pre><p>Open <code>http://localhost:8081</code>. System: MySQL, Server: <strong>mysql</strong> (the service name!), user <code>library</code>, password from <code>.env</code>, database <code>librarydb</code>.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Run the app on your PC against MySQL in Docker.</strong> Start only MySQL with Compose and run the app with <code>mvn spring-boot:run</code> using the <code>docker</code> profile. Which host and port must you use?</p>
+    <details><summary>Hint / solution</summary><pre class="terminal"><code>docker compose up -d mysql
+$env:SPRING_PROFILES_ACTIVE="docker"; $env:DB_HOST="localhost"; $env:DB_PORT="3307"
+mvn spring-boot:run</code></pre><p>From your PC the database is <code>localhost:3307</code> (the published HOST port). Only containers on the network use <code>mysql:3306</code>. Use the password from your <code>.env</code> in <code>$env:DB_PASSWORD</code> if you changed it.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Connect Redis for real.</strong> Using what you learned in topic 51, make the app cache <code>GET /api/books</code> in Redis when it runs in Compose. Start Redis with the <code>cache</code> profile and point the app to it.</p>
+    <details><summary>Hint / solution</summary><ol>
+      <li>Add <code>spring-boot-starter-data-redis</code> and <code>spring-boot-starter-cache</code> to <code>pom.xml</code>, <code>@EnableCaching</code> on the main class, <code>@Cacheable("books")</code> on a service method that returns the list (and <code>@CacheEvict(value = "books", allEntries = true)</code> on create).</li>
+      <li>In <code>application-docker.properties</code>: <code>spring.cache.type=redis</code>, <code>spring.data.redis.host=${REDIS_HOST:redis}</code>, <code>spring.data.redis.port=6379</code>.</li>
+      <li>In the default <code>application.properties</code>: <code>spring.cache.type=simple</code> so the laptop run needs no Redis.</li>
+      <li>Remove <code>profiles: ["cache"]</code> from redis (or always start with <code>--profile cache</code>) and add <code>redis: condition: service_healthy</code> to the app's <code>depends_on</code>.</li>
+      <li><code>docker compose up -d --build</code>, call the endpoint twice, then <code>docker compose exec redis redis-cli keys "*"</code> → you see <code>books::SimpleKey []</code>.</li>
+    </ol></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Two environments.</strong> Create <code>docker-compose.prod.yml</code> that removes the MySQL published port, sets <code>LOGGING_LEVEL_COM_COURSE=INFO</code> and limits the app's memory to 512 MB. Start with both files.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-yaml"># docker-compose.prod.yml - merged ON TOP of docker-compose.yml
+services:
+  mysql:
+    ports: !reset []          # remove the port list from the base file
+  app:
+    environment:
+      LOGGING_LEVEL_COM_COURSE: INFO
+    deploy:
+      resources:
+        limits:
+          memory: 512m</code></pre><pre class="terminal"><code>docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.prod.yml config   # check the merge</code></pre><p>Values in <code>environment</code> beat values from <code>env_file</code>. <code>!reset</code> is a Compose YAML tag that clears a value from an earlier file.</p></details>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is Docker Compose and when would you use it?</summary><p>A tool to define and run multi-container applications from one YAML file. You use it for local development environments (app + DB + cache + broker), integration tests, demos and simple single-host deployments. It is not a cluster orchestrator — for multiple machines, scaling and self-healing you use Kubernetes.</p></details>
+  <details><summary>Q2. How do two containers in the same Compose project talk to each other?</summary><p>Compose creates a network for the project; Docker's embedded DNS resolves each <strong>service name</strong> to the container's IP. So the app connects to <code>mysql:3306</code> — service name and <em>container</em> port. Published host ports are not needed for container-to-container traffic.</p></details>
+  <details><summary>Q3. What is the difference between <code>ports</code> and <code>expose</code>?</summary><p><code>ports</code> publishes a container port on the host (reachable from your PC/outside). <code>expose</code> only documents a port for other services on the network; it doesn't publish to the host. Containers on the same network can reach each other's ports anyway.</p></details>
+  <details><summary>Q4. Does <code>depends_on</code> guarantee that the database is ready?</summary><p>Not by itself. The short form only waits for the container to <em>start</em>. To wait for readiness, define a <code>healthcheck</code> on the database and use <code>depends_on: db: condition: service_healthy</code>. The application should still retry/reconnect, because the DB can restart later.</p></details>
+  <details><summary>Q5. Named volume vs bind mount?</summary><p>A named volume is managed by Docker and ideal for persistent data (database files); it survives container removal and <code>down</code>, but not <code>down -v</code>. A bind mount maps a specific host path into the container; good for config files, init scripts or live source code in development, but depends on the host's folder structure.</p></details>
+  <details><summary>Q6. What is the <code>.env</code> file, and how is it different from <code>env_file</code>?</summary><p><code>.env</code> next to the compose file is read by <strong>Compose</strong> for variable substitution (<code>${VAR}</code>) in the YAML. <code>env_file:</code> in a service loads variables <strong>into that container</strong>. They can be combined; neither should hold production secrets in Git.</p></details>
+  <details><summary>Q7. How does a Spring Boot app in a container get its database URL?</summary><p>Through environment variables. Either directly via relaxed binding (<code>SPRING_DATASOURCE_URL</code> → <code>spring.datasource.url</code>) or via placeholders in a profile-specific properties file (<code>${DB_HOST:mysql}</code>), with <code>SPRING_PROFILES_ACTIVE</code> selecting the profile. The image stays the same for all environments; only configuration changes (12-factor).</p></details>
+  <details><summary>Q8. What's the difference between <code>docker compose down</code>, <code>down -v</code> and <code>stop</code>?</summary><p><code>stop</code> stops containers but keeps them. <code>down</code> stops and removes containers and networks, keeps volumes. <code>down -v</code> additionally removes named volumes — all persisted data is lost.</p></details>
+  <details><summary>Q9. Why does <code>docker compose up</code> not pick up my code changes?</summary><p>It reuses an existing image for services with <code>build:</code>. Use <code>docker compose up --build</code> (or <code>docker compose build</code> first) to rebuild the image.</p></details>
+  <details><summary>Q10. What are Compose profiles?</summary><p>A way to mark services as optional: services with <code>profiles: [name]</code> start only when that profile is activated (<code>--profile name</code> or <code>COMPOSE_PROFILES</code>). Useful for debug tools, admin UIs or optional dependencies like Redis.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../66-Docker-For-Spring-Boot/lesson.html"><small>← Previous</small>66. Docker for Spring Boot</a>
+    <a class="next" href="../68-CI-CD-With-GitHub-Actions/lesson.html"><small>Next →</small>68. CI/CD with GitHub Actions</a>
+  </nav>
+</main>
+</body>
+</html>

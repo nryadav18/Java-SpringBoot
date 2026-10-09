@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>40 · JPA Relationships</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 40</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~4 hours</span>
+  <h1>40. JPA Relationships</h1>
+  <p class="subtitle">Connect your entities — customers with addresses, customers with orders, orders with products — and avoid the famous traps: LazyInitializationException, the N+1 problem and infinite JSON.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="40-JPA-Relationships"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>The three relationship kinds: one-to-one, one-to-many / many-to-one, many-to-many.</li>
+      <li><code>@OneToOne</code>, <code>@OneToMany</code>, <code>@ManyToOne</code>, <code>@ManyToMany</code>, <code>@JoinColumn</code>, <code>@JoinTable</code>.</li>
+      <li>Unidirectional vs bidirectional, <code>mappedBy</code>, and the <strong>owning side</strong> — explained very simply.</li>
+      <li>Cascade types and <code>orphanRemoval</code>.</li>
+      <li><code>FetchType.LAZY</code> vs <code>EAGER</code>, and the <code>LazyInitializationException</code>.</li>
+      <li>The <strong>N+1 problem</strong> — see it with your own eyes — and how to fix it with <code>JOIN FETCH</code> and <code>@EntityGraph</code>.</li>
+      <li>The JSON infinite recursion problem and its fixes (DTOs!, <code>@JsonManagedReference</code>/<code>@JsonBackReference</code>, <code>@JsonIgnore</code>).</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../38-Spring-Data-JPA-Fundamentals/lesson.html">Topic 38</a> (entities, lifecycle) and <a href="../39-JPA-Queries-Derived-JPQL-Native/lesson.html">Topic 39</a> (JPQL). A little SQL knowledge about <em>foreign keys</em> helps (explained again below).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Real data is connected. A customer <em>has</em> an address. A customer <em>places</em> many orders. An order <em>contains</em> many products, and a product appears in many orders. In the database these links are stored as <strong>foreign keys</strong>. In Java we want to simply write <code>customer.getOrders()</code> or <code>order.getCustomer().getName()</code>.</p>
+  <p>JPA relationships give you exactly that. But they are also the place where most performance bugs and confusing errors in Spring Boot applications come from. Companies regularly find pages that run 500 SQL queries instead of 1 because of the "N+1 problem". After this lesson you will know how to spot and fix it — an extremely valuable skill and a top interview topic.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏠 A family, a house, and a shop</strong>
+    <strong>One-to-one</strong>: one person has one passport. The passport number is written <em>in</em> the person's file.<br>
+    <strong>One-to-many</strong>: one mother, many children. Each child's birth certificate says who the mother is. The <em>mother's</em> file doesn't have a list of birth-certificate numbers — the information is stored on the <em>children's</em> side. That's why, in JPA, the "many" side (the child) is the <strong>owner</strong> of the relationship.<br>
+    <strong>Many-to-many</strong>: students and courses. A student takes many courses, a course has many students. You can't write it on either card — you need a separate <em>enrolment list</em> (a join table) with lines like "Asha – Java", "Asha – Spring", "Ben – Java".<br>
+    <strong>Lazy loading</strong> is like a library catalogue card that says "see shelf 7": you only walk to shelf 7 if you actually need the book. The <strong>N+1 problem</strong> is walking to the shelf separately for each of 100 books instead of bringing a trolley once.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Foreign keys in 1 minute</h3>
+  <p>A <strong>foreign key</strong> (FK) is a column that stores the id of a row in another table. <code>orders.customer_id = 1</code> means "this order belongs to customer 1". The database guarantees that customer 1 really exists.</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 780 300" width="780" role="img" aria-label="ER diagram of customers, addresses, orders, order_products, products">
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="10" y="20" width="170" height="110" rx="8"/>
+        <rect x="250" y="20" width="190" height="130" rx="8"/>
+        <rect x="250" y="180" width="190" height="110" rx="8"/>
+        <rect x="500" y="180" width="140" height="90" rx="8"/>
+        <rect x="640" y="20" width="130" height="100" rx="8"/>
+        <line x1="10" y1="48" x2="180" y2="48"/><line x1="250" y1="48" x2="440" y2="48"/>
+        <line x1="250" y1="208" x2="440" y2="208"/><line x1="500" y1="208" x2="640" y2="208"/>
+        <line x1="640" y1="48" x2="770" y2="48"/>
+        <line x1="250" y1="95" x2="180" y2="75"/>
+        <line x1="345" y1="150" x2="345" y2="180"/>
+        <line x1="440" y1="235" x2="500" y2="235"/>
+        <line x1="640" y1="255" x2="705" y2="255"/><line x1="705" y1="255" x2="705" y2="120"/>
+      </g>
+      <g fill="currentColor" font-family="Consolas, monospace" font-size="13">
+        <text x="20" y="40" font-weight="bold">addresses</text>
+        <text x="20" y="70">id (PK)</text><text x="20" y="90">street, city</text><text x="20" y="110">zip_code, country</text>
+        <text x="260" y="40" font-weight="bold">customers</text>
+        <text x="260" y="70">id (PK)</text><text x="260" y="90">name, email</text><text x="260" y="110">address_id (FK) → addresses</text>
+        <text x="260" y="200" font-weight="bold">orders</text>
+        <text x="260" y="230">id (PK)</text><text x="260" y="250">order_number, order_date</text><text x="260" y="270">customer_id (FK) → customers</text>
+        <text x="508" y="200" font-weight="bold">order_products</text>
+        <text x="508" y="230">order_id (FK)</text><text x="508" y="250">product_id (FK)</text>
+        <text x="650" y="40" font-weight="bold">products</text>
+        <text x="650" y="70">id (PK)</text><text x="650" y="90">name, price</text>
+        <text x="190" y="62" font-size="12">1 : 1</text>
+        <text x="352" y="170" font-size="12">1 : N</text>
+        <text x="444" y="228" font-size="12">N</text>
+        <text x="712" y="190" font-size="12">N : N</text>
+      </g>
+    </svg>
+    <figcaption>The tables Hibernate creates for this topic's project. Each arrow is a foreign key.</figcaption>
+  </figure>
+
+  <h3>3.2 The relationship kinds</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Kind</th><th>Example</th><th>Annotations</th><th>Where is the FK?</th></tr>
+    <tr><td>One-to-one</td><td>Customer ↔ Address</td><td><code>@OneToOne</code></td><td>In one of the two tables (we chose <code>customers.address_id</code>)</td></tr>
+    <tr><td>One-to-many / Many-to-one</td><td>Customer → Orders</td><td><code>@OneToMany</code> on the "one" side, <code>@ManyToOne</code> on the "many" side</td><td>Always in the "many" table (<code>orders.customer_id</code>)</td></tr>
+    <tr><td>Many-to-many</td><td>Order ↔ Product</td><td><code>@ManyToMany</code> + <code>@JoinTable</code></td><td>In a separate join table (<code>order_products</code>)</td></tr>
+  </table></div>
+
+  <h3>3.3 Unidirectional vs bidirectional</h3>
+  <ul>
+    <li><strong>Unidirectional</strong>: only one class has a field pointing to the other. <code>customer.getAddress()</code> works, but <code>Address</code> has no <code>getCustomer()</code>.</li>
+    <li><strong>Bidirectional</strong>: both classes point to each other. <code>customer.getOrders()</code> <em>and</em> <code>order.getCustomer()</code>.</li>
+  </ul>
+  <p>In the database there is no "direction" — a foreign key can be followed both ways with a JOIN. Direction is only about <em>which Java fields you want</em>. Rule: make it bidirectional only if you really need to navigate both ways.</p>
+
+  <h3>3.4 The owning side and <code>mappedBy</code> — the simple explanation</h3>
+  <p>In a bidirectional relationship there are two Java fields but only <strong>one</strong> foreign key column. Hibernate must know which field to look at when it writes that column. That field is the <strong>owning side</strong>. The other field is the <strong>inverse side</strong>, marked with <code>mappedBy</code>.</p>
+  <div class="callout tip"><strong>💡 Three rules to remember</strong>
+    1. The owning side is the entity whose <strong>table contains the foreign key</strong>.<br>
+    2. In one-to-many, the <strong>many</strong> side (<code>@ManyToOne</code>) is always the owner.<br>
+    3. <code>mappedBy = "customer"</code> means: <em>"I'm just a mirror. The real information is in the field called <code>customer</code> on the other class."</em> Hibernate <strong>ignores</strong> changes made only on the mappedBy side.</div>
+  <pre><code class="lang-java">// OWNING side - its table has the FK column
+@Entity class PurchaseOrder {
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "customer_id")   // the FK column
+    private Customer customer;
+}
+
+// INVERSE side - just a mirror
+@Entity class Customer {
+    @OneToMany(mappedBy = "customer")   // "see PurchaseOrder.customer"
+    private Set&lt;PurchaseOrder&gt; orders = new LinkedHashSet&lt;&gt;();
+}</code></pre>
+  <p>So this code saves <strong>nothing</strong> to <code>orders.customer_id</code>:</p>
+  <pre><code class="lang-java">customer.getOrders().add(order);   // only the mirror changed - Hibernate ignores it!</code></pre>
+  <p>The fix: <strong>helper methods</strong> that always update both sides:</p>
+  <pre><code class="lang-java">public void addOrder(PurchaseOrder order) {
+    orders.add(order);          // mirror (keeps the Java objects consistent)
+    order.setCustomer(this);    // owner  (this is what gets written to the database)
+}</code></pre>
+
+  <h3>3.5 <code>@JoinColumn</code> and <code>@JoinTable</code></h3>
+  <pre><code class="lang-java">@JoinColumn(name = "customer_id", nullable = false)   // name + rules of the FK column
+
+@JoinTable(name = "order_products",
+           joinColumns = @JoinColumn(name = "order_id"),           // FK to the owner (this entity)
+           inverseJoinColumns = @JoinColumn(name = "product_id"))  // FK to the other entity</code></pre>
+  <p>Both are optional — without them Hibernate invents names like <code>customer_id</code> and <code>orders_products</code>. Being explicit makes the schema predictable (important later with Flyway, topic 43).</p>
+
+  <h3>3.6 Cascade types</h3>
+  <p><strong>Cascade</strong> = "when I do something to the parent, do the same to the children". Without cascade, you must save/delete each entity yourself.</p>
+  <div class="table-wrap"><table>
+    <tr><th>CascadeType</th><th>When the parent is...</th><th>...the children are also</th></tr>
+    <tr><td><code>PERSIST</code></td><td>persisted (saved as new)</td><td>persisted</td></tr>
+    <tr><td><code>MERGE</code></td><td>merged (detached → managed)</td><td>merged</td></tr>
+    <tr><td><code>REMOVE</code></td><td>removed</td><td>removed</td></tr>
+    <tr><td><code>REFRESH</code></td><td>reloaded from DB</td><td>reloaded</td></tr>
+    <tr><td><code>DETACH</code></td><td>detached</td><td>detached</td></tr>
+    <tr><td><code>ALL</code></td><td>any of the above</td><td>same</td></tr>
+  </table></div>
+  <p>Where to use it: from a parent to children that <strong>belong only to that parent</strong> and live and die with it — Customer → Address, Customer → Orders, Order → OrderLines. Thanks to cascade, our seeder saves the whole graph with <em>one</em> <code>saveAll</code> call.</p>
+  <div class="callout danger"><strong>🛑 Never cascade REMOVE on <code>@ManyToMany</code> or towards shared data</strong>
+    If <code>Order.products</code> had <code>cascade = ALL</code>, deleting an order would delete the Laptop product — from every other order and the whole catalogue! Products are shared, so no cascade there. Also don't cascade from a child to its parent (<code>@ManyToOne(cascade = REMOVE)</code>).</div>
+
+  <h3>3.7 <code>orphanRemoval</code></h3>
+  <p>An <strong>orphan</strong> is a child that was removed from its parent's collection. With <code>orphanRemoval = true</code> Hibernate deletes it from the database:</p>
+  <pre><code class="lang-java">@OneToMany(mappedBy = "customer", cascade = CascadeType.ALL, orphanRemoval = true)
+private Set&lt;PurchaseOrder&gt; orders;
+
+customer.removeOrder(order);   // -&gt; DELETE FROM orders WHERE id = ?</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th></th><th><code>cascade = REMOVE</code></th><th><code>orphanRemoval = true</code></th></tr>
+    <tr><td>Parent deleted</td><td>children deleted</td><td>children deleted</td></tr>
+    <tr><td>Child removed from the collection</td><td>nothing happens (child stays, maybe with a null FK)</td><td>child deleted</td></tr>
+  </table></div>
+
+  <h3>3.8 Fetch types: LAZY vs EAGER</h3>
+  <p>When Hibernate loads a customer, should it also load the address and all orders immediately?</p>
+  <ul>
+    <li><strong>EAGER</strong>: yes, always load it right away (extra JOIN or extra SELECT).</li>
+    <li><strong>LAZY</strong>: no, put a placeholder (a <em>proxy</em> or an uninitialised collection). The real SELECT runs the first time you touch it (e.g. <code>getOrders().size()</code>).</li>
+  </ul>
+  <div class="table-wrap"><table>
+    <tr><th>Annotation</th><th>Default fetch</th><th>Recommendation</th></tr>
+    <tr><td><code>@OneToMany</code></td><td>LAZY</td><td>keep LAZY</td></tr>
+    <tr><td><code>@ManyToMany</code></td><td>LAZY</td><td>keep LAZY</td></tr>
+    <tr><td><code>@ManyToOne</code></td><td><strong>EAGER</strong> ⚠️</td><td>change to <code>fetch = FetchType.LAZY</code></td></tr>
+    <tr><td><code>@OneToOne</code></td><td><strong>EAGER</strong> ⚠️</td><td>change to <code>fetch = FetchType.LAZY</code> (on the owning side)</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 The golden rule</strong>
+    Make <strong>everything LAZY</strong>, then for each use case load exactly what you need with <code>JOIN FETCH</code> or <code>@EntityGraph</code>. EAGER can't be switched off per query and quietly loads half the database.</div>
+
+  <h3>3.9 <code>LazyInitializationException</code></h3>
+  <p>A lazy relationship can only be loaded while the <strong>persistence context</strong> (Hibernate session) is open — normally, during a transaction. If you touch it after the transaction ended (the entity is <em>detached</em>, topic 38), Hibernate can't run the SELECT anymore:</p>
+  <pre class="terminal"><code>org.hibernate.LazyInitializationException: failed to lazily initialize a collection of role:
+com.course.jparelationships.entity.Customer.orders: could not initialize proxy - no Session</code></pre>
+  <p>Typical situations: you return an entity from a service, and the controller (or Jackson while writing JSON) touches a lazy field.</p>
+  <p><strong>Fixes, from best to worst:</strong></p>
+  <ol>
+    <li>Load what you need with <code>JOIN FETCH</code> / <code>@EntityGraph</code> in the service, and convert to a <strong>DTO inside the transaction</strong>. ✅</li>
+    <li>Touch the lazy field inside a <code>@Transactional</code> service method (works, but may cause N+1).</li>
+    <li>❌ <code>FetchType.EAGER</code> everywhere — hides the problem and makes everything slow.</li>
+    <li>❌ <code>spring.jpa.open-in-view=true</code> (Spring Boot's default!) — keeps the session open during the whole web request, so the error disappears, but queries now run in the view/JSON layer, unnoticed. That's why we set it to <code>false</code>.</li>
+  </ol>
+
+  <h3>3.10 The N+1 problem</h3>
+  <p>You want a list of customers with their order count. You write the obvious code:</p>
+  <pre><code class="lang-java">List&lt;Customer&gt; customers = customerRepository.findAll();   // 1 query
+for (Customer c : customers) {
+    c.getOrders().size();                                  // +1 query PER customer
+}</code></pre>
+  <p>1 query for the list + N queries for the orders = <strong>N+1</strong>. With 3 customers that's 4 queries, with 1,000 customers that's 1,001 queries — each a network round trip. In our project the summary also shows the city, so the lazy address adds another N: <strong>1 + 3 + 3 = 7</strong> statements. The <code>/demo/n-plus-one</code> endpoint counts them for you:</p>
+  <pre class="terminal"><code>{"approach":"findAll() + lazy loading (N+1 problem)","customers":3,"sqlStatements":7, ...}</code></pre>
+  <div class="flow">
+    <span class="box alt">SELECT customers</span><span class="arrow">→</span>
+    <span class="box">SELECT address #1</span><span class="arrow">→</span>
+    <span class="box">SELECT orders #1</span><span class="arrow">→</span>
+    <span class="box">SELECT address #2</span><span class="arrow">→</span>
+    <span class="box">...</span>
+  </div>
+
+  <h4>Fix 1: <code>JOIN FETCH</code> in JPQL</h4>
+  <pre><code class="lang-java">@Query("SELECT DISTINCT c FROM Customer c LEFT JOIN FETCH c.address LEFT JOIN FETCH c.orders ORDER BY c.id")
+List&lt;Customer&gt; findAllWithOrders();</code></pre>
+  <p><code>FETCH</code> means "load the related entities in the same SELECT and fill the fields". <code>LEFT</code> keeps customers without orders (Chen). Result: <strong>1 statement</strong>.</p>
+
+  <h4>Fix 2: <code>@EntityGraph</code></h4>
+  <pre><code class="lang-java">@EntityGraph(attributePaths = {"address", "orders"})
+@Query("SELECT c FROM Customer c ORDER BY c.id")
+List&lt;Customer&gt; findAllWithAddressAndOrders();
+
+@EntityGraph(attributePaths = {"address", "orders", "orders.products"})   // nested paths work too
+Optional&lt;Customer&gt; findWithDetailsById(Long id);</code></pre>
+  <p>Same effect, no JPQL join syntax, and it works on derived queries. Result: <strong>1 statement</strong>.</p>
+  <div class="callout info"><strong>ℹ️ Other tools against N+1</strong>
+    <code>@BatchSize(size = 50)</code> or <code>spring.jpa.properties.hibernate.default_batch_fetch_size=50</code> loads lazy collections for many parents at once with <code>WHERE customer_id IN (...)</code> — turning N+1 into 1 + N/50. DTO projections (topic 39) also avoid it because they select only flat columns.</div>
+  <div class="callout warn"><strong>⚠️ Fetching collections: List vs Set</strong>
+    When you JOIN FETCH a collection <em>and</em> a nested collection (orders <em>and</em> orders.products), the SQL result has one row per product. If <code>orders</code> is a <code>List</code>, the same order appears several times in the list! And fetching two <code>List</code>s at once throws <code>MultipleBagFetchException</code>. That's why <code>Customer.orders</code> is a <code>Set</code> (with <code>@OrderBy("id")</code> for a stable order). We hit this exact bug while building this lesson's project — a test caught it.</div>
+  <div class="callout warn"><strong>⚠️ Don't JOIN FETCH collections together with paging</strong>
+    <code>JOIN FETCH</code> on a collection + <code>Pageable</code> makes Hibernate load <em>all</em> rows and page in memory (warning <code>HHH90003004</code>). For paged lists, page the parents first, then fetch children with a second query or <code>@BatchSize</code>. (Paging is the next topic.)</div>
+
+  <h3>3.11 JSON infinite recursion</h3>
+  <p>If a controller returns a <code>Customer</code> entity, Jackson writes its fields: <code>orders</code> → each order → its <code>customer</code> → its <code>orders</code> → ... forever, until <code>StackOverflowError</code> (or Jackson's "Infinite recursion" / "Document nesting depth exceeds" error). Plus every lazy field touched by Jackson either triggers queries or a <code>LazyInitializationException</code>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Fix</th><th>How</th><th>Verdict</th></tr>
+    <tr><td><strong>DTOs</strong></td><td>Return records that contain only what the client needs and never point back to the parent.</td><td>✅ Best. Used by all normal endpoints in this project.</td></tr>
+    <tr><td><code>@JsonManagedReference</code> / <code>@JsonBackReference</code></td><td>Put <code>Managed</code> on the parent's collection (serialized) and <code>Back</code> on the child's parent field (skipped).</td><td>OK for quick prototypes. Couples the entity to JSON.</td></tr>
+    <tr><td><code>@JsonIgnore</code></td><td>Skip a field entirely.</td><td>Simple, but the field is gone for every endpoint.</td></tr>
+    <tr><td><code>@JsonIdentityInfo</code></td><td>Writes an object fully once, then only its id.</td><td>Odd JSON for clients.</td></tr>
+  </table></div>
+  <p>The <code>/api/customers/1/raw</code> endpoint returns the entity using the annotation approach so you can compare; notice that the orders in the JSON have no <code>customer</code> field and products have no <code>orders</code> field.</p>
+
+  <h3>3.12 Equals/hashCode for entities in Sets (good to know)</h3>
+  <p>Our entities don't override <code>equals</code>/<code>hashCode</code>, so Java uses object identity. Inside one persistence context Hibernate guarantees one object per row, so Sets work fine. If you override them, <strong>don't</strong> use all fields or the generated id naively (the id is <code>null</code> before saving, so the hash changes after <code>save</code>). Use a natural business key (e.g. <code>orderNumber</code>) or a constant hashCode. This is an advanced topic; identity equality is fine for this course.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Java files are under <code>src/main/java/com/course/jparelationships/</code>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>entity/Customer.java</code></td><td>Owning <code>@OneToOne</code> to Address; inverse <code>@OneToMany(mappedBy)</code> to orders; cascade, orphanRemoval; <code>addOrder</code>/<code>removeOrder</code> helpers.</td></tr>
+    <tr><td><code>entity/Address.java</code></td><td>Target of a unidirectional one-to-one (knows nothing about Customer).</td></tr>
+    <tr><td><code>entity/PurchaseOrder.java</code></td><td><code>@ManyToOne(fetch = LAZY)</code> + <code>@JoinColumn</code>; <code>@ManyToMany</code> + <code>@JoinTable</code>; table <code>orders</code>.</td></tr>
+    <tr><td><code>entity/Product.java</code></td><td>Inverse <code>@ManyToMany(mappedBy = "products")</code>, <code>@JsonIgnore</code>.</td></tr>
+    <tr><td><code>repository/CustomerRepository.java</code></td><td><code>JOIN FETCH</code> query, <code>@EntityGraph</code> queries.</td></tr>
+    <tr><td><code>repository/PurchaseOrderRepository.java</code></td><td>Derived queries across relationships: <code>findByCustomerId</code>, <code>findByProductsName</code>.</td></tr>
+    <tr><td><code>dto/Dtos.java</code></td><td>All request/response records; mapping from entities.</td></tr>
+    <tr><td><code>service/CustomerService.java</code></td><td>Create with cascade, place order (N:N), remove order (orphanRemoval), delete (cascade), N+1 measurements, LazyInitializationException demo.</td></tr>
+    <tr><td><code>controller/CustomerController.java</code>, <code>ProductController.java</code></td><td>REST endpoints + <code>/demo/*</code> endpoints.</td></tr>
+    <tr><td><code>config/DataSeeder.java</code></td><td>Builds the graph in Java, saves it with one <code>saveAll</code>.</td></tr>
+    <tr><td><code>src/test/.../RelationshipsTest.java</code></td><td>7 tests: cascade, lazy exception, entity graph, N+1 counts, orphan removal, cascade delete, derived queries.</td></tr>
+  </table></div>
+
+  <h3>4.1 Customer — two relationships</h3>
+  <pre><span class="file">entity/Customer.java</span><code class="lang-java">@Entity
+@Table(name = "customers")
+public class Customer {
+
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    // name, email ...
+
+    @OneToOne(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @JoinColumn(name = "address_id", unique = true)          // FK in customers table -&gt; OWNING side
+    private Address address;
+
+    @OneToMany(mappedBy = "customer", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("id")
+    @JsonManagedReference
+    private Set&lt;PurchaseOrder&gt; orders = new LinkedHashSet&lt;&gt;(); // INVERSE side
+
+    public void addOrder(PurchaseOrder order) {
+        orders.add(order);
+        order.setCustomer(this);
+    }
+    public void removeOrder(PurchaseOrder order) {
+        orders.remove(order);
+        order.setCustomer(null);    // orphanRemoval -&gt; DELETE
+    }
+}</code></pre>
+  <p><code>unique = true</code> on <code>address_id</code> is what makes it truly <em>one</em>-to-one in the database: two customers can't share an address row. Collections are initialised (<code>new LinkedHashSet&lt;&gt;()</code>) so <code>addOrder</code> never hits a <code>NullPointerException</code> on a new customer.</p>
+
+  <h3>4.2 PurchaseOrder — owner of two relationships</h3>
+  <pre><span class="file">entity/PurchaseOrder.java</span><code class="lang-java">@Entity
+@Table(name = "orders")                         // "order" is a reserved SQL word!
+public class PurchaseOrder {
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "customer_id", nullable = false)
+    @JsonBackReference
+    private Customer customer;
+
+    @ManyToMany                                 // no cascade: products are shared!
+    @JoinTable(name = "order_products",
+               joinColumns = @JoinColumn(name = "order_id"),
+               inverseJoinColumns = @JoinColumn(name = "product_id"))
+    private Set&lt;Product&gt; products = new LinkedHashSet&lt;&gt;();
+
+    public void addProduct(Product product) {
+        products.add(product);
+        product.getOrders().add(this);
+    }
+    void setCustomer(Customer customer) { ... }  // package-private: use Customer.addOrder()
+}</code></pre>
+  <p>The tables Hibernate generated (from the console):</p>
+  <pre class="terminal"><code>create table orders (
+    customer_id bigint not null,
+    id bigint generated by default as identity,
+    order_date timestamp(6) not null,
+    order_number varchar(20) not null unique,
+    primary key (id)
+)
+create table order_products (
+    order_id bigint not null,
+    product_id bigint not null,
+    primary key (order_id, product_id)
+)
+alter table if exists orders add constraint FK... foreign key (customer_id) references customers</code></pre>
+  <div class="callout info"><strong>ℹ️ When the join table needs extra columns</strong>
+    A real order line has a <em>quantity</em> and a <em>price at the time of purchase</em>. A plain <code>@ManyToMany</code> join table can't hold extra columns. Then you create a separate entity <code>OrderItem</code> with two <code>@ManyToOne</code>s (to Order and Product) plus <code>quantity</code> — i.e. two one-to-many relationships. That is what the capstone (topic 71) does. Many teams prefer this pattern even without extra columns.</div>
+
+  <h3>4.3 Product — the inverse many-to-many</h3>
+  <pre><span class="file">entity/Product.java</span><code class="lang-java">@ManyToMany(mappedBy = "products")
+@JsonIgnore
+private Set&lt;PurchaseOrder&gt; orders = new HashSet&lt;&gt;();</code></pre>
+
+  <h3>4.4 Saving a whole graph with cascade</h3>
+  <pre><span class="file">config/DataSeeder.java</span><code class="lang-java">productRepository.saveAll(List.of(laptop, headphones, phone, charger, backpack)); // no cascade -&gt; save first
+
+Customer asha = new Customer("Asha Rao", "asha@example.com",
+        new Address("12 MG Road", "Bengaluru", "560001", "India"));
+PurchaseOrder o1 = new PurchaseOrder("ORD-1001");
+o1.addProduct(laptop);
+o1.addProduct(backpack);
+asha.addOrder(o1);
+// ... Ben, Chen ...
+customerRepository.saveAll(List.of(asha, ben, chen));   // addresses, customers, orders, join rows</code></pre>
+
+  <h3>4.5 The service — working inside transactions</h3>
+  <pre><span class="file">service/CustomerService.java</span><code class="lang-java">@Transactional
+public OrderResponse placeOrder(Long customerId, CreateOrderRequest request) {
+    Customer customer = customerRepository.findById(customerId).orElseThrow(...);
+    List&lt;Product&gt; products = productRepository.findAllById(new HashSet&lt;&gt;(request.productIds()));
+    // ... check all ids exist ...
+    PurchaseOrder order = new PurchaseOrder("ORD-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+    products.forEach(order::addProduct);
+    customer.addOrder(order);       // cascade from the MANAGED customer inserts the order at commit
+    customerRepository.flush();     // run the INSERTs now so the order has its id
+    return OrderResponse.from(order);
+}
+
+@Transactional
+public void removeOrder(Long customerId, Long orderId) {
+    Customer customer = ...;
+    PurchaseOrder order = customer.getOrders().stream()
+            .filter(o -&gt; o.getId().equals(orderId)).findFirst().orElseThrow(...);
+    customer.removeOrder(order);    // orphanRemoval -&gt; DELETE FROM orders + join rows
+}</code></pre>
+
+  <h3>4.6 Measuring N+1</h3>
+  <pre><span class="file">service/CustomerService.java</span><code class="lang-java">private QueryStats measure(String approach, Supplier&lt;List&lt;Customer&gt;&gt; loader) {
+    statistics.clear();                                   // Hibernate Statistics (generate_statistics=true)
+    List&lt;Customer&gt; customers = loader.get();
+    List&lt;CustomerSummary&gt; data = customers.stream().map(CustomerSummary::from).toList(); // touches address + orders
+    return new QueryStats(approach, customers.size(), statistics.getPrepareStatementCount(), data);
+}
+
+public QueryStats demoNPlusOne()    { return measure("findAll() + lazy loading (N+1 problem)", customerRepository::findAll); }
+public QueryStats demoJoinFetch()   { return measure("JPQL LEFT JOIN FETCH", customerRepository::findAllWithOrders); }
+public QueryStats demoEntityGraph() { return measure("@EntityGraph(...)", customerRepository::findAllWithAddressAndOrders); }</code></pre>
+
+  <h3>4.7 Seeing <code>LazyInitializationException</code> on purpose</h3>
+  <pre><code class="lang-java">@Transactional(propagation = Propagation.NOT_SUPPORTED)   // run WITHOUT a transaction
+public Map&lt;String, String&gt; demoLazyInitializationException(Long id) {
+    Customer customer = customerRepository.findById(id).orElseThrow(...);  // detached right after
+    try {
+        customer.getOrders().size();                     // boom
+        ...
+    } catch (LazyInitializationException ex) {
+        return Map.of("exception", ex.getClass().getSimpleName(), "message", ex.getMessage());
+    }
+}</code></pre>
+  <p>(Propagation is explained in <a href="../42-Transactions/lesson.html">topic 42</a>; here it just means "no transaction around this method".)</p>
+
+  <h3>4.8 The tests</h3>
+  <pre><span class="file">src/test/java/com/course/jparelationships/RelationshipsTest.java</span><code class="lang-java">@SpringBootTest
+class RelationshipsTest {
+
+    @Test
+    void lazyCollectionOutsideTransactionFails() {
+        Customer detached = customerRepository.findById(1L).orElseThrow();
+        assertThatThrownBy(() -&gt; detached.getOrders().size())
+                .isInstanceOf(LazyInitializationException.class);
+    }
+
+    @Test
+    void nPlusOneVersusFetchJoin() {
+        assertThat(service.demoNPlusOne().sqlStatements()).isEqualTo(7);
+        assertThat(service.demoJoinFetch().sqlStatements()).isEqualTo(1);
+        assertThat(service.demoEntityGraph().sqlStatements()).isEqualTo(1);
+    }
+}</code></pre>
+  <p>We use <code>@SpringBootTest</code> (not <code>@DataJpaTest</code>) because <code>@DataJpaTest</code> wraps every test in a transaction — which would <em>hide</em> the LazyInitializationException we want to demonstrate.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <h3>VS Code</h3>
+  <ol>
+    <li>Open <code>D:\Java-SpringBoot\40-JPA-Relationships</code> and run <code>JpaRelationshipsApplication</code>.</li>
+    <li>Look at the startup log: four <code>create table</code> statements, the <code>alter table ... foreign key</code> statements, then the seeder's inserts.</li>
+    <li>Open <code>requests.http</code> and send the requests one by one. For each <code>/demo</code> request, look at the SQL printed in the terminal.</li>
+  </ol>
+  <h3>Terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\40-JPA-Relationships"
+mvn spring-boot:run</code></pre>
+  <pre class="terminal"><code>curl.exe http://localhost:8080/api/customers
+curl.exe http://localhost:8080/api/customers/1
+curl.exe http://localhost:8080/api/customers/demo/n-plus-one
+curl.exe http://localhost:8080/api/customers/demo/join-fetch
+curl.exe http://localhost:8080/api/customers/demo/lazy-error/1
+curl.exe -X POST http://localhost:8080/api/customers -H "Content-Type: application/json" -d "{\"name\":\"Dina Shah\",\"email\":\"dina@example.com\",\"address\":{\"street\":\"1 Main St\",\"city\":\"Pune\",\"zipCode\":\"411001\",\"country\":\"India\"}}"
+curl.exe -X POST http://localhost:8080/api/customers/4/orders -H "Content-Type: application/json" -d "{\"productIds\":[1,4]}"
+curl.exe -i -X DELETE http://localhost:8080/api/customers/1/orders/2
+curl.exe -i -X DELETE http://localhost:8080/api/customers/2</code></pre>
+  <p>Expected output (shortened):</p>
+  <pre class="terminal"><code>// GET /api/customers
+[{"id":1,"name":"Asha Rao","email":"asha@example.com","city":"Bengaluru","orderCount":2},
+ {"id":2,"name":"Ben Carter",...,"orderCount":1},{"id":3,"name":"Chen Wei",...,"orderCount":0}]
+
+// GET /api/customers/1
+{"id":1,"name":"Asha Rao","email":"asha@example.com",
+ "address":{"street":"12 MG Road","city":"Bengaluru","zipCode":"560001","country":"India"},
+ "orders":[{"id":1,"orderNumber":"ORD-1001",...,"products":[{"id":5,"name":"Backpack","price":39.50},
+           {"id":1,"name":"Laptop","price":899.00}],"total":938.50},
+           {"id":2,"orderNumber":"ORD-1002",...,"total":19.99}]}
+
+// /demo/n-plus-one      -&gt; "sqlStatements":7
+// /demo/join-fetch      -&gt; "sqlStatements":1
+// /demo/entity-graph    -&gt; "sqlStatements":1
+
+// /demo/lazy-error/1
+{"exception":"LazyInitializationException","message":"failed to lazily initialize a collection of role:
+ com.course.jparelationships.entity.Customer.orders: could not initialize proxy - no Session"}
+
+// POST order
+{"id":4,"orderNumber":"ORD-AF726498",...,"products":[{"id":1,"name":"Laptop",...},{"id":4,"name":"Charger",...}],"total":918.99}
+
+// DELETEs -&gt; HTTP/1.1 204, and GET /api/products still lists all 5 products</code></pre>
+  <p>Then open the H2 console (<code>jdbc:h2:mem:shopdb</code>) and run <code>SELECT * FROM ORDER_PRODUCTS</code> to see the join table rows.</p>
+  <h3>Tests</h3>
+  <pre class="terminal"><code>mvn test
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0</code></pre>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Updating only the <code>mappedBy</code> side</strong>
+    <code>customer.getOrders().add(order)</code> — the order is saved with <code>customer_id = NULL</code> (or not at all).<br>
+    <strong>Fix:</strong> set the owning side (<code>order.setCustomer(customer)</code>) — best via a helper method like <code>addOrder</code>.</div>
+  <div class="callout warn"><strong>⚠️ <code>mappedBy</code> with the wrong name</strong>
+    <code>@OneToMany(mappedBy = "customers")</code> → startup error "mappedBy reference an unknown target entity property".<br>
+    <strong>Fix:</strong> <code>mappedBy</code> is the <em>field name</em> on the other class (<code>customer</code>), not the table or class name.</div>
+  <div class="callout warn"><strong>⚠️ Both sides as owners</strong>
+    Forgetting <code>mappedBy</code> on one side of a bidirectional relationship creates <em>two</em> independent relationships — e.g. an extra join table <code>customers_orders</code> you never wanted.<br>
+    <strong>Fix:</strong> exactly one side has <code>@JoinColumn</code>/<code>@JoinTable</code>, the other has <code>mappedBy</code>.</div>
+  <div class="callout warn"><strong>⚠️ <code>LazyInitializationException</code> in the controller</strong>
+    Returning entities from the service and touching lazy fields later.<br>
+    <strong>Fix:</strong> fetch what you need in the service (<code>JOIN FETCH</code>/<code>@EntityGraph</code>) and return DTOs.</div>
+  <div class="callout danger"><strong>🛑 <code>FetchType.EAGER</code> "to fix" lazy errors</strong>
+    It makes every load of the entity pull the relationship — often with N+1 extra selects — and can't be undone per query.<br>
+    <strong>Fix:</strong> keep LAZY, fetch per use case.</div>
+  <div class="callout danger"><strong>🛑 <code>cascade = CascadeType.ALL</code> on <code>@ManyToMany</code></strong>
+    Deleting one order deletes shared products.<br>
+    <strong>Fix:</strong> no cascade (or only <code>PERSIST</code>/<code>MERGE</code> if you really must) towards shared entities.</div>
+  <div class="callout warn"><strong>⚠️ Returning entities as JSON</strong>
+    Infinite recursion, <code>StackOverflowError</code>, or "No serializer found for class ...ByteBuddyInterceptor" (Jackson meets a Hibernate proxy).<br>
+    <strong>Fix:</strong> DTOs.</div>
+  <div class="callout warn"><strong>⚠️ <code>MultipleBagFetchException</code> / duplicated children</strong>
+    JOIN FETCH of two <code>List</code> collections, or a List plus a nested collection.<br>
+    <strong>Fix:</strong> use <code>Set</code>, or fetch the second collection in a separate query.</div>
+  <div class="callout warn"><strong>⚠️ Entity named <code>Order</code> / table <code>order</code></strong>
+    SQL syntax error at startup.<br>
+    <strong>Fix:</strong> <code>@Table(name = "orders")</code> (and maybe rename the class to avoid confusion).</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>All associations LAZY</strong>; change the EAGER defaults of <code>@ManyToOne</code>/<code>@OneToOne</code>.</li>
+    <li><strong>Fetch per use case</strong> with <code>JOIN FETCH</code> or <code>@EntityGraph</code>; consider <code>default_batch_fetch_size</code> as a safety net.</li>
+    <li><strong>Prefer unidirectional</strong> unless you really navigate both ways. A <code>@ManyToOne</code> alone is often enough — query the "many" side with a repository method (<code>findByCustomerId</code>).</li>
+    <li><strong>Bidirectional? Add helper methods</strong> that keep both sides in sync, and make the owning setter non-public.</li>
+    <li><strong>Initialise collections</strong> (<code>= new LinkedHashSet&lt;&gt;()</code>); prefer <code>Set</code> for collections you fetch-join.</li>
+    <li><strong>Cascade only parent → owned children</strong>; never towards shared/reference data; use <code>orphanRemoval</code> for true composition.</li>
+    <li><strong>Many-to-many with extra data → an explicit join entity</strong> (<code>OrderItem</code>).</li>
+    <li><strong><code>spring.jpa.open-in-view=false</code></strong> and return DTOs from services.</li>
+    <li><strong>Watch the SQL count</strong> in development (show-sql, Hibernate statistics) and write tests that assert the number of queries for important screens.</li>
+    <li><strong>Name join columns and tables explicitly</strong> — it keeps the schema predictable for migrations.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li><code>@OneToOne</code>, <code>@OneToMany</code>/<code>@ManyToOne</code>, <code>@ManyToMany</code> map foreign keys and join tables to Java references and collections.</li>
+    <li>The owning side has the FK (<code>@JoinColumn</code>/<code>@JoinTable</code>); the inverse side uses <code>mappedBy</code> and is ignored for writes. In one-to-many, the many side owns.</li>
+    <li>Keep both sides in sync with helper methods.</li>
+    <li>Cascade = propagate operations to children; <code>orphanRemoval</code> = delete children removed from the collection. Never cascade to shared entities.</li>
+    <li>Everything LAZY; <code>@ManyToOne</code>/<code>@OneToOne</code> are EAGER by default — change that.</li>
+    <li><code>LazyInitializationException</code> = touching a lazy field after the session closed → fetch in the service, return DTOs.</li>
+    <li>N+1 = 1 query for parents + 1 per parent for children → fix with <code>JOIN FETCH</code>, <code>@EntityGraph</code> or batch fetching.</li>
+    <li>JSON recursion → DTOs (best), or <code>@JsonManagedReference</code>/<code>@JsonBackReference</code>/<code>@JsonIgnore</code>.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Read the schema.</strong> Start the app and, in the H2 console, write one SQL query that lists every order number with its customer name and city (two JOINs). Compare it with what you'd write in JPQL.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-sql">SELECT o.order_number, c.name, a.city
+FROM orders o
+JOIN customers c ON c.id = o.customer_id
+JOIN addresses a ON a.id = c.address_id;
+
+-- JPQL equivalent (no ON clauses needed - JPA knows the relationships):
+-- SELECT o.orderNumber, o.customer.name, o.customer.address.city FROM PurchaseOrder o</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Make Address bidirectional.</strong> Add <code>customer</code> to <code>Address</code> with <code>mappedBy</code>. Which side is the owner? Does the database schema change?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// Address.java
+@OneToOne(mappedBy = "address")
+@JsonIgnore
+private Customer customer;
+public Customer getCustomer() { return customer; }</code></pre><p>Customer stays the owner (its table has <code>address_id</code>). The schema does <strong>not</strong> change — <code>mappedBy</code> adds no column. Note: the inverse side of a one-to-one can't really be lazy in Hibernate (it must query to know if a customer exists), which is one more reason to keep it unidirectional.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Orders of a product.</strong> Add <code>GET /api/products/{id}/orders</code> that returns order numbers and customer names for orders containing that product — in <strong>one</strong> SQL query.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public record ProductOrderView(String orderNumber, String customerName) { }
+
+// PurchaseOrderRepository
+@Query("""
+        SELECT new com.course.jparelationships.dto.ProductOrderView(o.orderNumber, c.name)
+        FROM PurchaseOrder o JOIN o.products p JOIN o.customer c
+        WHERE p.id = :productId
+        ORDER BY o.orderNumber
+        """)
+List&lt;ProductOrderView&gt; findOrdersOfProduct(@Param("productId") Long productId);
+// product 4 (Charger) -&gt; ORD-1002 Asha Rao, ORD-1003 Ben Carter</code></pre><p>(Put the record in its own file or in <code>Dtos</code> and use its fully qualified name.)</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Batch fetching.</strong> Add <code>spring.jpa.properties.hibernate.default_batch_fetch_size=10</code> and call <code>/demo/n-plus-one</code> again. How many statements now? Update the test.</p>
+    <details><summary>Hint / solution</summary><p>Hibernate now loads the addresses of all 3 customers with one <code>... WHERE id IN (?, ?, ?)</code> and all order collections with one <code>... WHERE customer_id IN (...)</code>: roughly <strong>1 + 1 + 1 = 3</strong> statements instead of 7 (check the exact number in your console). Update the test assertion to the number you observe. Batch fetching is a great safety net, but an explicit fetch join is still best for known screens.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Order items with quantity.</strong> Replace the <code>@ManyToMany</code> with an <code>OrderItem</code> entity (<code>order</code>, <code>product</code>, <code>quantity</code>, <code>unitPrice</code>). Update <code>placeOrder</code> to accept <code>[{ "productId": 1, "quantity": 2 }]</code> and compute the total.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Entity
+@Table(name = "order_items")
+public class OrderItem {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "order_id") private PurchaseOrder order;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "product_id") private Product product;
+
+    private int quantity;
+    @Column(precision = 10, scale = 2) private BigDecimal unitPrice;   // price at the time of purchase
+    // constructor, getters
+    public BigDecimal getLineTotal() { return unitPrice.multiply(BigDecimal.valueOf(quantity)); }
+}
+
+// PurchaseOrder
+@OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+private Set&lt;OrderItem&gt; items = new LinkedHashSet&lt;&gt;();
+public void addItem(Product p, int qty) { items.add(new OrderItem(this, p, qty, p.getPrice())); }
+public BigDecimal getTotal() {
+    return items.stream().map(OrderItem::getLineTotal).reduce(BigDecimal.ZERO, BigDecimal::add);
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Student ↔ Course.</strong> In a new mini project (or new package), model <code>Student</code> ↔ <code>Course</code> many-to-many with helper methods <code>enroll(course)</code>/<code>drop(course)</code>, and write a test showing that dropping a course deletes only the join row, not the course.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Entity class Student {
+    @ManyToMany
+    @JoinTable(name = "enrollments",
+               joinColumns = @JoinColumn(name = "student_id"),
+               inverseJoinColumns = @JoinColumn(name = "course_id"))
+    private Set&lt;Course&gt; courses = new HashSet&lt;&gt;();
+
+    public void enroll(Course c) { courses.add(c); c.getStudents().add(this); }
+    public void drop(Course c)   { courses.remove(c); c.getStudents().remove(this); }
+}
+@Entity class Course {
+    @ManyToMany(mappedBy = "courses")
+    private Set&lt;Student&gt; students = new HashSet&lt;&gt;();
+}
+// test (in a @Transactional @DataJpaTest): enroll, flush, drop, flush,
+// then assert courseRepository.count() is unchanged and student.getCourses() is empty after reload.</code></pre></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the owning side of a relationship and why does it matter?</summary>
+    <p>The owning side is the entity whose table holds the foreign key (declared with <code>@JoinColumn</code> or <code>@JoinTable</code>). Hibernate uses only the owning side to decide what to write to the database; the inverse side (<code>mappedBy</code>) is ignored for persistence. In one-to-many/many-to-one, the many side is always the owner. You must set the owning side for changes to be saved.</p></details>
+  <details><summary>Q2. What does <code>mappedBy</code> do?</summary>
+    <p>It marks the inverse side of a bidirectional relationship and names the field on the owning entity that maps it. It tells JPA not to create another FK column or join table for this side.</p></details>
+  <details><summary>Q3. What are the default fetch types?</summary>
+    <p><code>@OneToMany</code> and <code>@ManyToMany</code>: LAZY. <code>@ManyToOne</code> and <code>@OneToOne</code>: EAGER. Best practice is to make all of them LAZY and fetch explicitly per use case.</p></details>
+  <details><summary>Q4. What is the N+1 select problem and how do you fix it?</summary>
+    <p>Loading N parents with one query and then lazily loading a relationship for each parent, producing N additional queries. Fixes: <code>JOIN FETCH</code> in JPQL, <code>@EntityGraph</code>, batch fetching (<code>@BatchSize</code> / <code>hibernate.default_batch_fetch_size</code>), or DTO projections that select only needed columns. Detect it with SQL logging or Hibernate statistics.</p></details>
+  <details><summary>Q5. What causes <code>LazyInitializationException</code> and how do you solve it properly?</summary>
+    <p>Accessing an uninitialised lazy proxy/collection after its persistence context (session) has closed, i.e. on a detached entity. Proper solutions: fetch required associations in the transactional service (fetch join / entity graph) and map to DTOs before returning. Avoid "fixes" like EAGER fetching or relying on Open Session In View.</p></details>
+  <details><summary>Q6. Difference between <code>CascadeType.REMOVE</code> and <code>orphanRemoval = true</code>?</summary>
+    <p>Both delete children when the parent is deleted. <code>orphanRemoval</code> additionally deletes a child when it is removed from the parent's collection (or the reference is set to null), treating it as an orphan. Use orphanRemoval for compositions where children can't exist without the parent.</p></details>
+  <details><summary>Q7. Why shouldn't you cascade on <code>@ManyToMany</code>?</summary>
+    <p>The related entities are shared. Cascading REMOVE would delete entities still referenced by other parents (or fail with constraint violations). Many-to-many targets usually have their own lifecycle and are managed separately.</p></details>
+  <details><summary>Q8. How do you handle a many-to-many that needs extra columns?</summary>
+    <p>Replace it with an explicit join entity (e.g. <code>OrderItem</code> or <code>Enrollment</code>) that has two <code>@ManyToOne</code> associations plus the extra columns, turning it into two one-to-many relationships.</p></details>
+  <details><summary>Q9. How do you prevent infinite recursion when serializing bidirectional entities to JSON?</summary>
+    <p>Best: return DTOs. Alternatives: <code>@JsonManagedReference</code> on the forward side and <code>@JsonBackReference</code> on the back side, <code>@JsonIgnore</code> on one side, or <code>@JsonIdentityInfo</code>. Annotations couple persistence entities to the API format and can still trigger lazy loading.</p></details>
+  <details><summary>Q10. What is <code>MultipleBagFetchException</code>?</summary>
+    <p>Hibernate throws it when you try to fetch-join two or more <code>List</code> (bag) collections in one query, because the cartesian product can't be mapped back unambiguously. Fixes: use <code>Set</code>, fetch one collection per query, or use batch fetching. Fetching one List with a nested collection also yields duplicates.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../39-JPA-Queries-Derived-JPQL-Native/lesson.html"><small>← Previous</small>39. JPA Queries: Derived, JPQL &amp; Native</a>
+    <a class="next" href="../41-Pagination-And-Sorting/lesson.html"><small>Next →</small>41. Pagination &amp; Sorting</a>
+  </nav>
+</main>
+</body>
+</html>

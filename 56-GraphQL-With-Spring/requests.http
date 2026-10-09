@@ -1,0 +1,59 @@
+### Topic 56 - GraphQL sample requests (VS Code "REST Client" extension)
+### Every request is a POST to the SAME url. Only the query text changes.
+### Tip: GraphiQL in the browser is even nicer: http://localhost:8080/graphiql
+
+@url = http://localhost:8080/graphql
+
+### 1. All books - only title + author name (no over-fetching!)
+POST {{url}}
+Content-Type: application/json
+
+{ "query": "{ books { title author { name } } }" }
+
+### 2. One book by id
+POST {{url}}
+Content-Type: application/json
+
+{ "query": "{ bookById(id: 1) { id title pages } }" }
+
+### 3. An author and all their books (nested query, one round trip)
+POST {{url}}
+Content-Type: application/json
+
+{ "query": "{ authorById(id: 2) { name country books { title pages } } }" }
+
+### 4. Search books by title
+POST {{url}}
+Content-Type: application/json
+
+{ "query": "{ searchBooks(title: \"head first\") { title } }" }
+
+### 5. Mutation with VARIABLES (the recommended way)
+POST {{url}}
+Content-Type: application/json
+
+{
+  "query": "mutation AddBook($input: BookInput!) { addBook(input: $input) { id title author { name } } }",
+  "variables": { "input": { "title": "Spring Boot Up and Running", "pages": 300, "authorId": 3 } }
+}
+
+### 6. Delete a book
+POST {{url}}
+Content-Type: application/json
+
+{ "query": "mutation { deleteBook(id: 2) }" }
+
+### 7. Error: delete a missing book -> "errors" array with NOT_FOUND (HTTP status is still 200)
+POST {{url}}
+Content-Type: application/json
+
+{ "query": "mutation { deleteBook(id: 99) }" }
+
+### 8. Error: asking for a field that does not exist -> ValidationError
+POST {{url}}
+Content-Type: application/json
+
+{ "query": "{ books { isbn } }" }
+
+### 9. The schema as text
+GET http://localhost:8080/graphql/schema

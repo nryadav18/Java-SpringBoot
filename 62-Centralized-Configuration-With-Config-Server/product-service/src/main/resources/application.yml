@@ -1,0 +1,39 @@
+# ------------------------------------------------------------------
+# product-service LOCAL configuration (Topic 62)
+# ------------------------------------------------------------------
+# Only the "bootstrap" facts live here: who am I, and where is the
+# Config Server. Everything else comes from config-repo via the server.
+spring:
+  application:
+    # The Config Server uses this name to pick config-repo/product-service.yml
+    name: product-service
+  config:
+    # "Before you start, also import config from the Config Server."
+    #  optional:  -> if the server is down, start anyway with the local values below.
+    #  Remove "optional:" to FAIL FAST instead (common in production).
+    import: optional:configserver:http://localhost:8888
+
+server:
+  port: 8081
+
+# LOCAL FALLBACK values. They are used only when the Config Server is not
+# reachable (or does not have the key). Values from the Config Server WIN.
+shop:
+  company-name: (local fallback company)
+  welcome-message: LOCAL fallback message - the Config Server was NOT reached
+  discount-percent: 0
+  feature:
+    new-arrivals: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # refresh = POST /actuator/refresh   (reload config without restart)
+        # env     = GET  /actuator/env       (see WHERE each value came from - dev only!)
+        include: health,info,refresh,env
+  endpoint:
+    env:
+      # Boot hides values in /actuator/env as ****** by default. We show them for
+      # LEARNING only. NEVER do this in production (it would expose secrets!).
+      show-values: always

@@ -1,0 +1,20 @@
+### Topic 67 - sample requests (VS Code "REST Client" extension: click "Send Request")
+### Works the same whether the app runs with mvn spring-boot:run or docker compose up.
+
+### Which database are we using? (H2 on the laptop, MySQL inside Compose)
+GET http://localhost:8080/api/books/where
+
+### List all books
+GET http://localhost:8080/api/books
+
+### Add a book
+POST http://localhost:8080/api/books
+Content-Type: application/json
+
+{
+  "title": "Docker Deep Dive",
+  "author": "Nigel Poulton"
+}
+
+### Health check (the same URL Docker's healthcheck calls)
+GET http://localhost:8080/actuator/health

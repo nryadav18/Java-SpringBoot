@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>23 · Spring IoC Container &amp; Beans</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part B · Spring Framework Core › Topic 23</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part B · Spring Framework Core</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>23. Spring IoC Container &amp; Beans</h1>
+  <p class="subtitle">Look inside the Spring container: how it finds your classes, turns them into beans, names them, wires them and hands them out.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="23-Spring-IoC-Container-And-Beans"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>The difference between <code>BeanFactory</code> and <code>ApplicationContext</code> (and see lazy vs eager creation live).</li>
+      <li>How <code>AnnotationConfigApplicationContext</code> starts your application.</li>
+      <li>The stereotype annotations <code>@Component</code>, <code>@Service</code>, <code>@Repository</code>, <code>@Controller</code> — and why there are four.</li>
+      <li>How <code>@ComponentScan</code> finds classes automatically.</li>
+      <li>When to use <code>@Component</code> and when to use <code>@Configuration</code> + <code>@Bean</code>.</li>
+      <li>How beans get their names, how to rename them, and all the ways to call <code>getBean</code>.</li>
+      <li>What happens, step by step, when the container starts — and what old-style XML configuration looked like.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../22-Why-Spring-IoC-And-DI-Concepts/lesson.html">Topic 22 · Why Spring? IoC &amp; DI</a> (bean, container, <code>@Configuration</code>, <code>@Bean</code>).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== 1. WHY ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>In Topic 22 we wrote every bean by hand with a <code>@Bean</code> method. That's fine for 2 beans. A real Spring Boot application has <strong>hundreds</strong> of beans — controllers, services, repositories, configuration objects. Nobody writes 300 <code>@Bean</code> methods.</p>
+  <p>Instead, you put one small annotation such as <code>@Service</code> on your class, and Spring <strong>finds it automatically</strong>, creates it and wires it. That is how 95% of beans are created in real projects. When you open any Spring Boot project at work, the first things you'll see are classes marked <code>@RestController</code>, <code>@Service</code> and <code>@Repository</code>.</p>
+  <p>Understanding the container also helps you <strong>read errors</strong>. Messages like <em>"No qualifying bean of type 'BookService' available"</em> or <em>"No bean named 'x' available"</em> are the most common Spring errors beginners hit. After this topic, you'll know exactly what they mean and how to fix them.</p>
+
+  <!-- ===================================================== 2. ANALOGY ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏢 A company's HR department on the first day</strong>
+    <p>Think of the Spring container as the <strong>HR department</strong> of a new office.</p>
+    <ul>
+      <li>On opening day, HR walks through the building (<strong>component scanning</strong>) and looks for people wearing a <strong>badge</strong>: "Developer", "Accountant", "Receptionist". These badges are the <strong>stereotype annotations</strong> <code>@Service</code>, <code>@Repository</code>, <code>@Controller</code>, <code>@Component</code>. People without a badge are ignored.</li>
+      <li>Some workers are <strong>contractors from outside agencies</strong> (JDK or library classes like <code>Clock</code>). They don't wear our badge, so HR hires them through a <strong>written contract</strong> — a <code>@Bean</code> method.</li>
+      <li>HR writes each person in the <strong>staff register</strong> under a unique <strong>name</strong> (the bean name).</li>
+      <li>Before the office opens, HR makes sure everyone has what they need: the accountant gets a calculator, the developer gets a laptop (<strong>dependency injection</strong>).</li>
+      <li>When you need someone, you ask HR: "Send me the accountant" (<code>getBean("accountant")</code>) or "Send me whoever does accounting" (<code>getBean(Accountant.class)</code>).</li>
+    </ul>
+    <p>A <strong>BeanFactory</strong> is a lazy HR clerk who only hires someone the moment you ask. An <strong>ApplicationContext</strong> is a proper HR department that hires and prepares everyone <em>before</em> the office opens — so problems are found on day one, not in the middle of a customer meeting.</p>
+  </div>
+
+  <!-- ===================================================== 3. CONCEPTS ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Quick recap: container, bean, bean definition</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Word</th><th>Meaning</th></tr>
+    <tr><td><strong>IoC container</strong></td><td>The Spring object that creates, wires and manages your objects.</td></tr>
+    <tr><td><strong>Bean</strong></td><td>An object created and managed by the container.</td></tr>
+    <tr><td><strong>Bean definition</strong></td><td>The <em>recipe</em> for a bean: which class, which name, which scope, which dependencies. Spring first collects all recipes, then cooks (creates) the beans.</td></tr>
+    <tr><td><strong>Configuration metadata</strong></td><td>Your instructions to Spring, given as annotations (modern), Java <code>@Bean</code> methods (modern) or XML (old).</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Recipe vs cake</strong>
+    A <em>bean definition</em> is the recipe card. The <em>bean</em> is the cake. Spring reads all recipe cards first, then bakes the cakes in the right order (you can't put icing on a cake that's not baked yet — you can't inject a dependency that doesn't exist yet).</div>
+
+  <h3>3.2 <code>BeanFactory</code> vs <code>ApplicationContext</code></h3>
+  <p>Spring has two main container interfaces:</p>
+  <ul>
+    <li><strong><code>BeanFactory</code></strong> — the basic container. It can create beans and inject dependencies. That's it. It creates a bean <strong>lazily</strong>: only when somebody first asks for it.</li>
+    <li><strong><code>ApplicationContext</code></strong> — extends <code>BeanFactory</code> (it <em>is-a</em> BeanFactory) and adds lots of enterprise features. It creates all singleton beans <strong>eagerly</strong>, during startup.</li>
+  </ul>
+  <div class="table-wrap"><table>
+    <tr><th>Feature</th><th>BeanFactory</th><th>ApplicationContext</th></tr>
+    <tr><td>Create &amp; inject beans</td><td>✅</td><td>✅</td></tr>
+    <tr><td>When singletons are created</td><td>Lazily (first <code>getBean</code>)</td><td>Eagerly (at startup) → errors found immediately</td></tr>
+    <tr><td>Annotation processing (<code>@Autowired</code>, <code>@PostConstruct</code>…) set up automatically</td><td>❌ (manual)</td><td>✅</td></tr>
+    <tr><td>Events (publish / listen)</td><td>❌</td><td>✅</td></tr>
+    <tr><td>Reading property files, profiles (<code>Environment</code>)</td><td>❌</td><td>✅</td></tr>
+    <tr><td>Messages / internationalisation (i18n)</td><td>❌</td><td>✅</td></tr>
+    <tr><td>AOP proxies set up automatically</td><td>❌ (manual)</td><td>✅</td></tr>
+    <tr><td>Used in real applications?</td><td>Rarely directly (it's the engine inside)</td><td><strong>Always</strong> — Spring Boot creates one for you</td></tr>
+  </table></div>
+  <p>Our <code>App.java</code> proves the lazy vs eager difference:</p>
+  <pre><span class="file">App.java — demo 1</span><code class="lang-java">DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+factory.registerBeanDefinition("reportGenerator", new RootBeanDefinition(ReportGenerator.class));
+System.out.println("BeanFactory: recipe registered. Object created yet? No (lazy).");
+ReportGenerator r1 = factory.getBean(ReportGenerator.class);      // constructor runs HERE
+
+try (AnnotationConfigApplicationContext ctx =
+             new AnnotationConfigApplicationContext(ReportGenerator.class)) {   // constructor runs HERE
+    ReportGenerator r2 = ctx.getBean(ReportGenerator.class);     // just returns the existing object
+}</code></pre>
+  <pre class="terminal"><code>   BeanFactory: recipe registered. Object created yet? No (lazy).
+   BeanFactory: calling getBean()...
+      -&gt; ReportGenerator constructor runs NOW
+   ...
+   ApplicationContext: starting...
+      -&gt; ReportGenerator constructor runs NOW
+   ApplicationContext: started. Now calling getBean()...</code></pre>
+  <ul>
+    <li><code>DefaultListableBeanFactory</code> is Spring's standard <code>BeanFactory</code> implementation. <code>RootBeanDefinition</code> is a bean recipe ("make an object of this class").</li>
+    <li>You can also pass a plain class (even without annotations) to <code>new AnnotationConfigApplicationContext(...)</code> — Spring registers it as a bean.</li>
+  </ul>
+  <div class="callout info"><strong>ℹ️ Why is "eager" a good thing?</strong>
+    If a bean is broken (missing dependency, typo in configuration), an <code>ApplicationContext</code> fails <strong>at startup</strong> — when you're watching. With lazy creation it could fail hours later, the first time a customer clicks a rare button. Fail fast = safer. (You <em>can</em> make single beans lazy with <code>@Lazy</code> — Topic 25.)</div>
+
+  <h3>3.3 Common <code>ApplicationContext</code> implementations</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Class</th><th>Reads configuration from</th><th>Where you'll meet it</th></tr>
+    <tr><td><code>AnnotationConfigApplicationContext</code></td><td><code>@Configuration</code> classes and <code>@Component</code> classes</td><td>Plain Spring apps — our topics 22–27</td></tr>
+    <tr><td><code>ClassPathXmlApplicationContext</code></td><td>XML files on the classpath</td><td>Old (legacy) projects</td></tr>
+    <tr><td><code>AnnotationConfigServletWebServerApplicationContext</code></td><td>Annotations + starts an embedded Tomcat</td><td>Created for you by Spring Boot web apps (you never type this name!)</td></tr>
+  </table></div>
+  <p>All of them implement the same <code>ApplicationContext</code> interface — so <code>getBean</code> etc. work the same everywhere. (Programming to an interface again!)</p>
+
+  <h3>3.4 Two ways to tell Spring about a bean</h3>
+  <div class="grid">
+    <div class="card"><strong>A) Annotate the class + component scanning</strong>
+      <pre><code class="lang-java">@Service
+public class BookService { ... }</code></pre>
+      Spring scans packages, finds the annotation, creates the bean. Used for <strong>your own classes</strong>.</div>
+    <div class="card"><strong>B) <code>@Bean</code> method in a <code>@Configuration</code> class</strong>
+      <pre><code class="lang-java">@Bean
+public Clock clock() {
+    return Clock.systemDefaultZone();
+}</code></pre>
+      You write the creation code yourself. Used for <strong>classes you can't edit</strong> (JDK, libraries) or complex setup.</div>
+  </div>
+
+  <h3>3.5 The stereotype annotations</h3>
+  <p>A <strong>stereotype</strong> is a label that describes the <em>role</em> of a class. Spring has four main ones. They all live in package <code>org.springframework.stereotype</code>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Annotation</th><th>Role (layer)</th><th>Extra behaviour</th><th>Example</th></tr>
+    <tr><td><code>@Component</code></td><td>Generic Spring-managed class — "a helper"</td><td>None — the base of all others</td><td><code>FineCalculator</code>, <code>PasswordGenerator</code></td></tr>
+    <tr><td><code>@Service</code></td><td>Business logic layer</td><td>None today (pure documentation of intent)</td><td><code>BookService</code>, <code>OrderService</code></td></tr>
+    <tr><td><code>@Repository</code></td><td>Data access layer (database, files)</td><td>Database exceptions get translated into Spring's <code>DataAccessException</code> family (when that feature is enabled — Spring Boot does it)</td><td><code>BookRepository</code></td></tr>
+    <tr><td><code>@Controller</code></td><td>Web / entry layer</td><td>Spring MVC treats it as a web request handler (Topic 31). <code>@RestController</code> = <code>@Controller</code> + <code>@ResponseBody</code>.</td><td><code>BookController</code></td></tr>
+  </table></div>
+  <p>Look inside <code>@Service</code> (from Spring's source code) and you'll see it is itself annotated with <code>@Component</code>:</p>
+  <pre><code class="lang-java">@Target(ElementType.TYPE)
+@Retention(RetentionPolicy.RUNTIME)
+@Documented
+@Component                        // &lt;-- this is why scanning finds @Service classes
+public @interface Service {
+    String value() default "";    // optional bean name
+}</code></pre>
+  <p>This is a <strong>meta-annotation</strong> (an annotation on an annotation — Topic 18). So <code>@Service</code>, <code>@Repository</code>, <code>@Controller</code> and even <code>@Configuration</code> are all "special kinds of <code>@Component</code>".</p>
+  <div class="flow">
+    <span class="box alt">@Controller<br><small>handles input</small></span><span class="arrow">→</span>
+    <span class="box">@Service<br><small>business rules</small></span><span class="arrow">→</span>
+    <span class="box info">@Repository<br><small>data access</small></span><span class="arrow">→</span>
+    <span class="box info">Database</span>
+  </div>
+  <div class="callout tip"><strong>💡 So why not use <code>@Component</code> everywhere?</strong>
+    It would work, but the specific stereotypes (1) make your code self-documenting — you see the layer at a glance, (2) give extra behaviour where it exists (<code>@Repository</code>, <code>@Controller</code>), and (3) let tools and AOP target a layer ("log every method in every <code>@Service</code>"). Use the most specific one that fits.</div>
+
+  <h3>3.6 <code>@ComponentScan</code> — how Spring finds annotated classes</h3>
+  <p>Annotations alone do nothing. Someone must <em>look</em> for them. <code>@ComponentScan</code> on a configuration class tells Spring: "search this package and all its sub-packages".</p>
+  <pre><span class="file">config/AppConfig.java</span><code class="lang-java">@Configuration
+@ComponentScan(basePackages = "com.course.ioccontainer")   // scan our whole app
+public class AppConfig { ... }</code></pre>
+  <p>Spring then walks through every <code>.class</code> file under <code>com/course/ioccontainer/</code>:</p>
+  <pre><code>com.course.ioccontainer
+├── App.java                     (no annotation → ignored)
+├── config/AppConfig.java        @Configuration → bean "appConfig"
+├── controller/BookController    @Controller    → bean "bookController"
+├── service/BookService          @Service       → bean "bookService"
+├── service/FineCalculator       @Component("lateFeeCalculator") → bean "lateFeeCalculator"
+├── repository/BookRepository    @Repository    → bean "bookRepository"
+├── model/Book                   (record, no annotation → ignored)
+└── legacy/ReportGenerator       (no annotation → ignored)</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>How to write it</th><th>What gets scanned</th></tr>
+    <tr><td><code>@ComponentScan</code> (no attributes)</td><td>The package of the configuration class itself (here <code>com.course.ioccontainer.config</code>) and below. ⚠️ That would <em>miss</em> our services, because they're not under <code>config</code>!</td></tr>
+    <tr><td><code>@ComponentScan("com.course.ioccontainer")</code></td><td>That package and all sub-packages. (<code>value</code> and <code>basePackages</code> mean the same.)</td></tr>
+    <tr><td><code>@ComponentScan(basePackages = {"com.a", "com.b"})</code></td><td>Several packages.</td></tr>
+    <tr><td><code>@ComponentScan(basePackageClasses = App.class)</code></td><td>The package of <code>App</code> — type-safe, survives package renames.</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Spring Boot preview</strong>
+    <code>@SpringBootApplication</code> includes <code>@ComponentScan</code> with no attributes. That's why in Spring Boot the main class must sit in the <strong>top-level package</strong> (e.g. <code>com.course.shop</code>) — everything below it gets scanned. Put a class outside that package and Spring won't find it. You'll see this again in Topic 28.</div>
+  <p>You can also include or exclude classes with filters, e.g. <code>@ComponentScan(basePackages = "com.shop", excludeFilters = @ComponentScan.Filter(type = FilterType.ANNOTATION, classes = Controller.class))</code>. You'll rarely need this.</p>
+
+  <h3>3.7 <code>@Configuration</code> + <code>@Bean</code> — and when to use which</h3>
+  <p>In our library, <code>BookService</code> needs a <code>java.time.Clock</code> (to know today's date) and <code>FineCalculator</code> needs a <code>java.text.NumberFormat</code> (to print money). These are JDK classes — we can't open them and add <code>@Component</code>. So we use <code>@Bean</code> methods:</p>
+  <pre><span class="file">config/AppConfig.java</span><code class="lang-java">@Bean
+public Clock clock() {
+    return Clock.fixed(Instant.parse("2026-01-15T10:00:00Z"), ZoneOffset.UTC);
+}
+
+@Bean(name = {"moneyFormat", "currencyFormat"})
+public NumberFormat usDollarFormat() {
+    return NumberFormat.getCurrencyInstance(Locale.US);
+}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Use <code>@Component</code> / <code>@Service</code> / … when</th><th>Use <code>@Bean</code> when</th></tr>
+    <tr><td>It's <strong>your own class</strong> and you can add an annotation.</td><td>The class comes from the <strong>JDK or a library</strong> (<code>Clock</code>, <code>ObjectMapper</code>, <code>DataSource</code>, <code>RestClient</code>…).</td></tr>
+    <tr><td>Creating it is simple: "call the constructor and inject".</td><td>Creating it needs <strong>setup code</strong>: builder calls, settings, choosing between implementations with an <code>if</code>.</td></tr>
+    <tr><td>One bean per class.</td><td>You need <strong>several beans of the same class</strong> with different settings (e.g. two <code>RestClient</code>s for two APIs).</td></tr>
+    <tr><td>Most of your app: controllers, services, repositories.</td><td>"Infrastructure" objects; configuration of third-party tools.</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Why a fixed clock?</strong>
+    Injecting a <code>Clock</code> instead of calling <code>LocalDate.now()</code> directly is a professional trick: in production you inject <code>Clock.systemDefaultZone()</code>, in tests (and in this demo) a fixed clock — so "today" is always the same and the output is predictable. It's DI making testing easy again.</div>
+
+  <h3>3.8 Bean names</h3>
+  <p>Every bean has a <strong>unique name</strong> (also called its <em>id</em>) inside the container. Here are the rules:</p>
+  <div class="table-wrap"><table>
+    <tr><th>How the bean is defined</th><th>Default name</th><th>Custom name</th></tr>
+    <tr><td><code>@Service public class BookService</code></td><td>Class name with lower-case first letter: <code>bookService</code></td><td><code>@Service("books")</code></td></tr>
+    <tr><td><code>@Component public class FineCalculator</code></td><td><code>fineCalculator</code></td><td><code>@Component("lateFeeCalculator")</code> ← we did this</td></tr>
+    <tr><td><code>@Bean public Clock clock()</code></td><td>The method name: <code>clock</code></td><td><code>@Bean("systemClock")</code> or <code>@Bean(name = "systemClock")</code></td></tr>
+    <tr><td><code>@Bean(name = {"moneyFormat", "currencyFormat"})</code></td><td>—</td><td>First name = real name, the rest are <strong>aliases</strong> (extra names for the same bean)</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ A small naming surprise</strong>
+    If a class name starts with <em>two</em> capital letters, Spring keeps it as is: class <code>URLParser</code> → bean <code>URLParser</code> (not <code>uRLParser</code>). This follows the JavaBeans naming rules.</div>
+  <div class="callout warn"><strong>⚠️ Names must be unique</strong>
+    Two scanned classes in different packages, both called <code>ReportService</code>, would both want the name <code>reportService</code>. Spring stops with <code>ConflictingBeanDefinitionException</code>. Fix: give one a custom name, e.g. <code>@Service("salesReportService")</code>.</div>
+
+  <h3>3.9 All the ways to call <code>getBean</code></h3>
+  <div class="table-wrap"><table>
+    <tr><th>Call</th><th>Returns</th><th>Notes</th></tr>
+    <tr><td><code>getBean(BookService.class)</code></td><td><code>BookService</code></td><td>By type. Most common and type-safe. Fails if 0 or 2+ beans of that type.</td></tr>
+    <tr><td><code>getBean("bookService")</code></td><td><code>Object</code></td><td>By name. You must cast. A typo is found only at runtime.</td></tr>
+    <tr><td><code>getBean("lateFeeCalculator", FineCalculator.class)</code></td><td><code>FineCalculator</code></td><td>By name + type. No cast, and Spring checks the type.</td></tr>
+    <tr><td><code>containsBean("fineCalculator")</code></td><td><code>boolean</code></td><td>"Is there a bean with this name (or alias)?"</td></tr>
+    <tr><td><code>getBeanDefinitionNames()</code></td><td><code>String[]</code></td><td>All bean names (handy for exploring).</td></tr>
+    <tr><td><code>getBeansOfType(NumberFormat.class)</code></td><td><code>Map&lt;String, NumberFormat&gt;</code></td><td>All beans of a type, keyed by name.</td></tr>
+  </table></div>
+  <p>Typical errors:</p>
+  <ul>
+    <li><code>NoSuchBeanDefinitionException: No bean named 'paymentService' available</code> — no bean with that name (typo? not scanned? forgot the annotation?).</li>
+    <li><code>NoSuchBeanDefinitionException: No qualifying bean of type '...' available</code> — no bean of that type.</li>
+    <li><code>NoUniqueBeanDefinitionException: expected single matching bean but found 2</code> — more than one candidate (Topic 24 fixes this).</li>
+  </ul>
+  <div class="callout warn"><strong>⚠️ Reminder</strong> <code>getBean</code> is for <code>main()</code> methods and demos. Inside your app, use <strong>injection</strong> (constructor parameters). Calling <code>getBean</code> from business code hides dependencies — the very problem DI solves.</div>
+
+  <h3>3.10 How the container starts (step by step)</h3>
+  <div class="flow">
+    <span class="box info">1. Read config<br><small>AppConfig</small></span><span class="arrow">→</span>
+    <span class="box info">2. Scan packages<br><small>collect bean definitions</small></span><span class="arrow">→</span>
+    <span class="box info">3. Post-process definitions<br><small>(placeholders, @Configuration)</small></span><span class="arrow">→</span>
+    <span class="box">4. Create singletons<br><small>dependencies first</small></span><span class="arrow">→</span>
+    <span class="box">5. Inject + initialise</span><span class="arrow">→</span>
+    <span class="box alt">6. READY</span><span class="arrow">→</span>
+    <span class="box alt">7. close() → destroy</span>
+  </div>
+  <ol>
+    <li><strong>Read configuration</strong> — <code>new AnnotationConfigApplicationContext(AppConfig.class)</code> registers <code>AppConfig</code>.</li>
+    <li><strong>Collect bean definitions</strong> — Spring processes <code>@ComponentScan</code> (finds 5 annotated classes) and the <code>@Bean</code> methods (2 more). Still <em>no objects</em> — only recipes.</li>
+    <li><strong>Post-process definitions</strong> — special Spring helpers ("BeanFactoryPostProcessors") can adjust the recipes, e.g. fill in <code>${...}</code> placeholders (Topic 24).</li>
+    <li><strong>Create singleton beans</strong> — for each recipe, Spring builds the object. If a constructor needs other beans, Spring creates those <strong>first</strong> (depth-first).</li>
+    <li><strong>Inject and initialise</strong> — dependencies are set, then init callbacks run (Topic 25).</li>
+    <li><strong>Ready</strong> — the constructor call returns; you can use the context.</li>
+    <li><strong>Close</strong> — <code>context.close()</code> (or the end of try-with-resources) destroys beans and runs cleanup callbacks.</li>
+  </ol>
+  <p>Our real output shows step 4 nicely:</p>
+  <pre class="terminal"><code>=== DEMO 2: Starting the container (scan + @Bean methods) ===
+   [container] creating BookRepository
+   [container] @Bean method usDollarFormat() called
+   [container] creating FineCalculator (bean name: lateFeeCalculator)
+   [container] @Bean method clock() called
+   [container] creating BookService (got its 3 dependencies)
+   [container] creating BookController
+   Container is READY.</code></pre>
+  <p>Spring went to create <code>bookController</code> first (after <code>appConfig</code>, it's the first class the scanner found — packages are scanned in alphabetical order), but its constructor needs <code>BookService</code>. <code>BookService</code> needs <code>BookRepository</code>, <code>FineCalculator</code> and <code>Clock</code>; <code>FineCalculator</code> needs the <code>NumberFormat</code>. So Spring creates the "leaves" first and works its way back up. <strong>You never had to think about the order</strong> — that's the container's job.</p>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 640 230" width="640" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, sans-serif" font-size="13">
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="240" y="10" width="160" height="34" rx="6"/>
+        <rect x="240" y="80" width="160" height="34" rx="6"/>
+        <rect x="20" y="160" width="160" height="34" rx="6"/>
+        <rect x="240" y="160" width="160" height="34" rx="6"/>
+        <rect x="460" y="160" width="160" height="34" rx="6"/>
+        <path d="M320 44 V80"/>
+        <path d="M300 114 L120 160"/>
+        <path d="M320 114 V160"/>
+        <path d="M340 114 L520 160"/>
+        <path d="M320 194 V214 H560" stroke-dasharray="4 4"/>
+      </g>
+      <g fill="currentColor" text-anchor="middle">
+        <text x="320" y="32">BookController (6)</text>
+        <text x="320" y="102">BookService (5)</text>
+        <text x="100" y="182">BookRepository (1)</text>
+        <text x="320" y="182">FineCalculator (3)</text>
+        <text x="540" y="182">Clock (4)</text>
+        <text x="560" y="226">needs NumberFormat (2)</text>
+      </g>
+    </svg>
+    <figcaption>The dependency graph. Numbers show the order the container actually created the beans: leaves first.</figcaption>
+  </figure>
+
+  <h3>3.11 Historical note: XML configuration</h3>
+  <p>Before annotations (Spring 1.x and 2.x), all beans were declared in XML files. You may still see this in <strong>old company projects</strong>, so recognise it — but <strong>don't use it for new code</strong>. Here is roughly what our library would look like (reference only, not in the project):</p>
+  <pre><span class="file">beans.xml (legacy style — for reference only)</span><code class="lang-xml">&lt;beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+           https://www.springframework.org/schema/beans/spring-beans.xsd"&gt;
+
+    &lt;bean id="bookRepository" class="com.course.ioccontainer.repository.BookRepository"/&gt;
+
+    &lt;bean id="bookService" class="com.course.ioccontainer.service.BookService"&gt;
+        &lt;constructor-arg ref="bookRepository"/&gt;
+        &lt;constructor-arg ref="lateFeeCalculator"/&gt;
+        &lt;constructor-arg ref="clock"/&gt;
+    &lt;/bean&gt;
+&lt;/beans&gt;</code></pre>
+  <pre><code class="lang-java">// loading it (legacy):
+ApplicationContext ctx = new ClassPathXmlApplicationContext("beans.xml");</code></pre>
+  <p>Same ideas (<code>id</code> = bean name, <code>ref</code> = inject another bean), just more typing and no compiler help — a typo in a class name is found only at runtime. Annotations and Java config won.</p>
+
+  <h3>3.12 Why is the <code>appConfig</code> bean called <code>AppConfig$$SpringCGLIB$$0</code>?</h3>
+  <p>In demo 3 you'll notice the type of <code>appConfig</code> is printed as <code>AppConfig$$SpringCGLIB$$0</code>. Spring created a <strong>subclass</strong> of your configuration class at runtime (a "proxy") so that calling one <code>@Bean</code> method from another still returns the same singleton. Don't worry about it now — Topic 26 explains it with a demo.</p>
+
+  <!-- ===================================================== 4. CODE ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Base package: <code>com.course.ioccontainer</code>. The domain is a small <strong>library</strong>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>App.java</code></td><td>Demo 1: BeanFactory vs ApplicationContext. Demos 2–5: start the container, list beans, getBean variants, use the beans.</td></tr>
+    <tr><td><code>config/AppConfig.java</code></td><td><code>@Configuration</code>, <code>@ComponentScan</code>, two <code>@Bean</code> methods (<code>Clock</code>, <code>NumberFormat</code> with aliases).</td></tr>
+    <tr><td><code>controller/BookController.java</code></td><td><code>@Controller</code>; gets <code>BookService</code> injected.</td></tr>
+    <tr><td><code>service/BookService.java</code></td><td><code>@Service</code>; 3 constructor dependencies from both scanning and <code>@Bean</code>.</td></tr>
+    <tr><td><code>service/FineCalculator.java</code></td><td><code>@Component("lateFeeCalculator")</code> — custom bean name; gets the <code>NumberFormat</code> bean.</td></tr>
+    <tr><td><code>repository/BookRepository.java</code></td><td><code>@Repository</code>; in-memory list of books.</td></tr>
+    <tr><td><code>model/Book.java</code></td><td>A <code>record</code> — data, not a bean.</td></tr>
+    <tr><td><code>legacy/ReportGenerator.java</code></td><td>Plain class (no annotation) used for the lazy/eager demo.</td></tr>
+  </table></div>
+
+  <h3>4.1 <code>BookService</code> — a bean with three dependencies</h3>
+  <pre><span class="file">service/BookService.java</span><code class="lang-java">@Service
+public class BookService {
+
+    private final BookRepository bookRepository;   // from scanning (@Repository)
+    private final FineCalculator fineCalculator;   // from scanning (@Component)
+    private final Clock clock;                     // from a @Bean method
+
+    public BookService(BookRepository bookRepository, FineCalculator fineCalculator, Clock clock) {
+        this.bookRepository = bookRepository;
+        this.fineCalculator = fineCalculator;
+        this.clock = clock;
+    }
+
+    public String borrow(String isbn) {
+        return bookRepository.findByIsbn(isbn)
+                .map(book -&gt; book.available()
+                        ? "Borrowed '" + book.title() + "'. Please return by " + LocalDate.now(clock).plusDays(LOAN_DAYS)
+                        : "Sorry, '" + book.title() + "' is already borrowed.")
+                .orElse("No book with ISBN " + isbn);
+    }
+}</code></pre>
+  <ul>
+    <li>The class has <strong>exactly one constructor</strong>, so Spring uses it automatically and fills each parameter with a matching bean (by type). No extra annotation is needed — Topic 24 explains <code>@Autowired</code>.</li>
+    <li>Spring doesn't care <em>how</em> a dependency was defined (scanned or <code>@Bean</code>). A bean is a bean.</li>
+    <li><code>findByIsbn</code> returns an <code>Optional&lt;Book&gt;</code> (Topic 14) — <code>map</code> + <code>orElse</code> handle the "not found" case without <code>null</code>.</li>
+    <li><code>LocalDate.now(clock)</code> asks the injected clock for "today" — 2026-01-15 in this demo, so the due date is 2026-01-29.</li>
+  </ul>
+
+  <h3>4.2 <code>FineCalculator</code> — custom name</h3>
+  <pre><span class="file">service/FineCalculator.java</span><code class="lang-java">@Component("lateFeeCalculator")
+public class FineCalculator {
+    private final NumberFormat moneyFormat;
+
+    public FineCalculator(NumberFormat moneyFormat) {   // the @Bean from AppConfig
+        this.moneyFormat = moneyFormat;
+    }
+
+    public String fineFor(long daysLate) {
+        return moneyFormat.format(daysLate * FINE_PER_DAY);   // 6 days -&gt; "$3.00"
+    }
+}</code></pre>
+
+  <h3>4.3 Listing beans (demo 3) and getBean (demo 4)</h3>
+  <pre><span class="file">App.java</span><code class="lang-java">for (String name : context.getBeanDefinitionNames()) {
+    if (name.startsWith("org.springframework")) continue;    // skip Spring internals
+    Class&lt;?&gt; type = context.getType(name);
+    String[] aliases = context.getAliases(name);
+    System.out.println(name + " -&gt; " + type.getSimpleName() + ...);
+}
+
+BookService byType = context.getBean(BookService.class);
+BookService byName = (BookService) context.getBean("bookService");
+FineCalculator calc = context.getBean("lateFeeCalculator", FineCalculator.class);
+NumberFormat viaAlias = context.getBean("currencyFormat", NumberFormat.class);</code></pre>
+  <p><code>getBeanDefinitionCount()</code> prints <strong>11</strong>: our 7 beans + 4 internal Spring helper beans (they process annotations like <code>@Configuration</code> and <code>@Autowired</code>). Their names start with <code>org.springframework</code>, which is why we filter them out.</p>
+
+  <!-- ===================================================== 5. RUN ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\23-Spring-IoC-Container-And-Beans"
+mvn -q compile exec:java</code></pre>
+  <p>In VS Code: open the folder <code>23-Spring-IoC-Container-And-Beans</code>, open <code>App.java</code>, click <strong>Run</strong> above <code>main</code>.</p>
+  <p>Expected output:</p>
+  <pre class="terminal"><code>=== DEMO 1: BeanFactory vs ApplicationContext ===
+   BeanFactory: recipe registered. Object created yet? No (lazy).
+   BeanFactory: calling getBean()...
+      -&gt; ReportGenerator constructor runs NOW
+   Monthly report: 3 books, 1 on loan
+   ApplicationContext: starting...
+      -&gt; ReportGenerator constructor runs NOW
+   ApplicationContext: started. Now calling getBean()...
+   Monthly report: 3 books, 1 on loan
+
+=== DEMO 2: Starting the container (scan + @Bean methods) ===
+   [container] creating BookRepository
+   [container] @Bean method usDollarFormat() called
+   [container] creating FineCalculator (bean name: lateFeeCalculator)
+   [container] @Bean method clock() called
+   [container] creating BookService (got its 3 dependencies)
+   [container] creating BookController
+   Container is READY.
+
+=== DEMO 3: Which beans exist, and what are their names? ===
+   appConfig -&gt; AppConfig$$SpringCGLIB$$0
+   bookController -&gt; BookController
+   bookRepository -&gt; BookRepository
+   bookService -&gt; BookService
+   lateFeeCalculator -&gt; FineCalculator
+   clock -&gt; FixedClock
+   moneyFormat -&gt; DecimalFormat   (aliases: [currencyFormat])
+   Total beans incl. Spring internals: 11
+
+=== DEMO 4: Ways to call getBean ===
+   byType == byName ? true  (same singleton)
+   lateFeeCalculator found: true
+   'currencyFormat' alias is the 'moneyFormat' bean? true
+   containsBean("fineCalculator")? false  (it was renamed to lateFeeCalculator)
+   getBean("paymentService") -&gt; NoSuchBeanDefinitionException: No bean named 'paymentService' available
+
+=== DEMO 5: Use the wired beans ===
+   Available books:
+     * Effective Java by Joshua Bloch
+     * Spring in Action by Craig Walls
+   Borrowed 'Spring in Action'. Please return by 2026-01-29
+   Sorry, 'Head First Java' is already borrowed.
+   Late fee for 6 days: $3.00
+
+   Closing the container...
+=== Done ===</code></pre>
+  <p>Notice: <code>clock -&gt; FixedClock</code> and <code>moneyFormat -&gt; DecimalFormat</code>. The bean's <em>declared</em> type is <code>Clock</code>/<code>NumberFormat</code>, but the real object is a subclass the JDK chose. Spring reports the actual object's class.</p>
+
+  <!-- ===================================================== 6. MISTAKES ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: class is outside the scanned package</strong>
+    You create <code>com.course.util.TaxCalculator</code> with <code>@Component</code>, but scanning covers only <code>com.course.ioccontainer</code>. Result: <code>No qualifying bean of type 'TaxCalculator' available</code>.<br>
+    <strong>Fix:</strong> move the class under the scanned base package (best), or add its package to <code>@ComponentScan</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>@ComponentScan</code> with no package on a config class in a sub-package</strong>
+    With no attributes, scanning starts at the <em>configuration class's own package</em>. Our <code>AppConfig</code> is in <code>...ioccontainer.config</code> — a bare <code>@ComponentScan</code> would find nothing but itself.<br>
+    <strong>Fix:</strong> give the base package explicitly, or put the config class in the top-level package.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: annotating an interface instead of the class</strong>
+    <code>@Service public interface PaymentService</code> does not create a bean — Spring can't instantiate an interface.<br>
+    <strong>Fix:</strong> put <code>@Service</code> on the implementing class (<code>CardPaymentService implements PaymentService</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: forgetting <code>@Configuration</code> on a class with <code>@ComponentScan</code>/<code>@Bean</code></strong>
+    If you pass the class directly to <code>new AnnotationConfigApplicationContext(...)</code> it still mostly works ("lite mode"), but in scanned packages a class without <code>@Configuration</code> is ignored and its <code>@Bean</code> methods are never called.<br>
+    <strong>Fix:</strong> always mark configuration classes with <code>@Configuration</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: making data classes into beans</strong>
+    Putting <code>@Component</code> on <code>Book</code> or <code>Customer</code>. There is one singleton per bean — but you need thousands of different books!<br>
+    <strong>Fix:</strong> beans are the <em>workers</em> (services, repositories, controllers). Data objects (entities, DTOs, records) are created with <code>new</code> or by frameworks like JPA.</div>
+  <div class="callout danger"><strong>🛑 Mistake: misspelled bean name in <code>getBean("...")</code></strong>
+    <code>getBean("BookService")</code> (capital B) → <code>No bean named 'BookService' available</code>. Default names start with a lower-case letter.<br>
+    <strong>Fix:</strong> prefer <code>getBean(BookService.class)</code> — the compiler checks class names, not strings.</div>
+
+  <!-- ===================================================== 7. BEST ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Use the most specific stereotype</strong>: <code>@Service</code> for business logic, <code>@Repository</code> for data access, <code>@Controller</code>/<code>@RestController</code> for web; <code>@Component</code> for other helpers.</li>
+    <li><strong>Use component scanning for your own classes, <code>@Bean</code> for third-party classes</strong> and objects that need setup code.</li>
+    <li><strong>Keep one root package</strong> and put your configuration/main class at the top, so default scanning covers everything (the Spring Boot convention).</li>
+    <li><strong>Rely on default bean names</strong>; add custom names only when you need them (conflicts, multiple beans of the same type).</li>
+    <li><strong>Prefer <code>getBean(Type.class)</code></strong> over string names — and avoid <code>getBean</code> inside application code altogether.</li>
+    <li><strong>Keep beans stateless</strong> (no per-user data in fields). A singleton bean is shared by all users and threads (Topic 17!) — Topic 25 explains why this matters.</li>
+    <li><strong>Inject time (<code>Clock</code>)</strong> and other "environment" things instead of calling static methods — it makes testing simple.</li>
+    <li><strong>Don't write XML configuration</strong> for new code; just be able to read it.</li>
+  </ul>
+
+  <!-- ===================================================== 8. SUMMARY ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li><code>BeanFactory</code> is the basic, lazy container; <code>ApplicationContext</code> extends it with events, properties, AOP and <strong>eager</strong> singleton creation — always use <code>ApplicationContext</code>.</li>
+    <li><code>AnnotationConfigApplicationContext</code> reads <code>@Configuration</code> and <code>@Component</code> classes.</li>
+    <li><code>@Component</code> is the base stereotype; <code>@Service</code>, <code>@Repository</code>, <code>@Controller</code> are specialised versions that describe the layer.</li>
+    <li><code>@ComponentScan</code> finds annotated classes in a package and all its sub-packages.</li>
+    <li><code>@Bean</code> methods create beans from classes you can't annotate or that need setup code.</li>
+    <li>Default bean names: class name with lower-case first letter, or the <code>@Bean</code> method name. Custom names and aliases are possible.</li>
+    <li>At startup Spring collects bean definitions (recipes), then creates beans dependencies-first, injects them and initialises them.</li>
+    <li>XML configuration is legacy — recognise it, don't write it.</li>
+  </ul></div>
+
+  <!-- ===================================================== 9. EXERCISES ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Add a new component.</strong> Create <code>service/MemberService</code> annotated with <code>@Service</code>, with a method <code>String welcome(String name)</code> returning <code>"Welcome to the library, " + name</code>. Get it from the context in <code>App</code> and print a welcome. Run and check that <code>memberService</code> appears in the bean list.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">package com.course.ioccontainer.service;
+
+import org.springframework.stereotype.Service;
+
+@Service
+public class MemberService {
+    public String welcome(String name) {
+        return "Welcome to the library, " + name;
+    }
+}
+
+// in App, inside the try block:
+MemberService members = context.getBean(MemberService.class);
+System.out.println(members.welcome("Asha"));</code></pre>
+      <p>No change to <code>AppConfig</code> is needed — scanning finds it because it's under <code>com.course.ioccontainer</code>.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>Break scanning on purpose.</strong> Change <code>@ComponentScan(basePackages = "com.course.ioccontainer")</code> to just <code>@ComponentScan</code>. Run. Which exception do you get and why? Then put it back.</p>
+    <details><summary>Hint / solution</summary>
+      <p>Scanning now covers only <code>com.course.ioccontainer.config</code>. The context starts fine (nothing needs anything), but <code>context.getBean(BookService.class)</code> fails with <code>NoSuchBeanDefinitionException: No qualifying bean of type 'com.course.ioccontainer.service.BookService' available</code>. Also, demo 3 lists only <code>appConfig</code>, <code>clock</code> and <code>moneyFormat</code>.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>A real clock.</strong> Add a second <code>@Bean</code> method <code>systemClock()</code> that returns <code>Clock.systemDefaultZone()</code>. Run. What happens to <code>BookService</code> (which asks for a <code>Clock</code>)? Then rename <code>BookService</code>'s constructor parameter from <code>clock</code> to <code>timeSource</code> and run again. Explain both results.</p>
+    <details><summary>Hint / solution</summary>
+      <p>With two <code>Clock</code> beans (<code>clock</code> and <code>systemClock</code>), Spring tries to choose by the <strong>parameter name</strong>. The parameter is called <code>clock</code>, which matches the bean name <code>clock</code>, so the app still works (this needs <code>-parameters</code>, which our pom enables).</p>
+      <p>After renaming to <code>timeSource</code> no bean has that name, so startup fails with <code>UnsatisfiedDependencyException ... NoUniqueBeanDefinitionException: expected single matching bean but found 2: clock,systemClock</code>. The proper fix (<code>@Primary</code> or <code>@Qualifier</code>) is in Topic 24.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>Explore with <code>getBeansOfType</code>.</strong> Print every bean whose type is a <code>@Component</code> of your app using <code>context.getBeansWithAnnotation(Service.class)</code> and <code>context.getBeansOfType(Object.class)</code>. How many beans does each return?</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">Map&lt;String, Object&gt; services = context.getBeansWithAnnotation(org.springframework.stereotype.Service.class);
+System.out.println("Services: " + services.keySet());          // [bookService]
+
+Map&lt;String, Object&gt; all = context.getBeansOfType(Object.class);
+System.out.println("All beans: " + all.size());                 // our beans + Spring internals</code></pre>
+      <p><code>getBeansOfType(Object.class)</code> also returns Spring's internal beans and some registered singletons (like the <code>environment</code>), so the count is higher than <code>getBeanDefinitionCount()</code>.</p>
+    </details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>Two configuration classes.</strong> Move the two <code>@Bean</code> methods into a new class <code>config/FormattingConfig</code> (with <code>@Configuration</code>) and keep only <code>@ComponentScan</code> in <code>AppConfig</code>. Does the app still work? Why? Then try starting the context with <code>new AnnotationConfigApplicationContext("com.course.ioccontainer")</code> (a package name instead of a class). What changes?</p>
+    <details><summary>Hint / solution</summary>
+      <p>Yes, it works. <code>@Configuration</code> is itself a <code>@Component</code>, so scanning finds <code>FormattingConfig</code> and processes its <code>@Bean</code> methods.</p>
+      <p>The constructor that takes a <code>String</code> package scans that package directly — you don't even need <code>AppConfig</code> as the entry point. All the same beans get created (including both config classes).</p>
+    </details>
+  </div>
+
+  <!-- ===================================================== 10. INTERVIEW ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between BeanFactory and ApplicationContext?</summary>
+    <p><code>BeanFactory</code> is the root container interface: it creates beans and injects dependencies, and creates singletons lazily. <code>ApplicationContext</code> extends it and adds enterprise features: eager singleton creation (fail fast), automatic registration of annotation processors and BeanPostProcessors, event publishing, <code>Environment</code>/property sources/profiles, i18n messages and resource loading. In practice you always use an <code>ApplicationContext</code>.</p></details>
+  <details><summary>Q2. What are stereotype annotations? Is there a difference between @Component, @Service, @Repository and @Controller?</summary>
+    <p>They mark classes for component scanning and describe their role. <code>@Service</code>, <code>@Repository</code> and <code>@Controller</code> are meta-annotated with <code>@Component</code>, so all are detected by scanning. Differences: <code>@Repository</code> enables persistence exception translation into <code>DataAccessException</code>; <code>@Controller</code> is recognised by Spring MVC as a request handler; <code>@Service</code> currently adds no behaviour but documents the business layer.</p></details>
+  <details><summary>Q3. What does @ComponentScan do? What is scanned if no package is given?</summary>
+    <p>It tells Spring to search packages for classes annotated with <code>@Component</code> (or its specialisations) and register them as beans. Without attributes it scans the package of the class carrying the annotation and all sub-packages — which is why a Spring Boot main class goes in the root package.</p></details>
+  <details><summary>Q4. When would you use @Bean instead of @Component?</summary>
+    <p>When the class is from a library or the JDK and can't be annotated; when creation needs custom logic (builders, configuration, conditionals); or when you need several differently configured beans of the same class. Use <code>@Component</code>-family annotations for your own simple classes.</p></details>
+  <details><summary>Q5. How are default bean names generated?</summary>
+    <p>For scanned components: the simple class name with the first letter in lower case (<code>BookService</code> → <code>bookService</code>), except when the first two letters are upper case (<code>URLParser</code> stays <code>URLParser</code>). For <code>@Bean</code> methods: the method name. Both can be overridden: <code>@Service("name")</code>, <code>@Bean("name")</code>; <code>@Bean</code> also accepts several names (aliases).</p></details>
+  <details><summary>Q6. Describe what happens when an ApplicationContext starts.</summary>
+    <p>It loads configuration, scans components and registers bean definitions; runs BeanFactoryPostProcessors (e.g. placeholder resolution, configuration class processing); registers BeanPostProcessors; instantiates all non-lazy singletons, resolving dependencies first and injecting them; runs initialisation callbacks and post-processors (which can create proxies); publishes a "context refreshed" event; and is ready. On close it calls destroy callbacks in reverse order.</p></details>
+  <details><summary>Q7. What is a bean definition?</summary>
+    <p>The metadata (recipe) Spring keeps for each bean: class, name and aliases, scope, lazy flag, constructor arguments/dependencies, init and destroy methods, etc. The container builds bean instances from these definitions. Represented in code by the <code>BeanDefinition</code> interface.</p></details>
+  <details><summary>Q8. What exceptions can getBean throw?</summary>
+    <p><code>NoSuchBeanDefinitionException</code> if no bean matches the name/type; <code>NoUniqueBeanDefinitionException</code> (a subclass) if a type lookup finds several candidates; <code>BeanNotOfRequiredTypeException</code> if a bean exists under the name but has a different type; <code>BeansException</code> subclasses if creating the bean fails.</p></details>
+  <details><summary>Q9. Is XML configuration still used?</summary>
+    <p>It's supported for backward compatibility and appears in legacy projects, but new projects use annotations and Java configuration (and Spring Boot auto-configuration). Java config is type-safe, refactor-friendly and checked by the compiler.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../22-Why-Spring-IoC-And-DI-Concepts/lesson.html"><small>← Previous</small>22. Why Spring? IoC &amp; DI Concepts</a>
+    <a class="next" href="../24-Dependency-Injection-Deep-Dive/lesson.html"><small>Next →</small>24. Dependency Injection Deep Dive</a>
+  </nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,49 @@
+# ------------------------------------------------------------
+# Topic 58 - Event Streaming with Apache Kafka
+# (YAML this time - see Topic 29 - because the Kafka settings nest nicely)
+# ------------------------------------------------------------
+spring:
+  application:
+    name: kafka-orders
+
+  kafka:
+    # Where is Kafka? (list of brokers to start talking to)
+    bootstrap-servers: localhost:9092
+
+    producer:
+      # Key = orderId as plain text; value = our Java record as JSON.
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      # Wait until the broker has safely stored the message (safest setting).
+      acks: all
+      properties:
+        # Do not create duplicates when the producer retries after a network error.
+        enable.idempotence: true
+
+    consumer:
+      # Where to start when a consumer group has NO saved offset yet:
+      # earliest = from the beginning of the topic, latest = only new messages.
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # ErrorHandlingDeserializer wraps the JSON deserializer: a broken (non-JSON) record
+      # becomes an error we can handle, instead of crashing the consumer in an endless loop.
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        # Security: only create objects from classes in our own package.
+        spring.json.trusted.packages: "com.course.kafka.order"
+
+server:
+  port: 8080
+
+# Our own settings
+app:
+  kafka:
+    topic: orders
+    partitions: 3
+
+logging:
+  level:
+    com.course.kafka: INFO
+    # Kafka clients are VERY chatty at INFO; keep them quiet.
+    org.apache.kafka: WARN

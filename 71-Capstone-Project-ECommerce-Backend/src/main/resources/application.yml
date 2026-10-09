@@ -1,0 +1,112 @@
+# =====================================================================
+# ShopEasy - main configuration (default profile = H2 in-memory database)
+#
+# Run with MySQL instead:   mvn spring-boot:run -Dspring-boot.run.profiles=mysql
+# (start MySQL first:       docker compose up -d mysql)
+#
+# Every value written as ${ENV_VAR:default} can be overridden by an
+# environment variable - that is how secrets reach the app in production
+# (topic 29: externalized configuration).
+# =====================================================================
+spring:
+  application:
+    name: shopeasy
+
+  # ---------- Database (H2 in MySQL compatibility mode, so the same Flyway SQL works on both) ----------
+  datasource:
+    url: jdbc:h2:mem:shopeasy;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+
+  jpa:
+    # Flyway owns the schema. Hibernate only checks that entities match the tables.
+    hibernate:
+      ddl-auto: validate
+    # Close the DB session when the service method ends, not at the end of the HTTP request.
+    # Forces us to build DTOs inside @Transactional services (no lazy-loading surprises in controllers).
+    open-in-view: false
+    properties:
+      hibernate:
+        # Load lazy collections in batches of 50 instead of one query per row (fixes N+1 for order items).
+        default_batch_fetch_size: 50
+        jdbc:
+          time_zone: UTC          # store all timestamps in UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  h2:
+    console:
+      enabled: true          # http://localhost:8080/h2-console  (JDBC URL above, user "sa", no password)
+
+  # ---------- Web ----------
+  mvc:
+    problemdetails:
+      enabled: true          # RFC 9457 ProblemDetail JSON for Spring's own errors too
+  data:
+    web:
+      pageable:
+        default-page-size: 10
+        max-page-size: 100   # nobody can ask for 1 million rows (topic 41)
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: 8080
+  error:
+    include-stacktrace: never   # never leak stack traces to clients (topic 35)
+  shutdown: graceful            # finish in-flight requests before stopping (topic 69)
+
+# ---------- Our own settings, bound to records via @ConfigurationProperties ----------
+shopeasy:
+  jwt:
+    # Base64 encoded 256-bit key. DEV ONLY! In production set the JWT_SECRET environment variable.
+    secret: ${JWT_SECRET:c2hvcGVhc3ktZGV2LW9ubHktc2VjcmV0LWtleS1jaGFuZ2UtbWUtaW4tcHJvZA==}
+    expiration: ${JWT_EXPIRATION:1h}
+    issuer: shopeasy
+  seed:
+    enabled: ${SEED_USERS:true}   # creates admin@shopeasy.com and customer@shopeasy.com on startup
+
+# ---------- Actuator (topic 53) ----------
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,caches
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true          # /actuator/health/liveness and /readiness for Kubernetes (topic 69)
+  info:
+    env:
+      enabled: true
+    java:
+      enabled: true
+
+info:
+  app:
+    name: ShopEasy
+    description: E-commerce REST backend - Java + Spring Boot course capstone
+
+# ---------- OpenAPI / Swagger UI (topic 44) ----------
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+
+# ---------- Logging (topic 30) ----------
+logging:
+  pattern:
+    # %X{requestId} prints the id our RequestIdFilter puts in the MDC - lets you follow one request in the logs.
+    level: "%5p [%X{requestId:-no-request}]"
+  level:
+    root: INFO
+    com.course.shopeasy: DEBUG
+    org.hibernate.SQL: INFO     # switch to DEBUG to see every SQL statement

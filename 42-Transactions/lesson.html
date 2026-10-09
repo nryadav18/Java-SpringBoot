@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>42 · Transactions</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part C · Spring Boot Essentials › Topic 42</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part C · Spring Boot Essentials</span>
+  <span class="tag">⏱ ~3 hours</span>
+  <h1>42. Transactions</h1>
+  <p class="subtitle">Make sure a money transfer either happens completely or not at all — and understand exactly what <code>@Transactional</code> does, when it rolls back, and when it silently doesn't.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="42-Transactions"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>ACID explained with a bank transfer.</li>
+      <li><code>@Transactional</code> on a class vs on a method, and where to put it.</li>
+      <li>What happens behind the scenes: the AOP proxy (link to <a href="../27-Spring-AOP/lesson.html">topic 27</a>).</li>
+      <li>Rollback rules: unchecked exceptions roll back, checked ones don't — and <code>rollbackFor</code>.</li>
+      <li>Propagation: <code>REQUIRED</code> vs <code>REQUIRES_NEW</code> (with a live demo) and the others.</li>
+      <li>Isolation levels: dirty reads, non-repeatable reads, phantom reads — in simple words.</li>
+      <li><code>readOnly = true</code>.</li>
+      <li>The self-invocation pitfall.</li>
+      <li>Optimistic locking with <code>@Version</code>, pessimistic locking with <code>@Lock</code>.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../27-Spring-AOP/lesson.html">Topic 27 · AOP &amp; proxies</a>, <a href="../38-Spring-Data-JPA-Fundamentals/lesson.html">Topic 38 · JPA</a> (managed entities, dirty checking), and <a href="../10-Exception-Handling/lesson.html">Topic 10</a> (checked vs unchecked exceptions). Raw JDBC <code>commit()</code>/<code>rollback()</code> from <a href="../19-JDBC-Basics/lesson.html">topic 19</a> helps too.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>A money transfer is <strong>two</strong> database changes: take 100 from Alice, give 100 to Bob. What if the server crashes, the network drops, or a bug throws an exception <em>between</em> the two steps? Alice has lost 100 and Bob never got it. The bank just "destroyed" money.</p>
+  <p>The same problem appears everywhere: placing an order (create order + reduce stock + charge payment), registering a user (user row + role row + welcome-email record)... Whenever several changes belong together, you need a <strong>transaction</strong>: all changes succeed together, or none of them is saved.</p>
+  <p>In Spring this is one annotation: <code>@Transactional</code>. It looks simple, but it has rules that surprise even experienced developers — this lesson's project <em>proves</em> each rule with a demo endpoint and a test. Transactions are one of the most-asked topics in Spring interviews.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏦 The bank clerk's tray</strong>
+    Imagine an old bank. A clerk handles your transfer on a <strong>tray</strong>: she writes "Alice −100" on a slip and puts it on the tray, then "Bob +100" on another slip. Nothing is in the official ledger yet.<br>
+    • If both slips are fine, she <strong>commits</strong>: copies them into the ledger together.<br>
+    • If something goes wrong (Alice has no money, the phone line to Bob's branch is dead), she <strong>rolls back</strong>: throws the whole tray in the bin. The ledger never shows half a transfer.<br>
+    • Other clerks can't see the slips on her tray until she commits (<strong>isolation</strong>).<br>
+    • Once in the ledger, it's written in ink — even a power cut can't erase it (<strong>durability</strong>).<br>
+    <code>@Transactional</code> is the tray. Spring hands the clerk a new tray when your method starts, and decides "ledger or bin" when your method ends.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 ACID</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Letter</th><th>Meaning</th><th>In the bank transfer</th></tr>
+    <tr><td><strong>A</strong>tomicity</td><td>All or nothing.</td><td>Either Alice −100 <em>and</em> Bob +100, or neither.</td></tr>
+    <tr><td><strong>C</strong>onsistency</td><td>Rules are always true before and after.</td><td>Total money in the bank stays 1500; no negative balances.</td></tr>
+    <tr><td><strong>I</strong>solation</td><td>Concurrent transactions don't see each other's half-done work.</td><td>A report running during the transfer never sees Alice −100 without Bob +100.</td></tr>
+    <tr><td><strong>D</strong>urability</td><td>Committed data survives crashes.</td><td>After "transfer OK", a power cut can't undo it.</td></tr>
+  </table></div>
+
+  <h3>3.2 From JDBC to <code>@Transactional</code></h3>
+  <p>In topic 19 you managed transactions by hand:</p>
+  <pre><code class="lang-java">connection.setAutoCommit(false);
+try {
+    withdraw(connection, "ACC-1001", amount);
+    deposit(connection, "ACC-1002", amount);
+    connection.commit();
+} catch (Exception e) {
+    connection.rollback();
+    throw e;
+}</code></pre>
+  <p>In Spring you write only the business logic and add one annotation:</p>
+  <pre><code class="lang-java">@Transactional
+public void transfer(...) {
+    from.withdraw(amount);
+    to.deposit(amount);
+}</code></pre>
+  <p>Spring generates the begin/commit/rollback code around your method. This is called <strong>declarative</strong> transaction management (you <em>declare</em> what you want). There's also programmatic management with <code>TransactionTemplate</code> for rare special cases.</p>
+
+  <h3>3.3 What happens behind the scenes: the proxy</h3>
+  <p>Remember topic 27 (AOP)? Transactions are the most famous "cross-cutting concern". When Spring sees <code>@Transactional</code> on a bean, it doesn't give other beans the real object — it gives them a <strong>proxy</strong> that wraps it:</p>
+  <div class="flow">
+    <span class="box">Controller</span><span class="arrow">→</span>
+    <span class="box alt">TransferService PROXY<br><small>1. begin transaction</small></span><span class="arrow">→</span>
+    <span class="box info">real TransferService.transfer()</span><span class="arrow">→</span>
+    <span class="box alt">PROXY<br><small>2. commit, or rollback on exception</small></span>
+  </div>
+  <p>In pseudo-code, the proxy does this:</p>
+  <pre><code class="lang-java">// generated by Spring (simplified)
+public TransferResponse transfer(TransferRequest r) {
+    TransactionStatus tx = transactionManager.getTransaction(definition);   // begin
+    try {
+        TransferResponse result = realService.transfer(r);                  // your code
+        transactionManager.commit(tx);
+        return result;
+    } catch (RuntimeException | Error e) {
+        transactionManager.rollback(tx);                                     // default rule
+        throw e;
+    }
+}</code></pre>
+  <p>Spring Boot auto-configures the <code>JpaTransactionManager</code>. Inside one transaction, all your repository calls share the same database connection and the same persistence context — that's also why lazy loading and dirty checking work inside <code>@Transactional</code> methods (topics 38 and 40).</p>
+  <p>In our project the log level of <code>JpaTransactionManager</code> is DEBUG, so you can read what the proxy does:</p>
+  <pre class="terminal"><code>Creating new transaction with name [...TransferService.transferThatFailsMidway]: PROPAGATION_REQUIRED,ISOLATION_DEFAULT
+Suspending current transaction, creating new transaction with name [...AuditService.logInNewTransaction]
+Initiating transaction commit                     &lt;- the REQUIRES_NEW audit row is committed
+Resuming suspended transaction after completion of inner transaction
+Participating in existing transaction             &lt;- REQUIRED audit + repository calls join
+Initiating transaction rollback                   &lt;- the crash -&gt; everything else is undone
+Rolling back JPA transaction on EntityManager [SessionImpl(...)]</code></pre>
+
+  <h3>3.4 Where to put <code>@Transactional</code></h3>
+  <ul>
+    <li><strong>On service methods</strong> — the service layer is where a "unit of work" (one business action) lives. Not on controllers, and usually not on repositories (Spring Data repository methods are already transactional individually).</li>
+    <li><strong>On the class</strong> = applies to every <em>public</em> method of the class. <strong>On a method</strong> = overrides the class setting for that method.</li>
+  </ul>
+  <pre><code class="lang-java">@Service
+@Transactional(readOnly = true)          // default for all methods: read-only
+public class ProductService {
+    public List&lt;Product&gt; findAll() { ... }          // read-only transaction
+
+    @Transactional                                   // overrides: read-write
+    public Product create(...) { ... }
+}</code></pre>
+  <div class="callout warn"><strong>⚠️ Only public methods, only calls from outside</strong>
+    With Spring's default proxy mode, <code>@Transactional</code> works on <strong>public</strong> methods (Spring 6 also supports protected/package-private for class-based proxies, but stay with public) and only when the call comes <strong>from another bean through the proxy</strong>. See self-invocation below. Use <code>org.springframework.transaction.annotation.Transactional</code> (it has more options than <code>jakarta.transaction.Transactional</code>).</div>
+
+  <h3>3.5 Rollback rules — the big surprise</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Thrown from the method</th><th>Default behaviour</th></tr>
+    <tr><td>Unchecked exception (<code>RuntimeException</code> and subclasses)</td><td>✅ <strong>Rollback</strong></td></tr>
+    <tr><td><code>Error</code> (e.g. <code>OutOfMemoryError</code>)</td><td>✅ <strong>Rollback</strong></td></tr>
+    <tr><td>Checked exception (<code>Exception</code> but not <code>RuntimeException</code>, e.g. <code>IOException</code>)</td><td>❌ <strong>COMMIT</strong> — whatever was done before the exception is saved!</td></tr>
+    <tr><td>Exception caught inside the method and not re-thrown</td><td>❌ COMMIT — the proxy never sees it</td></tr>
+  </table></div>
+  <p>Why? This rule comes from old Java EE (EJB), where checked exceptions were seen as "expected business outcomes" that might still want a commit. Today it mostly surprises people. Our demo <code>/api/demo/checked-exception</code> loses 100 because of it.</p>
+  <p>Change the rules with attributes:</p>
+  <pre><code class="lang-java">@Transactional(rollbackFor = FraudCheckException.class)        // roll back for this checked exception too
+@Transactional(rollbackFor = Exception.class)                  // roll back for every exception
+@Transactional(noRollbackFor = EmailNotSentException.class)    // don't roll back for this unchecked one</code></pre>
+  <div class="callout tip"><strong>💡 Simple rule for your own code</strong>
+    Make your business exceptions <strong>unchecked</strong> (extend <code>RuntimeException</code>) — like <code>InsufficientFundsException</code>. Then the default rollback works, and your method signatures stay clean. If you must deal with checked exceptions, add <code>rollbackFor</code>.</div>
+  <div class="callout warn"><strong>⚠️ "Transaction silently rolled back because it has been marked as rollback-only"</strong>
+    If an inner <code>REQUIRED</code> method throws a RuntimeException, the shared transaction is marked "rollback-only". Even if the outer method catches the exception and continues normally, the commit at the end fails with <code>UnexpectedRollbackException</code>. Catching exceptions doesn't "repair" a transaction.</div>
+
+  <h3>3.6 Propagation — what if a transaction is already running?</h3>
+  <p>When a <code>@Transactional</code> method calls another <code>@Transactional</code> method (on another bean), should the second one join the first transaction or start its own? That's <strong>propagation</strong>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Propagation</th><th>Transaction already running</th><th>No transaction running</th><th>Typical use</th></tr>
+    <tr><td><code>REQUIRED</code> (default)</td><td>join it</td><td>start a new one</td><td>99% of service methods</td></tr>
+    <tr><td><code>REQUIRES_NEW</code></td><td>pause it, start a new independent one</td><td>start a new one</td><td>Audit logs, "save this no matter what"</td></tr>
+    <tr><td><code>SUPPORTS</code></td><td>join it</td><td>run without</td><td>Read methods that don't care</td></tr>
+    <tr><td><code>MANDATORY</code></td><td>join it</td><td>❌ exception</td><td>"Must be called inside a transaction"</td></tr>
+    <tr><td><code>NOT_SUPPORTED</code></td><td>pause it, run without</td><td>run without</td><td>Long non-DB work, demos</td></tr>
+    <tr><td><code>NEVER</code></td><td>❌ exception</td><td>run without</td><td>Rare</td></tr>
+    <tr><td><code>NESTED</code></td><td>savepoint inside it</td><td>start a new one</td><td>Partial rollback (JDBC savepoints; limited JPA support)</td></tr>
+  </table></div>
+  <h4>Demo: <code>REQUIRED</code> vs <code>REQUIRES_NEW</code></h4>
+  <pre><span class="file">service/AuditService.java</span><code class="lang-java">@Transactional(propagation = Propagation.REQUIRES_NEW)
+public void logInNewTransaction(String message) { repository.save(new AuditLog(message, "REQUIRES_NEW")); }
+
+@Transactional(propagation = Propagation.REQUIRED)
+public void logInCallerTransaction(String message) { repository.save(new AuditLog(message, "REQUIRED")); }</code></pre>
+  <p><code>transferThatFailsMidway</code> calls both, then crashes. Result of <code>/api/demo/rollback</code>:</p>
+  <pre class="terminal"><code>"auditLogsAfter": ["REQUIRES_NEW | [REQUIRES_NEW] attempt 100.00 ACC-1001 -&gt; ACC-1002"]</code></pre>
+  <p>The <code>REQUIRED</code> row joined the transfer's transaction and was rolled back with it. The <code>REQUIRES_NEW</code> row had already been committed in its own transaction — so the bank keeps a record of the failed attempt. 🎯</p>
+  <div class="callout warn"><strong>⚠️ REQUIRES_NEW uses a second database connection</strong>
+    While the inner transaction runs, the outer one still holds its connection. Under heavy load with many REQUIRES_NEW calls you can exhaust the connection pool. Use it deliberately, not by default.</div>
+
+  <h3>3.7 Isolation levels — in simple words</h3>
+  <p>Many users use the database at the same moment. Isolation decides how much one transaction may see of another's work-in-progress. Three classic problems:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Problem</th><th>What happens (bank example)</th></tr>
+    <tr><td><strong>Dirty read</strong></td><td>Report reads Alice = 900 while the transfer is still running; then the transfer rolls back. The report showed money that never existed.</td></tr>
+    <tr><td><strong>Non-repeatable read</strong></td><td>You read Alice's balance twice in one transaction and get 1000, then 900, because someone committed a change in between.</td></tr>
+    <tr><td><strong>Phantom read</strong></td><td>You count "accounts with balance &gt; 500" twice and get 2, then 3, because someone inserted a new account in between.</td></tr>
+  </table></div>
+  <div class="table-wrap"><table>
+    <tr><th>Isolation level</th><th>Dirty read</th><th>Non-repeatable read</th><th>Phantom read</th><th>Speed</th></tr>
+    <tr><td><code>READ_UNCOMMITTED</code></td><td>possible</td><td>possible</td><td>possible</td><td>fastest</td></tr>
+    <tr><td><code>READ_COMMITTED</code></td><td>prevented</td><td>possible</td><td>possible</td><td>fast — default of PostgreSQL, Oracle, SQL Server, H2</td></tr>
+    <tr><td><code>REPEATABLE_READ</code></td><td>prevented</td><td>prevented</td><td>possible*</td><td>medium — default of MySQL (InnoDB)</td></tr>
+    <tr><td><code>SERIALIZABLE</code></td><td>prevented</td><td>prevented</td><td>prevented</td><td>slowest, may cause retries</td></tr>
+  </table></div>
+  <p>*MySQL InnoDB also avoids most phantoms at REPEATABLE_READ. <code>Isolation.DEFAULT</code> (Spring's default) means "use the database's default". Set it per method only when you need it:</p>
+  <pre><code class="lang-java">@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+public BigDecimal totalMoneyInBank() { ... }</code></pre>
+  <p>Higher isolation doesn't solve the "lost update" problem of two users editing the same row in <em>separate</em> requests — that's what locking (3.10, 3.11) is for.</p>
+
+  <h3>3.8 <code>readOnly = true</code></h3>
+  <ul>
+    <li>Tells Hibernate it doesn't need to keep snapshots for dirty checking and won't flush → less memory and CPU for big reads.</li>
+    <li>The JDBC connection is marked read-only; some databases and routing setups (read replicas) use that.</li>
+    <li>It is a <strong>hint</strong>, not a security feature — don't rely on it to block writes.</li>
+  </ul>
+  <p>Common pattern: <code>@Transactional(readOnly = true)</code> on the class, <code>@Transactional</code> on write methods.</p>
+
+  <h3>3.9 The self-invocation pitfall</h3>
+  <pre><code class="lang-java">public void transferViaSelfInvocation(String from, String to, BigDecimal amount) {
+    this.transferThatFailsMidway(from, to, amount);   // @Transactional IGNORED!
+}
+
+@Transactional
+public void transferThatFailsMidway(...) { ... }</code></pre>
+  <p><code>this</code> is the real object, not the proxy. The call never passes through the proxy, so no transaction starts. Our demo loses 100. (Interesting detail in the demo output: <em>both</em> audit rows survive — the <code>REQUIRED</code> one too — because there was no outer transaction to join, so it got its own and committed.)</p>
+  <p><strong>Fixes:</strong></p>
+  <ol>
+    <li>Put <code>@Transactional</code> on the <strong>public entry method</strong> that is called from outside (most common fix).</li>
+    <li>Move the transactional method into <strong>another bean</strong> (like <code>AuditService</code>) and inject it.</li>
+    <li>Use <code>TransactionTemplate</code> programmatically for that block.</li>
+    <li>(Inject the bean into itself with <code>@Lazy</code> — works, but is a code smell.)</li>
+  </ol>
+  <p>The same pitfall applies to <code>@Async</code>, <code>@Cacheable</code> and every other proxy-based annotation (topics 51, 52).</p>
+
+  <h3>3.10 Optimistic locking with <code>@Version</code></h3>
+  <p>Two bank employees open Alice's account at the same time (two browser tabs). Both see balance 1000. Employee A adds 10 and saves (1010). Employee B adds 20 to <em>her old copy</em> and saves (1020). A's change is silently lost — the <strong>lost update</strong> problem.</p>
+  <p>Optimistic locking: "conflicts are rare, so don't lock anything — just detect them at save time".</p>
+  <pre><code class="lang-java">@Version
+private Long version;</code></pre>
+  <pre class="terminal"><code>update accounts set balance=?, version=1 where id=? and version=0   -- A: 1 row updated  ✅
+update accounts set balance=?, version=1 where id=? and version=0   -- B: 0 rows updated ❌ -&gt; exception</code></pre>
+  <p>Hibernate throws <code>OptimisticLockException</code>; Spring wraps it as <code>ObjectOptimisticLockingFailureException</code>. Our handler returns <strong>409 Conflict</strong> ("someone else changed it, please reload"). The client can reload and retry. Send the version to the client in DTOs and back with updates, so the check also works across HTTP requests.</p>
+
+  <h3>3.11 Pessimistic locking with <code>@Lock</code></h3>
+  <p>Pessimistic locking: "conflicts are likely or very expensive, so lock the row first". The database row is locked until the transaction ends; others must wait.</p>
+  <pre><span class="file">repository/AccountRepository.java</span><code class="lang-java">@Lock(LockModeType.PESSIMISTIC_WRITE)                          // SELECT ... FOR UPDATE
+@Query("SELECT a FROM Account a WHERE a.accountNumber = :number")
+Optional&lt;Account&gt; findForUpdate(@Param("number") String accountNumber);</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Optimistic (<code>@Version</code>)</th><th>Pessimistic (<code>@Lock</code>)</th></tr>
+    <tr><td>Idea</td><td>Detect conflicts at write time</td><td>Prevent conflicts by locking at read time</td></tr>
+    <tr><td>Database locks</td><td>None</td><td>Row locks until commit</td></tr>
+    <tr><td>On conflict</td><td>Exception → retry or ask user</td><td>Second transaction waits</td></tr>
+    <tr><td>Best for</td><td>Web apps, low contention, long "think time" (user editing a form)</td><td>Short, hot operations: money transfers, stock decrement, seat booking</td></tr>
+    <tr><td>Risks</td><td>Many retries under high contention</td><td>Waiting, timeouts, <strong>deadlocks</strong></td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Avoiding deadlocks</strong>
+    Transfer A→B locks A then B; at the same moment transfer B→A locks B then A. Each waits for the other forever — a <strong>deadlock</strong> (topic 17). Our <code>transfer()</code> always locks the two accounts in <strong>alphabetical order</strong>, so this can't happen. Also keep locked transactions short, and consider a lock timeout hint (<code>jakarta.persistence.lock.timeout</code>).</div>
+
+  <h3>3.12 Testing transactions</h3>
+  <p><code>@DataJpaTest</code> and <code>@Transactional</code> test classes wrap each test in a transaction that is rolled back at the end. That's great for isolation — but it means your service calls <em>join</em> the test's transaction, so you can't observe commits, rollbacks or <code>REQUIRES_NEW</code>. For transaction behaviour, use a non-transactional <code>@SpringBootTest</code> and reset the data yourself, as our <code>TransactionBehaviourTest</code> does.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Java files are under <code>src/main/java/com/course/transactions/</code>.</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>application.properties</code></td><td><code>logging.level.org.springframework.orm.jpa.JpaTransactionManager=DEBUG</code>.</td></tr>
+    <tr><td><code>entity/Account.java</code></td><td><code>@Version</code>; <code>withdraw()</code> enforces "no negative balance".</td></tr>
+    <tr><td><code>entity/Transfer.java</code>, <code>entity/AuditLog.java</code></td><td>Saved in the same transaction / in <code>REQUIRES_NEW</code>.</td></tr>
+    <tr><td><code>repository/AccountRepository.java</code></td><td><code>findForUpdate</code> with <code>@Lock(PESSIMISTIC_WRITE)</code>.</td></tr>
+    <tr><td><code>service/TransferService.java</code></td><td>The correct transfer + 5 demo variants. No class-level annotation on purpose.</td></tr>
+    <tr><td><code>service/AuditService.java</code></td><td><code>REQUIRES_NEW</code> vs <code>REQUIRED</code>; a separate bean so the proxy is used.</td></tr>
+    <tr><td><code>service/AccountService.java</code></td><td><code>readOnly</code>, <code>isolation</code>, reset, optimistic lock simulation.</td></tr>
+    <tr><td><code>service/DemoService.java</code></td><td>Non-transactional "auditor": balances before/after, error, audit rows.</td></tr>
+    <tr><td><code>controller/BankController.java</code>, <code>DemoController.java</code></td><td>Real API and <code>/api/demo/*</code> endpoints.</td></tr>
+    <tr><td><code>exception/*.java</code></td><td><code>InsufficientFundsException</code> (unchecked), <code>FraudCheckException</code> (checked), handlers for 404/409/422.</td></tr>
+    <tr><td><code>TransactionBehaviourTest.java</code></td><td>9 tests — one per rule.</td></tr>
+  </table></div>
+
+  <h3>4.1 The correct transfer</h3>
+  <pre><span class="file">service/TransferService.java</span><code class="lang-java">@Transactional
+public TransferResponse transfer(TransferRequest request) {
+    auditService.logInNewTransaction("Transfer requested: " + request.amount() + " from "
+            + request.fromAccount() + " to " + request.toAccount());       // survives a rollback
+
+    if (request.fromAccount().equals(request.toAccount())) {
+        throw new IllegalArgumentException("Cannot transfer to the same account");
+    }
+
+    // lock both rows, always in the same (alphabetical) order -&gt; no deadlocks
+    boolean fromFirst = request.fromAccount().compareTo(request.toAccount()) &lt; 0;
+    Account first  = lock(fromFirst ? request.fromAccount() : request.toAccount());
+    Account second = lock(fromFirst ? request.toAccount() : request.fromAccount());
+    Account from = fromFirst ? first : second;
+    Account to   = fromFirst ? second : first;
+
+    from.withdraw(request.amount());     // InsufficientFundsException -&gt; rollback
+    to.deposit(request.amount());        // managed entities: dirty checking, no save() needed
+
+    Transfer saved = transferRepository.save(new Transfer(request.fromAccount(), request.toAccount(), request.amount()));
+    return TransferResponse.from(saved);
+}   // normal return -&gt; COMMIT</code></pre>
+
+  <h3>4.2 The failing variants</h3>
+  <pre><span class="file">service/TransferService.java</span><code class="lang-java">@Transactional
+public void transferThatFailsMidway(String from, String to, BigDecimal amount) {
+    auditService.logInNewTransaction("[REQUIRES_NEW] attempt ...");
+    auditService.logInCallerTransaction("[REQUIRED] attempt ...");
+    withdrawAndSave(from, amount);
+    simulateCrash();                         // throws IllegalStateException (unchecked)
+    depositAndSave(to, amount);
+}
+
+public void transferThatFailsMidwayWithoutTransaction(String from, String to, BigDecimal amount) {
+    withdrawAndSave(from, amount);           // repository.save() commits on its own!
+    simulateCrash();
+    depositAndSave(to, amount);
+}
+
+@Transactional
+public void transferWithCheckedException(...) throws FraudCheckException {
+    withdrawAndSave(from, amount);
+    throw new FraudCheckException("...");    // checked -&gt; COMMIT by default
+}
+
+@Transactional(rollbackFor = FraudCheckException.class)
+public void transferWithCheckedExceptionRollbackFor(...) throws FraudCheckException { ...same... }
+
+public void transferViaSelfInvocation(String from, String to, BigDecimal amount) {
+    this.transferThatFailsMidway(from, to, amount);   // bypasses the proxy
+}</code></pre>
+  <p>Why does the "without transaction" version lose money? Each Spring Data repository method (<code>save</code>, <code>findBy...</code>) is itself <code>@Transactional</code>. Without an outer transaction, every call commits immediately on its own — so the withdrawal is permanent before the crash.</p>
+
+  <h3>4.3 The demo "auditor"</h3>
+  <pre><span class="file">service/DemoService.java</span><code class="lang-java">private DemoResult run(String name, Scenario scenario, String lesson) {
+    accountService.resetDemoData();
+    Map&lt;String, BigDecimal&gt; before = accountService.balances();
+    String error = null;
+    try {
+        scenario.run();
+    } catch (Exception ex) {
+        error = ex.getClass().getSimpleName() + ": " + ex.getMessage();
+    }
+    Map&lt;String, BigDecimal&gt; after = accountService.balances();
+    ...
+    return new DemoResult(name, before, after, totalBefore, totalAfter,
+            totalAfter.compareTo(totalBefore) &lt; 0, error, audit, lesson);
+}</code></pre>
+  <p><code>DemoService</code> is deliberately <strong>not</strong> transactional, and it catches the exception <em>outside</em> the transactional method — after the proxy has already decided commit or rollback.</p>
+
+  <h3>4.4 Optimistic locking simulation</h3>
+  <pre><span class="file">service/AccountService.java</span><code class="lang-java">public void simulateConcurrentEdit(String accountNumber) {     // no @Transactional
+    Account copyA = accountRepository.findByAccountNumber(accountNumber).orElseThrow(...);  // version n
+    Account copyB = accountRepository.findByAccountNumber(accountNumber).orElseThrow(...);  // version n
+
+    copyA.deposit(new BigDecimal("10.00"));
+    accountRepository.save(copyA);     // OK, version becomes n+1
+
+    copyB.deposit(new BigDecimal("20.00"));
+    accountRepository.save(copyB);     // ObjectOptimisticLockingFailureException
+}</code></pre>
+
+  <h3>4.5 The tests</h3>
+  <pre><span class="file">src/test/java/com/course/transactions/TransactionBehaviourTest.java</span><code class="lang-java">@SpringBootTest                       // NOT @Transactional - on purpose!
+class TransactionBehaviourTest {
+
+    @BeforeEach
+    void reset() { accountService.resetDemoData(); }
+
+    @Test
+    void runtimeExceptionRollsBack() {
+        DemoResult r = demoService.rollback();
+        assertThat(r.moneyLost()).isFalse();
+        assertThat(r.auditLogsAfter()).hasSize(1).allMatch(line -&gt; line.startsWith("REQUIRES_NEW"));
+    }
+
+    @Test
+    void checkedExceptionCommitsByDefault() {
+        DemoResult r = demoService.checkedException();
+        assertThat(r.moneyLost()).isTrue();
+    }
+
+    @Test
+    void optimisticLockingRejectsStaleUpdate() {
+        assertThatThrownBy(() -&gt; accountService.simulateConcurrentEdit("ACC-1001"))
+                .isInstanceOf(ObjectOptimisticLockingFailureException.class);
+        assertThat(balance("ACC-1001")).isEqualByComparingTo("1010.00");
+    }
+}</code></pre>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <h3>VS Code</h3>
+  <ol>
+    <li>Open <code>D:\Java-SpringBoot\42-Transactions</code> and run <code>TransactionsApplication</code>.</li>
+    <li>Open <code>requests.http</code>. Send the demo requests one by one and, after each, read the <code>JpaTransactionManager</code> lines in the terminal.</li>
+  </ol>
+  <h3>Terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\42-Transactions"
+mvn spring-boot:run</code></pre>
+  <pre class="terminal"><code>curl.exe http://localhost:8080/api/accounts
+curl.exe -X POST http://localhost:8080/api/transfers -H "Content-Type: application/json" -d "{\"fromAccount\":\"ACC-1001\",\"toAccount\":\"ACC-1002\",\"amount\":250.00}"
+curl.exe -X POST http://localhost:8080/api/transfers -H "Content-Type: application/json" -d "{\"fromAccount\":\"ACC-1001\",\"toAccount\":\"ACC-1002\",\"amount\":99999}"
+curl.exe http://localhost:8080/api/audit
+
+curl.exe -X POST http://localhost:8080/api/demo/rollback
+curl.exe -X POST http://localhost:8080/api/demo/no-transaction
+curl.exe -X POST http://localhost:8080/api/demo/checked-exception
+curl.exe -X POST http://localhost:8080/api/demo/checked-exception-rollback-for
+curl.exe -X POST http://localhost:8080/api/demo/self-invocation
+curl.exe -X POST http://localhost:8080/api/demo/insufficient-funds
+curl.exe -X POST http://localhost:8080/api/demo/optimistic-lock</code></pre>
+  <p>Expected output (shortened):</p>
+  <pre class="terminal"><code>// GET /api/accounts after the 250.00 transfer - note version 1
+[{"accountNumber":"ACC-1001","ownerName":"Alice","balance":750.00,"version":1},
+ {"accountNumber":"ACC-1002","ownerName":"Bob","balance":750.00,"version":1}]
+
+// 99999 -&gt; 422
+{"title":"Unprocessable Entity","status":422,"detail":"Account ACC-1001 has only 750.00, cannot withdraw 99999",...}
+
+// /demo/rollback
+{"scenario":"Failure midway INSIDE @Transactional",
+ "balancesBefore":{"ACC-1001":1000.00,"ACC-1002":500.00},
+ "balancesAfter": {"ACC-1001":1000.00,"ACC-1002":500.00},
+ "totalBefore":1500.00,"totalAfter":1500.00,"moneyLost":false,
+ "error":"IllegalStateException: Simulated crash: the network to the other bank went down!",
+ "auditLogsAfter":["REQUIRES_NEW | [REQUIRES_NEW] attempt 100.00 ACC-1001 -&gt; ACC-1002"], ...}
+
+// /demo/no-transaction           -&gt; "balancesAfter":{"ACC-1001":900.00,"ACC-1002":500.00}, "moneyLost":true
+// /demo/checked-exception        -&gt; "moneyLost":true,  "error":"FraudCheckException: ..."
+// /demo/checked-exception-rollback-for -&gt; "moneyLost":false
+// /demo/self-invocation          -&gt; "moneyLost":true, both REQUIRES_NEW and REQUIRED audit rows present
+// /demo/insufficient-funds       -&gt; "moneyLost":false, "error":"InsufficientFundsException: ..."
+// /demo/optimistic-lock          -&gt; "balancesAfter":{"ACC-1001":1010.00,...},
+//                                   "error":"ObjectOptimisticLockingFailureException: Row was updated or deleted by another transaction ..."</code></pre>
+  <h3>Tests</h3>
+  <pre class="terminal"><code>mvn test
+[INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0</code></pre>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>🛑 Catching the exception inside the transactional method</strong>
+    <pre><code class="lang-java">@Transactional
+public void transfer(...) {
+    try { from.withdraw(a); to.deposit(a); }
+    catch (Exception e) { log.error("failed", e); }   // swallowed -&gt; the proxy COMMITS the half-done work
+}</code></pre>
+    <strong>Fix:</strong> let it propagate, or re-throw, or call <code>TransactionAspectSupport.currentTransactionStatus().setRollbackOnly()</code>.</div>
+  <div class="callout warn"><strong>⚠️ Expecting rollback for checked exceptions</strong>
+    <strong>Fix:</strong> unchecked business exceptions, or <code>rollbackFor = ...</code>.</div>
+  <div class="callout warn"><strong>⚠️ Self-invocation</strong>
+    <code>this.someTransactionalMethod()</code> runs without a transaction.<br>
+    <strong>Fix:</strong> annotate the public entry method or move the method to another bean.</div>
+  <div class="callout warn"><strong>⚠️ <code>@Transactional</code> on a private method / a class not managed by Spring</strong>
+    Ignored silently (you created the object with <code>new</code>, or the method isn't public).<br>
+    <strong>Fix:</strong> public method on a Spring bean, called through injection.</div>
+  <div class="callout warn"><strong>⚠️ Long transactions</strong>
+    Calling a slow external API or sending an email <em>inside</em> a transaction keeps a DB connection (and maybe row locks) busy for seconds.<br>
+    <strong>Fix:</strong> do slow, non-DB work before or after the transaction (or with events after commit — <code>@TransactionalEventListener</code>, topic 52).</div>
+  <div class="callout warn"><strong>⚠️ <code>@Transactional</code> in tests hiding real behaviour</strong>
+    Your test passes because everything is rolled back at the end, but in production the commit fails (e.g. a constraint violation at flush time).<br>
+    <strong>Fix:</strong> for important flows, also test without a test transaction, or call <code>flush()</code> in the test.</div>
+  <div class="callout warn"><strong>⚠️ Ignoring <code>ObjectOptimisticLockingFailureException</code></strong>
+    A 500 error for a normal concurrency situation.<br>
+    <strong>Fix:</strong> map it to 409 Conflict (as here), or retry automatically for idempotent operations.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Transactions belong in the service layer</strong>, around one business use case.</li>
+    <li><strong><code>@Transactional(readOnly = true)</code> on the class, <code>@Transactional</code> on write methods.</strong></li>
+    <li><strong>Unchecked business exceptions</strong> so rollback works by default; use <code>rollbackFor</code> when dealing with checked ones.</li>
+    <li><strong>Keep transactions short</strong>: no HTTP calls, file uploads or emails inside.</li>
+    <li><strong>Use <code>REQUIRES_NEW</code> sparingly</strong> — for audit/outbox-style records that must survive.</li>
+    <li><strong>Add <code>@Version</code> to entities that users edit</strong>; return 409 on conflicts.</li>
+    <li><strong>Pessimistic locks only for short, hot operations</strong>; lock in a consistent order; set timeouts.</li>
+    <li><strong>Keep the default isolation</strong> unless you have a specific anomaly to prevent.</li>
+    <li><strong>Turn on <code>JpaTransactionManager</code> DEBUG logs</strong> when in doubt — they tell you exactly what happens.</li>
+    <li><strong>Remember: one database = local transaction.</strong> Across microservices (topic 59+) there is no shared transaction — patterns like Saga and the Outbox are used instead.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>A transaction makes several changes <strong>atomic</strong>: all committed or all rolled back (ACID).</li>
+    <li><code>@Transactional</code> works through an <strong>AOP proxy</strong> that begins, commits or rolls back around your method.</li>
+    <li>Default rollback: <code>RuntimeException</code> and <code>Error</code>. Checked exceptions <strong>commit</strong> unless you set <code>rollbackFor</code>.</li>
+    <li><code>REQUIRED</code> joins the current transaction; <code>REQUIRES_NEW</code> runs in its own and survives the caller's rollback.</li>
+    <li>Isolation levels trade safety (dirty / non-repeatable / phantom reads) for speed; use the DB default unless needed.</li>
+    <li><code>readOnly = true</code> is a performance hint for reads.</li>
+    <li>Self-invocation (<code>this.method()</code>) bypasses the proxy → no transaction.</li>
+    <li><code>@Version</code> = optimistic locking (detect conflicts); <code>@Lock(PESSIMISTIC_WRITE)</code> = <code>SELECT ... FOR UPDATE</code> (prevent conflicts).</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Read the logs.</strong> Call <code>/api/demo/rollback</code> and <code>/api/demo/self-invocation</code>. In the console, find the line "Creating new transaction with name [...]" for each. What is different?</p>
+    <details><summary>Hint / solution</summary><p>For <code>rollback</code> you see <em>Creating new transaction with name [...TransferService.transferThatFailsMidway]</em>, later <em>Initiating transaction rollback</em>. For <code>self-invocation</code> there's <strong>no</strong> transaction for <code>transferThatFailsMidway</code> — only small transactions for <code>AuditService</code> methods and for each repository call (<code>SimpleJpaRepository.save</code>, ...). That's the proof the proxy was bypassed.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Fix the self-invocation.</strong> Change <code>transferViaSelfInvocation</code> so that no money is lost, without moving code to another class.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Transactional                     // the entry point now goes through the proxy
+public void transferViaSelfInvocation(String from, String to, BigDecimal amount) {
+    this.transferThatFailsMidway(from, to, amount);   // runs inside the outer transaction
+}</code></pre><p>Update the test <code>selfInvocationIgnoresTransactional</code> to expect <code>moneyLost()</code> false — or better, add a second method so both versions can be compared.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Transfer limit.</strong> Add a rule: one transfer can't exceed 500.00. Throw a new unchecked <code>TransferLimitExceededException</code> <em>after</em> the withdrawal (on purpose, to see the rollback), and prove with a test that a transfer of 600.00 from Alice leaves both balances unchanged and that the attempt is still audited.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public class TransferLimitExceededException extends RuntimeException {
+    public TransferLimitExceededException(BigDecimal amount) { super("Limit is 500.00, requested " + amount); }
+}
+
+// in transfer(), right after from.withdraw(request.amount()):
+if (request.amount().compareTo(new BigDecimal("500.00")) &gt; 0) {
+    throw new TransferLimitExceededException(request.amount());
+}
+
+// test
+@Test
+void limitExceededRollsBack() {
+    assertThatThrownBy(() -&gt; transferService.transfer(
+            new TransferRequest("ACC-1001", "ACC-1002", new BigDecimal("600.00"))))
+            .isInstanceOf(TransferLimitExceededException.class);
+    assertThat(balance("ACC-1001")).isEqualByComparingTo("1000.00");   // withdrawal rolled back
+    assertThat(accountService.auditLogs()).hasSize(1);                 // REQUIRES_NEW audit kept
+}</code></pre><p>In real code you would check the limit <em>before</em> changing anything — but it's good to see that even a late failure is safe inside a transaction.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Version over HTTP.</strong> Add <code>PUT /api/accounts/{number}/owner</code> with body <code>{ "ownerName": "...", "version": 0 }</code>. If the version in the body doesn't match, return 409.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public record RenameRequest(@NotBlank String ownerName, @NotNull Long version) { }
+
+@Transactional
+public AccountResponse rename(String number, RenameRequest req) {
+    Account a = accountRepository.findByAccountNumber(number).orElseThrow(() -&gt; new AccountNotFoundException(number));
+    if (!a.getVersion().equals(req.version())) {
+        throw new ObjectOptimisticLockingFailureException(Account.class, a.getId());   // -&gt; 409
+    }
+    a.setOwnerName(req.ownerName());   // add this setter to Account
+    return AccountResponse.from(accountRepository.saveAndFlush(a));
+}</code></pre><p>Hibernate checks <code>@Version</code> against the version it <em>loaded</em>, not the one the client saw; the explicit comparison makes the check work across HTTP requests.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Retry on conflict.</strong> Write a method that deposits money and retries up to 3 times when an optimistic locking failure happens. Why must the retry loop be <em>outside</em> the transactional method?</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">// in another bean (or the controller/DemoService) - NOT transactional
+public void depositWithRetry(String number, BigDecimal amount) {
+    for (int attempt = 1; ; attempt++) {
+        try {
+            accountTxService.deposit(number, amount);         // @Transactional method on another bean
+            return;
+        } catch (ObjectOptimisticLockingFailureException e) {
+            if (attempt == 3) throw e;
+        }
+    }
+}</code></pre><p>After a failure, the transaction (and its persistence context) is unusable — it's marked rollback-only and holds stale data. Each retry needs a <strong>fresh</strong> transaction that reloads the entity, so the loop must call the transactional method from outside. (Spring Retry's <code>@Retryable</code> does this declaratively.)</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. TransactionTemplate.</strong> Rewrite <code>transferThatFailsMidway</code> programmatically with <code>TransactionTemplate</code> and check it behaves the same.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">private final TransactionTemplate tx;    // inject: Spring Boot provides a TransactionTemplate bean
+
+public void transferProgrammatic(String from, String to, BigDecimal amount) {
+    tx.executeWithoutResult(status -&gt; {
+        withdrawAndSave(from, amount);
+        simulateCrash();                  // RuntimeException -&gt; rollback
+        depositAndSave(to, amount);
+    });
+}</code></pre><p>Programmatic transactions also work for self-invocation, because no proxy is involved.</p></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What does ACID mean?</summary>
+    <p>Atomicity (all or nothing), Consistency (constraints/invariants hold before and after), Isolation (concurrent transactions don't interfere / see partial work, according to the isolation level), Durability (committed changes survive failures).</p></details>
+  <details><summary>Q2. How does <code>@Transactional</code> work internally?</summary>
+    <p>Spring creates an AOP proxy (JDK dynamic proxy or CGLIB) around the bean. The <code>TransactionInterceptor</code> asks the <code>PlatformTransactionManager</code> (e.g. <code>JpaTransactionManager</code>) to begin or join a transaction according to the attributes, invokes the target method, then commits, or rolls back if the exception matches the rollback rules. Resources (connection, EntityManager) are bound to the current thread.</p></details>
+  <details><summary>Q3. Which exceptions cause a rollback by default?</summary>
+    <p>Unchecked exceptions (<code>RuntimeException</code> and subclasses) and <code>Error</code>s. Checked exceptions do not — the transaction commits. Customize with <code>rollbackFor</code> / <code>noRollbackFor</code>.</p></details>
+  <details><summary>Q4. Explain REQUIRED vs REQUIRES_NEW.</summary>
+    <p><code>REQUIRED</code> (default) joins an existing transaction or creates one if none exists; an inner failure marks the whole transaction rollback-only. <code>REQUIRES_NEW</code> suspends the current transaction and starts an independent one that commits or rolls back on its own — e.g. for audit logs that must persist even if the outer transaction fails. It needs a second connection.</p></details>
+  <details><summary>Q5. Why doesn't <code>@Transactional</code> work when calling a method from the same class?</summary>
+    <p>Self-invocation calls the method on <code>this</code>, the target object, bypassing the proxy where the transactional advice lives. Solutions: annotate the outer public method, move the method into another bean, use <code>TransactionTemplate</code>, or use AspectJ weaving mode.</p></details>
+  <details><summary>Q6. What are the isolation levels and which problems do they prevent?</summary>
+    <p>READ_UNCOMMITTED (allows dirty, non-repeatable and phantom reads), READ_COMMITTED (prevents dirty reads), REPEATABLE_READ (also prevents non-repeatable reads), SERIALIZABLE (prevents all three, lowest concurrency). <code>Isolation.DEFAULT</code> uses the database default (READ_COMMITTED for PostgreSQL/Oracle/SQL Server, REPEATABLE_READ for MySQL InnoDB).</p></details>
+  <details><summary>Q7. What does <code>readOnly = true</code> do?</summary>
+    <p>It's an optimization hint: Hibernate sets flush mode to manual and can skip dirty-checking snapshots; the JDBC connection may be set read-only, which some drivers/databases and routing data sources use. It's not a guarantee that no writes happen.</p></details>
+  <details><summary>Q8. Optimistic vs pessimistic locking?</summary>
+    <p>Optimistic: no locks; a <code>@Version</code> column is checked in the UPDATE's WHERE clause; a mismatch throws <code>OptimisticLockException</code> — good for low contention and long user think-time. Pessimistic: <code>SELECT ... FOR UPDATE</code> (<code>@Lock(PESSIMISTIC_WRITE)</code>) locks rows until commit so others wait — good for short, highly contended operations, but risks waiting and deadlocks.</p></details>
+  <details><summary>Q9. What is <code>UnexpectedRollbackException</code>?</summary>
+    <p>Thrown at commit time when the transaction was marked rollback-only (e.g. an inner <code>REQUIRED</code> method threw a RuntimeException) but the outer code caught the exception and tried to commit normally. Spring rolls back and reports it, so the caller isn't misled into thinking the work was saved.</p></details>
+  <details><summary>Q10. Should <code>@Transactional</code> be on the controller, service or repository?</summary>
+    <p>On the service layer, where business use cases are defined and multiple repository calls must be atomic. Controllers should stay thin and not hold transactions open during serialization; repositories are fine-grained and Spring Data already makes each method transactional.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../41-Pagination-And-Sorting/lesson.html"><small>← Previous</small>41. Pagination &amp; Sorting</a>
+    <a class="next" href="../43-MySQL-And-Database-Migrations-Flyway/lesson.html"><small>Next →</small>43. MySQL &amp; Database Migrations with Flyway</a>
+  </nav>
+</main>
+</body>
+</html>

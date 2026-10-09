@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>1 · Introduction &amp; Setup</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 1</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~2 hours</span>
+  <h1>1. Welcome &amp; Setup</h1>
+  <p class="subtitle">Understand what Java is and how it runs, check that your computer is ready, and write, run and understand your very first Java programs.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="1-Introduction-And-Setup"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What programming is, and what makes Java special.</li>
+      <li>The difference between <strong>JDK</strong>, <strong>JRE</strong> and <strong>JVM</strong> (a very common interview question).</li>
+      <li>How your code becomes <strong>bytecode</strong> (<code>javac</code> → <code>.class</code> → JVM) and why Java is "write once, run anywhere".</li>
+      <li>How to check Java 17 and Maven on Windows, and what <code>JAVA_HOME</code> and <code>PATH</code> mean.</li>
+      <li>How to set up VS Code with the right extensions for this course.</li>
+      <li>Your first program, <strong>Hello World</strong>, explained word by word.</li>
+      <li>Two ways to run Java code, how to write comments, and how to read keyboard input.</li>
+      <li>How to study this course so the learning sticks.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you need nothing! This is the first topic. You only need a Windows computer and some curiosity.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Welcome! 👋 You are starting a journey that ends with you building <strong>real, enterprise-style backend applications</strong> with Java and Spring Boot — the same kind of software that runs banks, online shops, airline booking systems and food delivery apps.</p>
+  <p>Java is one of the most used programming languages in the world, and it has been for more than 25 years. Some places you will find it:</p>
+  <ul>
+    <li><strong>Banks and insurance companies</strong> — most of their backend systems are written in Java.</li>
+    <li><strong>E-commerce</strong> — order systems, payment services, inventory services.</li>
+    <li><strong>Android apps</strong> — Android was built on Java (Kotlin is also used now).</li>
+    <li><strong>Big data tools</strong> — Hadoop, Kafka, Elasticsearch are written in Java (or run on the JVM).</li>
+    <li><strong>Microservices</strong> — Spring Boot (the second half of this course) is the most popular way to build them in Java.</li>
+  </ul>
+  <p>This first topic is about <strong>getting comfortable</strong>. Before you can build a house, you need to know your tools and where to stand. By the end of this page, you will have run three Java programs yourself and you will understand <em>what really happens</em> when you press "Run". Many developers with years of experience cannot explain that clearly — you will.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🍳 A recipe, a cook, and a translator</strong>
+    <p>Think of a <strong>program</strong> as a <strong>recipe</strong>: a list of exact steps, in order. "Boil water. Add pasta. Wait 10 minutes." The computer is the <strong>cook</strong>. It is very fast and never gets tired, but it is not smart — it does <em>exactly</em> what the recipe says, nothing more.</p>
+    <p>There is one problem: the cook only understands its own machine language (zeros and ones), and every kitchen (Windows, Mac, Linux) has a slightly different cook. So Java uses a clever trick:</p>
+    <ul>
+      <li>You write the recipe in <strong>Java</strong> (an English-like language).</li>
+      <li>The <strong>compiler</strong> (<code>javac</code>) translates it into a universal "kitchen language" called <strong>bytecode</strong>.</li>
+      <li>Every kitchen has a <strong>JVM</strong> — a translator standing next to the cook — who reads the bytecode and tells <em>that</em> cook what to do.</li>
+    </ul>
+    <p>So you write the recipe <strong>once</strong>, and it can be cooked in <strong>any</strong> kitchen that has a JVM translator. That is the famous Java slogan: <strong>"Write once, run anywhere."</strong></p>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 What is programming?</h3>
+  <p><strong>Programming</strong> means writing instructions that a computer can follow. These instructions are called <strong>code</strong>, and a complete set of instructions that does a job is called a <strong>program</strong> (or an application, or software).</p>
+  <p>Computers are fast, but they are literal. If you tell a person "get me some milk", they understand. A computer needs: "Walk to the fridge. Open the door. Find the bottle labelled milk. Pick it up. Close the door. Walk back." Programming is the skill of breaking a problem into small, exact steps.</p>
+  <p>A <strong>programming language</strong> is a language designed for writing those steps. It is stricter than English: one missing semicolon and the computer refuses to understand. Do not worry — you get used to it quickly, and the tools help you a lot.</p>
+
+  <h3>3.2 What is Java?</h3>
+  <p><strong>Java</strong> is a programming language created by James Gosling and his team at Sun Microsystems, released in <strong>1995</strong>. Today it is maintained by Oracle and the open-source community (OpenJDK). Key features:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Feature</th><th>What it means in simple words</th></tr>
+    <tr><td><strong>Platform independent</strong></td><td>The same compiled program runs on Windows, Mac and Linux.</td></tr>
+    <tr><td><strong>Object-oriented</strong></td><td>You model your program as "objects" like Customer, Order, BankAccount (Topics 6–8).</td></tr>
+    <tr><td><strong>Strongly typed</strong></td><td>Every variable has a fixed type (number, text…). Many mistakes are caught <em>before</em> the program runs.</td></tr>
+    <tr><td><strong>Automatic memory management</strong></td><td>A "garbage collector" cleans up memory you no longer use. You do not free memory by hand.</td></tr>
+    <tr><td><strong>Huge ecosystem</strong></td><td>Thousands of free libraries and frameworks (like Spring) so you do not reinvent the wheel.</td></tr>
+    <tr><td><strong>Backward compatible</strong></td><td>Code written 15 years ago usually still runs on new Java versions. Companies love this.</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Java versions</strong>Java gets a new version every 6 months. Every 2 years one version is marked <strong>LTS (Long-Term Support)</strong>: 8, 11, 17, 21, 25. Companies mostly use LTS versions. In this course we use <strong>Java 17</strong> (LTS) — very common in real jobs and fully supported by Spring Boot 3.</div>
+
+  <h3>3.3 JDK vs JRE vs JVM</h3>
+  <p>These three words confuse almost every beginner. Let's make them simple.</p>
+  <ul>
+    <li><strong>JVM — Java Virtual Machine.</strong> The "translator" that <em>runs</em> bytecode on your computer. It also manages memory and the garbage collector. There is a different JVM for each operating system — that's how the same bytecode works everywhere.</li>
+    <li><strong>JRE — Java Runtime Environment.</strong> JVM + the standard library (ready-made classes like <code>String</code>, <code>Scanner</code>, <code>Math</code>). Everything you need to <em>run</em> a Java program.</li>
+    <li><strong>JDK — Java Development Kit.</strong> JRE + developer tools: the compiler <code>javac</code>, the <code>jar</code> tool, the debugger and more. Everything you need to <em>write and build</em> Java programs. <strong>Developers install the JDK.</strong></li>
+  </ul>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 520 250" role="img" aria-label="JDK contains JRE which contains JVM">
+      <rect x="10" y="10" width="500" height="230" rx="14" fill="none" stroke="currentColor" stroke-width="2.5"/>
+      <text x="30" y="40" fill="currentColor" font-size="18" font-weight="bold">JDK  (Development Kit)</text>
+      <text x="30" y="62" fill="currentColor" font-size="13">+ javac (compiler), jar, javadoc, jshell, debugger…</text>
+      <rect x="40" y="80" width="440" height="145" rx="12" fill="none" style="stroke:var(--info)" stroke-width="2.5"/>
+      <text x="60" y="106" style="fill:var(--info)" font-size="17" font-weight="bold">JRE  (Runtime Environment)</text>
+      <text x="60" y="126" fill="currentColor" font-size="13">+ standard library: String, Scanner, Math, List…</text>
+      <rect x="80" y="142" width="360" height="68" rx="10" fill="none" style="stroke:var(--java)" stroke-width="2.5"/>
+      <text x="100" y="170" style="fill:var(--java)" font-size="17" font-weight="bold">JVM  (Virtual Machine)</text>
+      <text x="100" y="192" fill="currentColor" font-size="13">runs bytecode, manages memory, garbage collector</text>
+    </svg>
+    <figcaption>JDK ⊃ JRE ⊃ JVM — each box contains the one inside it.</figcaption>
+  </figure>
+
+  <div class="table-wrap"><table>
+    <tr><th></th><th>JVM</th><th>JRE</th><th>JDK</th></tr>
+    <tr><td>Full name</td><td>Java Virtual Machine</td><td>Java Runtime Environment</td><td>Java Development Kit</td></tr>
+    <tr><td>Job</td><td>Runs bytecode</td><td>Everything needed to run Java</td><td>Everything needed to develop Java</td></tr>
+    <tr><td>Contains</td><td>Interpreter, JIT compiler, garbage collector</td><td>JVM + standard library</td><td>JRE + javac + tools</td></tr>
+    <tr><td>Who needs it</td><td>(always inside JRE/JDK)</td><td>People who only run Java apps</td><td><strong>Developers (you!)</strong></td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Good to know</strong>Since Java 11, Oracle and most vendors no longer ship a separate JRE download — you simply install the JDK. But the concept is still asked in interviews, so learn the difference.</div>
+
+  <h3>3.4 How Java code runs: source → bytecode → JVM</h3>
+  <p>Here is the full journey of your code:</p>
+  <div class="flow">
+    <span class="box alt">HelloWorld.java<br><small>source code (you write)</small></span><span class="arrow">→</span>
+    <span class="box">javac<br><small>compiler</small></span><span class="arrow">→</span>
+    <span class="box info">HelloWorld.class<br><small>bytecode</small></span><span class="arrow">→</span>
+    <span class="box">JVM<br><small>loads &amp; runs</small></span><span class="arrow">→</span>
+    <span class="box alt">Output<br><small>on screen</small></span>
+  </div>
+  <ol>
+    <li><strong>You write</strong> source code in a file ending with <code>.java</code>. It is plain text — humans can read it.</li>
+    <li><strong>The compiler</strong> <code>javac</code> checks your code for mistakes (like grammar checking). If everything is fine, it creates a <code>.class</code> file.</li>
+    <li><strong>The .class file</strong> contains <strong>bytecode</strong> — instructions for the JVM, not for any specific computer. You cannot read it easily, and you do not need to.</li>
+    <li><strong>The JVM</strong> loads the bytecode, checks it is safe, and runs it. Frequently used parts are turned into fast machine code by the <strong>JIT (Just-In-Time) compiler</strong> while the program runs. That is why Java is both portable <em>and</em> fast.</li>
+  </ol>
+
+  <figure class="diagram">
+    <svg viewBox="0 0 560 210" role="img" aria-label="One class file runs on Windows, Mac and Linux JVMs">
+      <rect x="200" y="10" width="160" height="50" rx="10" fill="none" style="stroke:var(--info)" stroke-width="2.5"/>
+      <text x="280" y="41" text-anchor="middle" fill="currentColor" font-size="15" font-weight="bold">Hello.class</text>
+      <line x1="280" y1="60" x2="90" y2="120" stroke="currentColor" stroke-width="2"/>
+      <line x1="280" y1="60" x2="280" y2="120" stroke="currentColor" stroke-width="2"/>
+      <line x1="280" y1="60" x2="470" y2="120" stroke="currentColor" stroke-width="2"/>
+      <rect x="20" y="120" width="140" height="70" rx="10" fill="none" style="stroke:var(--java)" stroke-width="2.5"/>
+      <text x="90" y="150" text-anchor="middle" fill="currentColor" font-size="14" font-weight="bold">JVM for Windows</text>
+      <text x="90" y="172" text-anchor="middle" fill="currentColor" font-size="13">→ runs ✔</text>
+      <rect x="210" y="120" width="140" height="70" rx="10" fill="none" style="stroke:var(--java)" stroke-width="2.5"/>
+      <text x="280" y="150" text-anchor="middle" fill="currentColor" font-size="14" font-weight="bold">JVM for macOS</text>
+      <text x="280" y="172" text-anchor="middle" fill="currentColor" font-size="13">→ runs ✔</text>
+      <rect x="400" y="120" width="140" height="70" rx="10" fill="none" style="stroke:var(--java)" stroke-width="2.5"/>
+      <text x="470" y="150" text-anchor="middle" fill="currentColor" font-size="14" font-weight="bold">JVM for Linux</text>
+      <text x="470" y="172" text-anchor="middle" fill="currentColor" font-size="13">→ runs ✔</text>
+    </svg>
+    <figcaption>"Write once, run anywhere": the same bytecode runs on every operating system that has a JVM.</figcaption>
+  </figure>
+
+  <div class="callout tip"><strong>💡 Compiled vs interpreted</strong>Languages like C are compiled straight to machine code for one operating system. Languages like Python are read line by line by an interpreter. Java does <strong>both</strong>: compile once to bytecode, then the JVM interprets and JIT-compiles it. Best of both worlds.</div>
+
+  <h3>3.5 Checking your installation: Java 17 and Maven</h3>
+  <p>Your computer already has <strong>Temurin JDK 17</strong> (a free, high-quality build of OpenJDK) and <strong>Maven 3.9</strong> (a build tool we use from Topic 19 onwards — you will learn it properly in Topic 20). Let's confirm they work.</p>
+  <p>Open a terminal: press <kbd>Win</kbd>, type <strong>PowerShell</strong>, press Enter. (Or in VS Code: menu <strong>Terminal → New Terminal</strong>.) Then type:</p>
+  <pre class="terminal"><code>java -version</code></pre>
+  <p>You should see something like:</p>
+  <pre class="terminal"><code>openjdk version "17.0.19" 2026-04-21
+OpenJDK Runtime Environment Temurin-17.0.19+10 (build 17.0.19+10)
+OpenJDK 64-Bit Server VM Temurin-17.0.19+10 (build 17.0.19+10, mixed mode, sharing)</code></pre>
+  <p>Now check the compiler, which is only in the JDK:</p>
+  <pre class="terminal"><code>javac -version</code></pre>
+  <pre class="terminal"><code>javac 17.0.19</code></pre>
+  <p>And Maven:</p>
+  <pre class="terminal"><code>mvn -v</code></pre>
+  <pre class="terminal"><code>Apache Maven 3.9.11 (...)
+Maven home: C:\...\apache-maven-3.9.11
+Java version: 17.0.19, vendor: Eclipse Adoptium, runtime: C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot
+Default locale: en_IN, platform encoding: UTF-8
+OS name: "windows 11", version: "10.0", arch: "amd64", family: "windows"</code></pre>
+  <p>(Your exact paths may be a little different. That's fine — what matters is that the commands work and show version 17.)</p>
+
+  <h3>3.6 JAVA_HOME and PATH on Windows (what they are)</h3>
+  <p>When you type <code>java</code> in a terminal, how does Windows know where the program <code>java.exe</code> is? It uses <strong>environment variables</strong> — named settings that every program on your computer can read.</p>
+  <ul>
+    <li><strong><code>PATH</code></strong> — a list of folders. When you type a command, Windows searches these folders, one by one, for a matching program. The JDK's <code>bin</code> folder (which contains <code>java.exe</code> and <code>javac.exe</code>) must be on the PATH.</li>
+    <li><strong><code>JAVA_HOME</code></strong> — points to the JDK's main folder (the one <em>above</em> <code>bin</code>). Tools like Maven, Spring Boot and VS Code read it to find "which Java should I use?".</li>
+  </ul>
+  <p>Check them in PowerShell:</p>
+  <pre class="terminal"><code>echo $env:JAVA_HOME
+where.exe java
+$env:Path -split ';' | Select-String -Pattern 'jdk|maven'</code></pre>
+  <p>Typical output:</p>
+  <pre class="terminal"><code>C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot\
+C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot\bin\java.exe
+C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot\bin
+C:\tools\apache-maven-3.9.11\bin</code></pre>
+  <div class="callout info"><strong>ℹ️ If you ever need to set them (for a new computer)</strong>
+    <ol>
+      <li>Press <kbd>Win</kbd>, type <strong>"environment variables"</strong>, open <strong>Edit the system environment variables</strong> → <strong>Environment Variables…</strong></li>
+      <li>Under <em>User variables</em> click <strong>New…</strong>: name <code>JAVA_HOME</code>, value = your JDK folder, e.g. <code>C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot</code></li>
+      <li>Select <strong>Path</strong> → <strong>Edit</strong> → <strong>New</strong> → type <code>%JAVA_HOME%\bin</code>. Do the same for Maven's <code>bin</code> folder.</li>
+      <li>Click OK everywhere and <strong>close and reopen</strong> every terminal and VS Code. Old windows keep the old values!</li>
+    </ol>
+    The Temurin installer usually does steps 2–3 for you if you tick "Set JAVA_HOME variable" during installation.
+  </div>
+
+  <h3>3.7 Setting up VS Code</h3>
+  <p><strong>VS Code</strong> (Visual Studio Code) is a free code editor. On its own it only edits text; <strong>extensions</strong> give it Java super-powers. Open VS Code, click the <strong>Extensions</strong> icon on the left bar (four squares) or press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd>, search and install:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Extension</th><th>Publisher</th><th>What it gives you</th><th>Needed from</th></tr>
+    <tr><td><strong>Extension Pack for Java</strong></td><td>Microsoft</td><td>Java language support (red underlines for errors, auto-complete), Run/Debug buttons, Maven support, test runner, project view.</td><td>Now</td></tr>
+    <tr><td><strong>Spring Boot Extension Pack</strong></td><td>VMware / Broadcom</td><td>Spring Initializr (create projects), Spring Boot Dashboard (start/stop apps), help in <code>application.properties</code>.</td><td>Topic 22+</td></tr>
+    <tr><td><strong>REST Client</strong></td><td>Huachao Mao</td><td>Send HTTP requests from <code>.http</code> files right inside VS Code — test your APIs without Postman.</td><td>Topic 31+</td></tr>
+  </table></div>
+  <p>After installing, open the course folder: <strong>File → Open Folder…</strong> → choose <code>D:\Java-SpringBoot\1-Introduction-And-Setup</code>. Open <code>Example01_HelloWorld.java</code>. After a few seconds you will see small <strong>Run | Debug</strong> links above the <code>main</code> method. That means Java support is working. 🎉</p>
+  <div class="callout tip"><strong>💡 Handy VS Code shortcuts</strong>
+    <ul>
+      <li><kbd>Ctrl</kbd>+<kbd>`</kbd> — open/close the terminal.</li>
+      <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> — Command Palette (search any command, e.g. "Java: Configure Java Runtime").</li>
+      <li><kbd>F5</kbd> — run with the debugger. <kbd>Ctrl</kbd>+<kbd>F5</kbd> — run without debugging.</li>
+      <li><kbd>Ctrl</kbd>+<kbd>Space</kbd> — auto-complete suggestions. Type <code>sysout</code> or <code>main</code> and press <kbd>Tab</kbd> for ready-made snippets.</li>
+      <li><kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>F</kbd> — format (tidy up) the current file.</li>
+    </ul>
+  </div>
+
+  <h3>3.8 Your first program, word by word</h3>
+  <pre><span class="file">Example01_HelloWorld.java</span><code class="lang-java">public class Example01_HelloWorld {
+    public static void main(String[] args) {
+        System.out.println("Hello, World!");
+    }
+}</code></pre>
+  <p>Only 5 lines, but every word has a meaning. Let's go slowly:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Piece</th><th>Meaning</th></tr>
+    <tr><td><code>public</code></td><td>An <strong>access modifier</strong>: "everyone can see/use this". (Topic 9 covers all of them.)</td></tr>
+    <tr><td><code>class</code></td><td>Keyword meaning "I'm defining a class". A class is a container for code. <strong>In Java, all code lives inside a class.</strong></td></tr>
+    <tr><td><code>Example01_HelloWorld</code></td><td>The class name. A <code>public</code> class must have <strong>exactly</strong> the same name as its file (<code>Example01_HelloWorld.java</code>), including upper/lower case.</td></tr>
+    <tr><td><code>{ ... }</code></td><td>Curly braces mark the <strong>start and end of a block</strong>. The class block contains the method block.</td></tr>
+    <tr><td><code>public static void main(String[] args)</code></td><td>The <strong>main method</strong> — the entry point. When you run a program, the JVM looks for this exact line and starts executing from its first statement.</td></tr>
+    <tr><td><code>static</code></td><td>The method belongs to the class itself, so the JVM can call it <em>without creating an object</em> first. (Objects: Topic 6.)</td></tr>
+    <tr><td><code>void</code></td><td>The method returns nothing. (Return values: Topic 4.)</td></tr>
+    <tr><td><code>main</code></td><td>The special name the JVM searches for. Spelling matters: <code>Main</code> will not work.</td></tr>
+    <tr><td><code>String[] args</code></td><td>A list (array) of text values you can pass from the command line, e.g. <code>java Hello.java Ravi</code> → <code>args[0]</code> is <code>"Ravi"</code>. (Arrays: Topic 4.)</td></tr>
+    <tr><td><code>System.out.println(...)</code></td><td>Print the value inside the brackets and go to a new line. <code>System</code> is a built-in class, <code>out</code> is the console output stream, <code>println</code> means "print line".</td></tr>
+    <tr><td><code>"Hello, World!"</code></td><td>A <strong>String</strong> — text in double quotes.</td></tr>
+    <tr><td><code>;</code></td><td>The semicolon ends a <strong>statement</strong> (one instruction), like a full stop ends a sentence.</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Java is case-sensitive</strong><code>System</code> and <code>system</code> are different words to Java. <code>System.out.println</code> works; <code>system.out.Println</code> does not.</div>
+
+  <h3>3.9 Two ways to run a Java program</h3>
+  <p><strong>Way 1 — the classic two-step way</strong> (compile, then run). This is what really happens under the hood:</p>
+  <pre class="terminal"><code>javac Example01_HelloWorld.java      # step 1: compile → creates Example01_HelloWorld.class
+java Example01_HelloWorld            # step 2: run the class (NO .java, NO .class at the end!)</code></pre>
+  <p>Notice: <code>javac</code> takes a <strong>file name</strong> (with <code>.java</code>), but <code>java</code> takes a <strong>class name</strong> (without any extension).</p>
+  <p>To keep your folder clean, you can ask <code>javac</code> to put the <code>.class</code> files in another folder with <code>-d</code>, and tell <code>java</code> where to find them with <code>-cp</code> (class path):</p>
+  <pre class="terminal"><code>javac -d out Example01_HelloWorld.java
+java -cp out Example01_HelloWorld</code></pre>
+
+  <p><strong>Way 2 — single-file source launch</strong> (Java 11+). For a program in a single file, you can skip the compile step:</p>
+  <pre class="terminal"><code>java Example01_HelloWorld.java</code></pre>
+  <p>Java compiles the file in memory and runs it immediately. No <code>.class</code> file is created. This is perfect for learning, and it's the way we run all examples in Topics 1–18.</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th><code>javac</code> + <code>java</code></th><th><code>java File.java</code></th></tr>
+    <tr><td>Steps</td><td>2</td><td>1</td></tr>
+    <tr><td>Creates .class files</td><td>Yes</td><td>No (compiles in memory)</td></tr>
+    <tr><td>Works for many files / projects</td><td>Yes</td><td>No — only one source file</td></tr>
+    <tr><td>Used for</td><td>Real projects (via Maven, Topic 20)</td><td>Learning, quick scripts</td></tr>
+  </table></div>
+
+  <h3>3.10 Comments</h3>
+  <p><strong>Comments</strong> are notes for humans. The compiler ignores them completely. Java has three kinds:</p>
+  <pre><code class="lang-java">// 1. Single-line comment: from // to the end of the line
+
+/* 2. Multi-line comment:
+      everything between these markers is ignored */
+
+/**
+ * 3. Javadoc comment: documents a class or method.
+ *    Tools turn these into HTML documentation.
+ */</code></pre>
+  <p>Good comments explain <strong>why</strong> the code does something, not what every line does. In this course the example files contain <em>extra</em> comments because they are teaching material.</p>
+
+  <h3>3.11 Printing: print, println, printf and escape sequences</h3>
+  <pre><code class="lang-java">System.out.print("A");        // prints A, stays on the same line
+System.out.println("B");      // prints B, then moves to the next line
+System.out.println();         // prints an empty line
+System.out.printf("%s is %d years old%n", "Ravi", 30);  // formatted printing</code></pre>
+  <p>Output:</p>
+  <pre class="terminal"><code>AB
+
+Ravi is 30 years old</code></pre>
+  <p>Some characters need a backslash <code>\</code> in front of them inside a String. These are called <strong>escape sequences</strong>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Escape</th><th>Meaning</th><th>Example</th><th>Prints</th></tr>
+    <tr><td><code>\n</code></td><td>New line</td><td><code>"Hi\nThere"</code></td><td>Hi<br>There</td></tr>
+    <tr><td><code>\t</code></td><td>Tab</td><td><code>"Name:\tRavi"</code></td><td>Name:&nbsp;&nbsp;&nbsp;&nbsp;Ravi</td></tr>
+    <tr><td><code>\"</code></td><td>Double quote</td><td><code>"Say \"hi\""</code></td><td>Say "hi"</td></tr>
+    <tr><td><code>\\</code></td><td>Backslash</td><td><code>"C:\\Java"</code></td><td>C:\Java</td></tr>
+  </table></div>
+  <p>Common <code>printf</code> placeholders (more in Topic 5):</p>
+  <div class="table-wrap"><table>
+    <tr><th>Placeholder</th><th>For</th><th>Example</th><th>Prints</th></tr>
+    <tr><td><code>%s</code></td><td>String (text)</td><td><code>printf("%s", "Java")</code></td><td>Java</td></tr>
+    <tr><td><code>%d</code></td><td>Whole number</td><td><code>printf("%d", 42)</code></td><td>42</td></tr>
+    <tr><td><code>%.2f</code></td><td>Decimal with 2 digits</td><td><code>printf("%.2f", 3.14159)</code></td><td>3.14</td></tr>
+    <tr><td><code>%n</code></td><td>New line</td><td><code>printf("A%nB")</code></td><td>A<br>B</td></tr>
+  </table></div>
+
+  <h3>3.12 Reading input from the keyboard (Scanner)</h3>
+  <p>Programs become interesting when they react to the user. Java's <code>Scanner</code> class reads what the user types.</p>
+  <pre><code class="lang-java">import java.util.Scanner;              // 1. bring the Scanner class in
+
+Scanner scanner = new Scanner(System.in); // 2. create a Scanner that listens to the keyboard
+String name = scanner.nextLine();         // 3. read a whole line of text
+int age = scanner.nextInt();              //    read a whole number
+double price = scanner.nextDouble();      //    read a decimal number
+scanner.close();                          // 4. close it when done</code></pre>
+  <ul>
+    <li><code>import</code> — Java's standard library is organised in <strong>packages</strong> (like folders). <code>Scanner</code> lives in <code>java.util</code>. The import line says "I want to use it here". (Some classes, like <code>String</code> and <code>System</code>, are in <code>java.lang</code>, which is imported automatically.)</li>
+    <li><code>new Scanner(System.in)</code> — creates a new Scanner object. <code>System.in</code> is the keyboard input (the opposite of <code>System.out</code>).</li>
+    <li>The program <strong>pauses</strong> at each <code>next...()</code> call and waits for the user to type and press Enter.</li>
+  </ul>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>Reads</th><th>Example input</th></tr>
+    <tr><td><code>nextLine()</code></td><td>The whole line (spaces included)</td><td><code>Priya Sharma</code></td></tr>
+    <tr><td><code>next()</code></td><td>One word (stops at a space)</td><td><code>Priya</code></td></tr>
+    <tr><td><code>nextInt()</code></td><td>A whole number</td><td><code>25</code></td></tr>
+    <tr><td><code>nextDouble()</code></td><td>A decimal number</td><td><code>1.62</code></td></tr>
+    <tr><td><code>nextBoolean()</code></td><td><code>true</code> or <code>false</code></td><td><code>true</code></td></tr>
+  </table></div>
+
+  <h3>3.13 How to study this course</h3>
+  <div class="grid">
+    <div class="card"><strong>1. Read the lesson</strong><br>Read slowly. Every term is explained. If something feels unclear, re-read the analogy.</div>
+    <div class="card"><strong>2. Run every example</strong><br>Never just read code. Run it, compare with the expected output.</div>
+    <div class="card"><strong>3. Break it on purpose</strong><br>Remove a semicolon, misspell <code>main</code>. Read the error. Errors are teachers.</div>
+    <div class="card"><strong>4. Type, don't copy</strong><br>Typing code yourself builds "muscle memory" much faster than copy-paste.</div>
+    <div class="card"><strong>5. Do the exercises</strong><br>Try for at least 15 minutes before opening the solution.</div>
+    <div class="card"><strong>6. Little and often</strong><br>1–2 hours every day beats 10 hours once a week. Tick "Mark as done" to track progress.</div>
+  </div>
+  <p>The course has 7 parts: <strong>A</strong> Core Java (Topics 1–21) → <strong>B</strong> Spring Framework core (22–27) → <strong>C</strong> Spring Boot essentials (28–46) → <strong>D</strong> Security (47–50) → <strong>E</strong> Advanced Spring Boot (51–58) → <strong>F</strong> Microservices &amp; DevOps (59–70) → <strong>G</strong> Capstone project (71). Each topic builds on the earlier ones, so go in order.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>Example01_HelloWorld.java</code></td><td>The smallest complete program: class, main method, println.</td></tr>
+    <tr><td><code>Example02_PrintingAndComments.java</code></td><td>print vs println, escape sequences, joining text with <code>+</code>, printf, all 3 comment types.</td></tr>
+    <tr><td><code>Example03_ReadingInput.java</code></td><td>Reading a name, age and height with <code>Scanner</code> and using them.</td></tr>
+    <tr><td><code>README.md</code></td><td>Short summary of the folder and run commands.</td></tr>
+  </table></div>
+
+  <h3>4.1 Example01_HelloWorld.java</h3>
+  <pre><span class="file">Example01_HelloWorld.java</span><code class="lang-java">public class Example01_HelloWorld {
+
+    public static void main(String[] args) {
+        System.out.println("Hello, World!");
+        System.out.println("Welcome to the Java + Spring Boot course.");
+    }
+}</code></pre>
+  <p>Two statements inside <code>main</code>, run from top to bottom. Each <code>println</code> prints one line. That's the core rule of every program: <strong>statements run in order, one after another</strong> (until we learn to change that order in Topic 3).</p>
+
+  <h3>4.2 Example02_PrintingAndComments.java</h3>
+  <p>The most interesting part is how <code>+</code> behaves:</p>
+  <pre><span class="file">Example02_PrintingAndComments.java (part)</span><code class="lang-java">System.out.println("Sum: " + 2 + 3);      // Sum: 23
+System.out.println("Sum: " + (2 + 3));    // Sum: 5
+System.out.println(2 + 3 + " is the sum"); // 5 is the sum</code></pre>
+  <p>Java reads <code>+</code> from <strong>left to right</strong>:</p>
+  <ul>
+    <li>Line 1: <code>"Sum: " + 2</code> → text + number = <strong>text</strong> <code>"Sum: 2"</code>. Then <code>"Sum: 2" + 3</code> → <code>"Sum: 23"</code>. Surprise!</li>
+    <li>Line 2: brackets are calculated first: <code>2 + 3 = 5</code>, then <code>"Sum: " + 5</code> → <code>"Sum: 5"</code>.</li>
+    <li>Line 3: <code>2 + 3</code> are both numbers → <code>5</code>. Then <code>5 + " is the sum"</code> → text.</li>
+  </ul>
+  <p>Rule to remember: <strong>once a String joins the party, <code>+</code> means "glue", not "add"</strong>. Use brackets when you want maths.</p>
+  <pre><span class="file">Example02_PrintingAndComments.java (part)</span><code class="lang-java">System.out.printf("Student: %s, Age: %d, Fee: %.2f%n", "Asha", 21, 1500.5);</code></pre>
+  <p>The placeholders are filled in order: <code>%s</code> ← "Asha", <code>%d</code> ← 21, <code>%.2f</code> ← 1500.5 shown as <code>1500.50</code>. <code>%n</code> ends the line.</p>
+
+  <h3>4.3 Example03_ReadingInput.java</h3>
+  <pre><span class="file">Example03_ReadingInput.java (part)</span><code class="lang-java">Scanner scanner = new Scanner(System.in);
+
+System.out.print("What is your name? &gt; ");
+String name = scanner.nextLine();
+
+System.out.print("How old are you? &gt; ");
+int age = scanner.nextInt();
+
+System.out.print("What is your height in metres? &gt; ");
+double height = scanner.nextDouble();
+
+System.out.println("Hello, " + name + "!");
+System.out.println("Next year you will be " + (age + 1) + " years old.");</code></pre>
+  <ul>
+    <li>We use <code>print</code> (not <code>println</code>) for the questions, so the user types on the same line as the question.</li>
+    <li><code>String name</code>, <code>int age</code>, <code>double height</code> are <strong>variables</strong> — named boxes that store values. <code>String</code> holds text, <code>int</code> whole numbers, <code>double</code> decimals. Topic 2 explains variables in depth.</li>
+    <li><code>(age + 1)</code> is in brackets so Java does the maths <em>before</em> gluing it into the text (remember Example 02!).</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 In VS Code</h3>
+  <ol>
+    <li><strong>File → Open Folder…</strong> → select <code>D:\Java-SpringBoot\1-Introduction-And-Setup</code>.</li>
+    <li>Open <code>Example01_HelloWorld.java</code>.</li>
+    <li>Click the small <strong>Run</strong> link above <code>main</code> (or press <kbd>Ctrl</kbd>+<kbd>F5</kbd>). The output appears in the <strong>Terminal</strong> panel at the bottom.</li>
+    <li>For <code>Example03_ReadingInput.java</code>, click in the terminal panel and type your answers there.</li>
+  </ol>
+  <h3>5.2 From the terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\1-Introduction-And-Setup"
+java Example01_HelloWorld.java</code></pre>
+  <p>Expected output:</p>
+  <pre class="terminal"><code>Hello, World!
+Welcome to the Java + Spring Boot course.</code></pre>
+
+  <pre class="terminal"><code>java Example02_PrintingAndComments.java</code></pre>
+  <p>Expected output:</p>
+  <pre class="terminal"><code>Java is fun!
+This is a new line.
+
+Line one
+Line two
+Name:	Ravi
+She said "Hello"
+Windows path: C:\Java\bin
+
+Course: Java + Spring Boot
+Topics in this course: 71
+Sum: 23
+Sum: 5
+5 is the sum
+
+Student: Asha, Age: 21, Fee: 1500.50</code></pre>
+
+  <pre class="terminal"><code>java Example03_ReadingInput.java</code></pre>
+  <p>Sample run (you type <code>Priya</code>, <code>25</code>, <code>1.62</code>):</p>
+  <pre class="terminal"><code>What is your name? &gt; Priya
+How old are you? &gt; 25
+What is your height in metres? &gt; 1.62
+Hello, Priya!
+Next year you will be 26 years old.
+Your height is 1.62 m.</code></pre>
+
+  <h3>5.3 The classic two-step way (try it once!)</h3>
+  <pre class="terminal"><code>javac -d out Example01_HelloWorld.java
+dir out
+java -cp out Example01_HelloWorld</code></pre>
+  <p><code>dir out</code> shows the generated <code>Example01_HelloWorld.class</code> file — the bytecode. After experimenting you can delete the <code>out</code> folder: <code>Remove-Item -Recurse -Force out</code>.</p>
+  <div class="callout tip"><strong>💡 Try JShell</strong>The JDK includes <strong>JShell</strong>, a playground where you type Java lines and see the result immediately. Type <code>jshell</code> in the terminal, then try <code>System.out.println("Hi")</code> or <code>2 + 3</code>. Type <code>/exit</code> to leave. Great for quick experiments.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>❌ Mistake: <code>'java' is not recognized as an internal or external command</code></strong>
+    Windows cannot find Java because the JDK's <code>bin</code> folder is not on the <code>PATH</code>.<br>
+    <strong>Fix:</strong> Set <code>JAVA_HOME</code> and add <code>%JAVA_HOME%\bin</code> to <code>Path</code> (section 3.6), then <strong>close and reopen</strong> the terminal / VS Code.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: class name does not match file name</strong>
+    File <code>Hello.java</code> contains <code>public class HelloWorld</code> → <code>error: class HelloWorld is public, should be declared in a file named HelloWorld.java</code>.<br>
+    <strong>Fix:</strong> Make them identical, including capital letters.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: missing semicolon</strong>
+    <code>System.out.println("Hi")</code> → <code>error: ';' expected</code>.<br>
+    <strong>Fix:</strong> End every statement with <code>;</code>. The error message shows the line number — go there.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: wrong capital letters</strong>
+    <code>system.out.println</code> or <code>System.out.Println</code> → <code>error: package system does not exist</code> / <code>cannot find symbol</code>.<br>
+    <strong>Fix:</strong> Java is case-sensitive. It's <code>System.out.println</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: running with the wrong name</strong>
+    <code>java Example01_HelloWorld.class</code> → <code>Could not find or load main class Example01_HelloWorld.class</code>.<br>
+    <strong>Fix:</strong> After <code>javac</code>, run with the class name only: <code>java Example01_HelloWorld</code>. Or use single-file mode with <code>.java</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: misspelled main method</strong>
+    <code>public static void Main(String[] args)</code> compiles, but running says <code>error: can't find main(String[]) method in class</code>.<br>
+    <strong>Fix:</strong> Copy the main line exactly: <code>public static void main(String[] args)</code>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: <code>InputMismatchException</code> with Scanner</strong>
+    You typed <code>twenty</code> when <code>nextInt()</code> expected a number, or <code>1,62</code> instead of <code>1.62</code>.<br>
+    <strong>Fix:</strong> Type the right kind of value. (Topic 10 teaches you how to handle these errors gracefully.)</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: <code>nextLine()</code> after <code>nextInt()</code> returns empty text</strong>
+    <code>nextInt()</code> reads the number but leaves the Enter key ("new line") behind. A following <code>nextLine()</code> reads that leftover empty line.<br>
+    <strong>Fix:</strong> Call an extra <code>scanner.nextLine();</code> after <code>nextInt()</code> to consume the leftover, or read everything with <code>nextLine()</code> and convert (<code>Integer.parseInt(...)</code>, Topic 2). That's why our example asks for the name <em>first</em>.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: smart quotes</strong>
+    Copying code from Word or a chat app can turn <code>"</code> into <code>“ ”</code>. Java reports <code>illegal character: '\u201c'</code>.<br>
+    <strong>Fix:</strong> Retype the quotes in VS Code.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Use an LTS Java version</strong> (17 or 21) for real projects. Companies rarely use non-LTS versions.</li>
+    <li><strong>Class names in PascalCase</strong> (<code>HelloWorld</code>, <code>BankAccount</code>): each word starts with a capital letter, no spaces.</li>
+    <li><strong>Indent consistently</strong> with 4 spaces per level. Let VS Code format for you (<kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>F</kbd>).</li>
+    <li><strong>Comment the "why"</strong>, not the obvious. <code>i = i + 1; // add 1 to i</code> is noise.</li>
+    <li><strong>Read error messages from the top.</strong> The first error is usually the real one; later errors are often side effects.</li>
+    <li><strong>Keep the build output separate</strong> from the source (<code>javac -d out</code>). Maven does this automatically with a <code>target/</code> folder.</li>
+    <li><strong>Close resources you open</strong> (like <code>Scanner</code>). Topic 10 shows the modern way: try-with-resources.</li>
+    <li><strong>In real applications, don't use System.out for messages</strong> — use a logging library. You will learn this in Topic 30. For learning, <code>println</code> is perfect.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>A program is a list of exact instructions; Java is a popular, object-oriented, strongly-typed language created in 1995.</li>
+    <li><strong>JVM</strong> runs bytecode; <strong>JRE</strong> = JVM + libraries; <strong>JDK</strong> = JRE + tools like <code>javac</code>. Developers install the JDK.</li>
+    <li>Flow: <code>.java</code> → <code>javac</code> → <code>.class</code> (bytecode) → JVM → output. Bytecode runs on any OS with a JVM: "write once, run anywhere".</li>
+    <li><code>java -version</code>, <code>javac -version</code>, <code>mvn -v</code> check your setup; <code>JAVA_HOME</code> and <code>PATH</code> tell tools where Java is.</li>
+    <li>Every program needs a class and a <code>public static void main(String[] args)</code> method; the public class name must match the file name.</li>
+    <li>Run with <code>java File.java</code> (quick) or <code>javac</code> + <code>java ClassName</code> (classic).</li>
+    <li><code>print</code> stays on the line, <code>println</code> ends it, <code>printf</code> formats; <code>+</code> with a String means "glue".</li>
+    <li>Three comment types: <code>//</code>, <code>/* */</code>, <code>/** */</code> (Javadoc).</li>
+    <li><code>Scanner</code> reads keyboard input: <code>nextLine()</code>, <code>nextInt()</code>, <code>nextDouble()</code>.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. About me.</strong> Create <code>AboutMe.java</code> that prints your name, your city, and why you want to learn Java — each on its own line.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public class AboutMe {
+    public static void main(String[] args) {
+        System.out.println("Name: Kiran");
+        System.out.println("City: Hyderabad");
+        System.out.println("Goal: Become a Java backend developer");
+    }
+}</code></pre><p>Run with <code>java AboutMe.java</code>. Remember: file name = class name.</p></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Draw a box.</strong> Print this shape using <code>println</code>. Then print the same shape using a single <code>println</code> with <code>\n</code>.</p>
+    <pre class="terminal"><code>+-------+
+| JAVA  |
++-------+</code></pre>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">public class DrawBox {
+    public static void main(String[] args) {
+        System.out.println("+-------+");
+        System.out.println("| JAVA  |");
+        System.out.println("+-------+");
+
+        // same thing in one statement
+        System.out.println("+-------+\n| JAVA  |\n+-------+");
+    }
+}</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Predict the output.</strong> Without running, write down what each line prints. Then run it and check.</p>
+    <pre><code class="lang-java">System.out.println("1" + 2 + 3);
+System.out.println(1 + 2 + "3");
+System.out.println(1 + 2 + "3" + 4 + 5);
+System.out.println("Total: " + (10 * 2));</code></pre>
+    <details><summary>Hint / solution</summary><pre class="terminal"><code>123
+33
+3345
+Total: 20</code></pre><p>Left to right: numbers are added until a String appears; after that, <code>+</code> glues. In line 3: <code>1+2=3</code>, then <code>3+"3"="33"</code>, then <code>"33"+4="334"</code>, then <code>"334"+5="3345"</code>.</p></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Greeting card.</strong> Ask the user for their name and their favourite food, then print: <code>Hi Ravi! Let's have Biryani today.</code></p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">import java.util.Scanner;
+
+public class GreetingCard {
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+        System.out.print("Your name: ");
+        String name = scanner.nextLine();
+        System.out.print("Favourite food: ");
+        String food = scanner.nextLine();
+        System.out.println("Hi " + name + "! Let's have " + food + " today.");
+        scanner.close();
+    }
+}</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Mini bill.</strong> Ask for an item name, its price (decimal) and quantity (whole number). Print a receipt using <code>printf</code>, with the total shown with 2 decimals. Example: <code>Item: Pen | Qty: 3 | Price: 12.50 | Total: 37.50</code></p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">import java.util.Scanner;
+
+public class MiniBill {
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+        System.out.print("Item name: ");
+        String item = scanner.nextLine();      // read text FIRST (avoids the nextLine trap)
+        System.out.print("Price: ");
+        double price = scanner.nextDouble();
+        System.out.print("Quantity: ");
+        int qty = scanner.nextInt();
+
+        double total = price * qty;            // * means multiply (Topic 2)
+        System.out.printf("Item: %s | Qty: %d | Price: %.2f | Total: %.2f%n",
+                item, qty, price, total);
+        scanner.close();
+    }
+}</code></pre></details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Explore the compiler.</strong> Compile <code>Example01_HelloWorld.java</code> with <code>javac -d out</code>. Then run <code>javap -c -cp out Example01_HelloWorld</code>. What do you see? (Then delete the <code>out</code> folder.)</p>
+    <details><summary>Hint / solution</summary><p><code>javap</code> is a JDK tool that "disassembles" a .class file. With <code>-c</code> it prints the bytecode instructions, such as <code>getstatic java/lang/System.out</code>, <code>ldc "Hello, World!"</code> and <code>invokevirtual println</code>. This proves the <code>.class</code> file contains JVM instructions, not Windows machine code — which is exactly why it runs anywhere.</p></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between JDK, JRE and JVM?</summary>
+    <p>The <strong>JVM</strong> is the virtual machine that executes bytecode and manages memory (garbage collection, JIT compilation). The <strong>JRE</strong> is the JVM plus the standard class libraries — everything needed to run Java programs. The <strong>JDK</strong> is the JRE plus development tools like the compiler <code>javac</code>, <code>jar</code>, <code>javadoc</code> and the debugger — everything needed to develop Java programs. JDK ⊃ JRE ⊃ JVM.</p></details>
+  <details><summary>Q2. Why is Java called platform independent?</summary>
+    <p>Java source is compiled to <strong>bytecode</strong>, not to machine code for a specific OS. Each platform has its own JVM that understands the same bytecode. So the same <code>.class</code> file runs on Windows, Linux or macOS — "write once, run anywhere". Note: the <em>JVM itself</em> is platform-dependent; the bytecode is not.</p></details>
+  <details><summary>Q3. What is bytecode?</summary>
+    <p>Bytecode is the intermediate, platform-neutral instruction set produced by <code>javac</code> and stored in <code>.class</code> files. The JVM interprets it and the JIT compiler converts hot parts into native machine code at runtime for speed.</p></details>
+  <details><summary>Q4. What is the JIT compiler?</summary>
+    <p>The Just-In-Time compiler is part of the JVM. While the program runs, it detects frequently executed code ("hot spots") and compiles it into native machine code, so later executions are much faster than interpretation.</p></details>
+  <details><summary>Q5. Explain <code>public static void main(String[] args)</code>.</summary>
+    <p><code>public</code> so the JVM can access it from outside the class; <code>static</code> so it can be called without creating an object; <code>void</code> because it returns nothing; <code>main</code> is the name the JVM looks for as the entry point; <code>String[] args</code> holds command-line arguments.</p></details>
+  <details><summary>Q6. Can we have more than one class in a single .java file?</summary>
+    <p>Yes, but at most <strong>one</strong> of them can be <code>public</code>, and that public class's name must match the file name. Each class still compiles to its own <code>.class</code> file.</p></details>
+  <details><summary>Q7. What happens if the main method is not static?</summary>
+    <p>It compiles, but the classic launcher reports an error like "main method is not static". The JVM needs to call main without an instance of the class, so it must be static. (Java 21+ has preview features that relax this, but in Java 17 it is required.)</p></details>
+  <details><summary>Q8. What is the purpose of JAVA_HOME and PATH?</summary>
+    <p><code>PATH</code> lets the operating system find executables like <code>java</code> and <code>javac</code> when you type them. <code>JAVA_HOME</code> points to the JDK installation folder; build tools (Maven, Gradle), IDEs and servers use it to locate the JDK.</p></details>
+  <details><summary>Q9. Is Java compiled or interpreted?</summary>
+    <p>Both. It is first compiled by <code>javac</code> into bytecode, and then the JVM interprets that bytecode and JIT-compiles hot code into native code at runtime.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../index.html"><small>← Previous</small>Course Home</a>
+    <a class="next" href="../2-Variables-DataTypes-Operators/lesson.html"><small>Next →</small>2. Variables, Data Types &amp; Operators</a>
+  </nav>
+</main>
+</body>
+</html>

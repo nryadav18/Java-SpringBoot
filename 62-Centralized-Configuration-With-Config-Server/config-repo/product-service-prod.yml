@@ -1,0 +1,15 @@
+# ==================================================================
+# config-repo/product-service-prod.yml   (Topic 62)
+# ------------------------------------------------------------------
+# Extra settings for product-service with the "prod" profile:
+#   mvn spring-boot:run "-Dspring-boot.run.profiles=prod"
+# ==================================================================
+shop:
+  welcome-message: Welcome to CourseShop! (from config-repo/product-service-prod.yml)
+  discount-percent: 10
+  feature:
+    new-arrivals: false
+
+logging:
+  level:
+    com.course.configdemo: WARN

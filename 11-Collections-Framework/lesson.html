@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>11 · Collections Framework</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 11</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~3.5 hours</span>
+  <h1>11. Collections Framework</h1>
+  <p class="subtitle">Stop fighting with fixed-size arrays. Learn Java's ready-made containers — List, Set, Map, Queue — pick the right one every time, and understand how HashMap really works.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="11-Collections-Framework"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>Why collections beat arrays, and the shape of the Collections Framework (hierarchy).</li>
+      <li><strong>List</strong>: <code>ArrayList</code> vs <code>LinkedList</code>.</li>
+      <li><strong>Set</strong>: <code>HashSet</code>, <code>LinkedHashSet</code>, <code>TreeSet</code>.</li>
+      <li><strong>Map</strong>: <code>HashMap</code>, <code>LinkedHashMap</code>, <code>TreeMap</code>.</li>
+      <li><strong>Queue / Deque</strong>: <code>ArrayDeque</code> (queue and stack), <code>PriorityQueue</code>.</li>
+      <li>Iterators and the famous <code>ConcurrentModificationException</code>.</li>
+      <li>Sorting with <code>Comparable</code> vs <code>Comparator</code>.</li>
+      <li>The <code>Collections</code> utility class and immutable collections (<code>List.of</code>).</li>
+      <li>How HashMap works inside (buckets, <code>hashCode</code>, <code>equals</code>) — explained simply.</li>
+      <li>A "which collection should I use?" decision table.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../10-Exception-Handling/lesson.html">Topic 10 · Exception Handling</a>, interfaces (<a href="../8-OOP-Polymorphism-Abstraction-Interfaces/lesson.html">Topic 8</a>), anonymous and nested classes (<a href="../9-Packages-Access-Modifiers-Static-Final/lesson.html">Topic 9</a>), and <code>equals</code>/<code>hashCode</code> basics (<a href="../6-OOP-Classes-And-Objects/lesson.html">Topic 6</a>).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Almost every program manages <strong>groups of things</strong>: products in a cart, students in a class, orders waiting in a kitchen,
+    a phone book of name → number. In Topic 4 you used arrays, but arrays have big limits:</p>
+  <ul>
+    <li><strong>Fixed size</strong> — decide the size once; you can't add a 4th item to a 3-slot array.</li>
+    <li><strong>No built-in operations</strong> — no "add", "remove", "contains", "remove duplicates", "look up by name". You write loops by hand every time.</li>
+    <li><strong>One shape</strong> — just a numbered row. No "unique items only", no "key → value" lookups, no "first come, first served".</li>
+  </ul>
+  <p>The <strong>Collections Framework</strong> (package <code>java.util</code>) is a set of interfaces and ready-made, well-tested, fast classes that solve all of this.</p>
+  <div class="callout info"><strong>ℹ️ Where you'll see it at work</strong>Everywhere. A Spring REST endpoint returns <code>List&lt;ProductDto&gt;</code>, which becomes a JSON array.
+    A JSON object maps to a <code>Map&lt;String, Object&gt;</code>. Spring Data's <code>findAll()</code> returns a <code>List</code>. A JPA <code>@OneToMany</code> relationship
+    is a <code>List</code> or <code>Set</code> of child entities. Caches are maps. Choosing the wrong collection (or forgetting <code>hashCode</code>) causes real production bugs.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏠 Think of things at home</strong>
+    <ul>
+      <li><strong>List</strong> = a <strong>shopping list</strong> on paper. Items are in order, numbered 1, 2, 3… and you can write "Milk" twice.</li>
+      <li><strong>Set</strong> = a <strong>bag of unique stickers</strong>. You can't have two identical stickers; if you try to add a copy, nothing happens.</li>
+      <li><strong>Map</strong> = a <strong>phone book / dictionary</strong>. You look up a <em>key</em> (name) to get a <em>value</em> (number). Each name appears once.</li>
+      <li><strong>Queue</strong> = the <strong>line at a ticket counter</strong>. First come, first served (FIFO).</li>
+      <li><strong>Stack</strong> = a <strong>pile of plates</strong>. You take the one you put on top last (LIFO). Your browser's Back button works like this.</li>
+      <li><strong>PriorityQueue</strong> = a <strong>hospital emergency room</strong>. The most serious patient is treated first, not the one who came first.</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Arrays vs collections</h3>
+  <pre><code class="lang-java">// Array: size fixed at 3, forever
+String[] cartArray = new String[3];
+
+// ArrayList: starts empty, grows as needed
+List&lt;String&gt; cart = new ArrayList&lt;&gt;();
+cart.add("Rice");
+cart.add("Milk");
+cart.remove("Milk");
+cart.contains("Rice");   // true
+cart.size();             // 1</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Array</th><th>Collection (e.g. ArrayList)</th></tr>
+    <tr><td>Size</td><td>Fixed</td><td>Grows/shrinks automatically</td></tr>
+    <tr><td>Holds primitives?</td><td>Yes (<code>int[]</code>)</td><td>No, only objects (<code>List&lt;Integer&gt;</code>, autoboxing converts for you)</td></tr>
+    <tr><td>Built-in methods</td><td>Almost none (<code>length</code>)</td><td>add, remove, contains, sort, indexOf, …</td></tr>
+    <tr><td>Printing</td><td><code>Arrays.toString(arr)</code> needed</td><td><code>println(list)</code> prints <code>[a, b, c]</code></td></tr>
+    <tr><td>Speed</td><td>Slightly faster, less memory</td><td>Very fast, a bit more memory</td></tr>
+  </table></div>
+
+  <h4>The <code>&lt;String&gt;</code> part — generics in one minute</h4>
+  <p><code>List&lt;String&gt;</code> reads "a List <strong>of String</strong>". The type in angle brackets tells Java what the collection may hold, so:</p>
+  <ul>
+    <li><code>cart.add(42);</code> → <strong>compile error</strong> (it's a list of Strings — type safety).</li>
+    <li><code>String first = cart.get(0);</code> → no casting needed.</li>
+    <li><code>new ArrayList&lt;&gt;()</code> — the empty <code>&lt;&gt;</code> is called the <strong>diamond</strong>; Java copies the type from the left side.</li>
+  </ul>
+  <p>You'll learn to write your own generic classes in <a href="../12-Generics/lesson.html">Topic 12</a>. For now: <strong>always put the element type in the brackets</strong>.</p>
+  <div class="callout tip"><strong>💡 Primitives need wrappers</strong><code>List&lt;int&gt;</code> is not allowed. Use <code>List&lt;Integer&gt;</code>, <code>List&lt;Double&gt;</code>,
+    <code>List&lt;Boolean&gt;</code>. Java auto-converts <code>int</code> ↔ <code>Integer</code> (autoboxing / unboxing from Topic 2).</div>
+
+  <h3>3.2 The big picture: the hierarchy</h3>
+  <p>The framework is a family of <strong>interfaces</strong> (what a collection can do) and <strong>classes</strong> (how it does it).</p>
+  <figure class="diagram">
+    <svg viewBox="0 0 800 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Collections hierarchy">
+      <g font-family="Segoe UI, sans-serif" font-size="13" fill="currentColor">
+        <!-- Iterable / Collection -->
+        <rect x="220" y="8" width="150" height="30" rx="7" fill="none" stroke="var(--info)" stroke-width="2"/>
+        <text x="295" y="28" text-anchor="middle" font-style="italic">Iterable</text>
+        <rect x="220" y="62" width="150" height="30" rx="7" fill="none" stroke="var(--info)" stroke-width="2"/>
+        <text x="295" y="82" text-anchor="middle" font-style="italic" font-weight="bold">Collection</text>
+        <line x1="295" y1="38" x2="295" y2="62" stroke="currentColor"/>
+        <!-- List Set Queue -->
+        <rect x="30" y="130" width="120" height="30" rx="7" fill="none" stroke="var(--info)" stroke-width="2"/>
+        <text x="90" y="150" text-anchor="middle" font-style="italic" font-weight="bold">List</text>
+        <rect x="235" y="130" width="120" height="30" rx="7" fill="none" stroke="var(--info)" stroke-width="2"/>
+        <text x="295" y="150" text-anchor="middle" font-style="italic" font-weight="bold">Set</text>
+        <rect x="440" y="130" width="120" height="30" rx="7" fill="none" stroke="var(--info)" stroke-width="2"/>
+        <text x="500" y="150" text-anchor="middle" font-style="italic" font-weight="bold">Queue</text>
+        <line x1="295" y1="92" x2="90" y2="130" stroke="currentColor"/>
+        <line x1="295" y1="92" x2="295" y2="130" stroke="currentColor"/>
+        <line x1="295" y1="92" x2="500" y2="130" stroke="currentColor"/>
+        <!-- List impls -->
+        <text x="90" y="190" text-anchor="middle" fill="var(--accent)" font-weight="bold">ArrayList</text>
+        <text x="90" y="210" text-anchor="middle" fill="var(--accent)" font-weight="bold">LinkedList</text>
+        <!-- Set impls -->
+        <text x="250" y="190" text-anchor="middle" fill="var(--accent)" font-weight="bold">HashSet</text>
+        <text x="250" y="210" text-anchor="middle" fill="var(--accent)">↳ LinkedHashSet</text>
+        <text x="350" y="190" text-anchor="middle" font-style="italic">SortedSet</text>
+        <text x="350" y="210" text-anchor="middle" fill="var(--accent)" font-weight="bold">↳ TreeSet</text>
+        <!-- Queue impls -->
+        <text x="455" y="190" text-anchor="middle" fill="var(--accent)" font-weight="bold">PriorityQueue</text>
+        <text x="555" y="190" text-anchor="middle" font-style="italic">Deque</text>
+        <text x="555" y="210" text-anchor="middle" fill="var(--accent)" font-weight="bold">↳ ArrayDeque</text>
+        <text x="555" y="230" text-anchor="middle" fill="var(--accent)">↳ LinkedList</text>
+        <!-- Map -->
+        <rect x="650" y="62" width="120" height="30" rx="7" fill="none" stroke="var(--java)" stroke-width="2"/>
+        <text x="710" y="82" text-anchor="middle" font-style="italic" font-weight="bold">Map</text>
+        <text x="710" y="122" text-anchor="middle" fill="var(--accent)" font-weight="bold">HashMap</text>
+        <text x="710" y="142" text-anchor="middle" fill="var(--accent)">↳ LinkedHashMap</text>
+        <text x="710" y="168" text-anchor="middle" font-style="italic">SortedMap</text>
+        <text x="710" y="188" text-anchor="middle" fill="var(--accent)" font-weight="bold">↳ TreeMap</text>
+        <text x="710" y="40" text-anchor="middle" font-size="12" fill="var(--muted)">(separate tree —</text>
+        <text x="710" y="54" text-anchor="middle" font-size="12" fill="var(--muted)">not a Collection)</text>
+        <!-- legend -->
+        <text x="30" y="285" font-size="12" fill="var(--muted)"><tspan font-style="italic">Italic</tspan> = interface (what it can do).  <tspan fill="var(--accent)" font-weight="bold">Green</tspan> = class you create with new (how it does it).</text>
+        <text x="30" y="305" font-size="12" fill="var(--muted)">↳ = extends / implements the item above.  Utility helpers: java.util.Collections, java.util.Arrays.</text>
+      </g>
+    </svg>
+    <figcaption>The Collections Framework at a glance. Map is part of the framework but does not extend Collection.</figcaption>
+  </figure>
+  <div class="table-wrap"><table>
+    <tr><th>Interface</th><th>Order?</th><th>Duplicates?</th><th>Access by</th><th>Main classes</th></tr>
+    <tr><td><code>List</code></td><td>Yes (insertion / index)</td><td>Yes</td><td>Index <code>get(2)</code></td><td><code>ArrayList</code>, <code>LinkedList</code></td></tr>
+    <tr><td><code>Set</code></td><td>Depends on class</td><td><strong>No</strong></td><td>Only "contains?" / loop</td><td><code>HashSet</code>, <code>LinkedHashSet</code>, <code>TreeSet</code></td></tr>
+    <tr><td><code>Queue</code> / <code>Deque</code></td><td>FIFO / both ends / priority</td><td>Yes</td><td>Head (front) / ends</td><td><code>ArrayDeque</code>, <code>PriorityQueue</code></td></tr>
+    <tr><td><code>Map</code></td><td>Depends on class</td><td>Keys no, values yes</td><td>Key <code>get("Dosa")</code></td><td><code>HashMap</code>, <code>LinkedHashMap</code>, <code>TreeMap</code></td></tr>
+  </table></div>
+
+  <h4>Program to the interface</h4>
+  <pre><code class="lang-java">List&lt;String&gt; cart = new ArrayList&lt;&gt;();     // ✅ variable type = interface
+ArrayList&lt;String&gt; cart = new ArrayList&lt;&gt;(); // works, but ties you to ArrayList</code></pre>
+  <p>Remember Topic 8: code that depends on the <strong>interface</strong> can switch implementation (<code>ArrayList</code> → <code>LinkedList</code>) by changing one word.
+    Method parameters and return types should also use <code>List</code>, <code>Set</code>, <code>Map</code>.</p>
+
+  <h3>3.3 List — ordered, duplicates allowed, index-based</h3>
+  <p>The most used collection by far. Key methods:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>What it does</th><th>Example result</th></tr>
+    <tr><td><code>add(e)</code> / <code>add(i, e)</code></td><td>Add at end / insert at index i</td><td></td></tr>
+    <tr><td><code>get(i)</code></td><td>Element at index i (0-based)</td><td><code>get(0)</code> → first</td></tr>
+    <tr><td><code>set(i, e)</code></td><td>Replace element at i</td><td>returns the old one</td></tr>
+    <tr><td><code>remove(i)</code> / <code>remove(obj)</code></td><td>Remove by index / by value</td><td>see the trap below</td></tr>
+    <tr><td><code>size()</code>, <code>isEmpty()</code></td><td>How many / any at all?</td><td></td></tr>
+    <tr><td><code>contains(obj)</code>, <code>indexOf(obj)</code></td><td>Is it there? / where? (-1 if not)</td><td>uses <code>equals()</code></td></tr>
+    <tr><td><code>addAll(coll)</code></td><td>Add everything from another collection</td><td></td></tr>
+    <tr><td><code>subList(from, to)</code></td><td>View of a range (to is excluded)</td><td></td></tr>
+    <tr><td><code>clear()</code></td><td>Remove everything</td><td></td></tr>
+    <tr><td><code>sort(comparator)</code></td><td>Sort in place</td><td>see 3.8</td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Trap: <code>remove(1)</code> on a <code>List&lt;Integer&gt;</code></strong>
+    <code>marks.remove(1)</code> removes the element at <strong>index</strong> 1, not the value 1! To remove the <em>value</em>, pass an object:
+    <code>marks.remove(Integer.valueOf(1))</code>.</div>
+
+  <h4>ArrayList vs LinkedList</h4>
+  <p>Both are Lists with the same methods. The difference is <strong>what's inside</strong>:</p>
+  <div class="grid">
+    <div class="card"><strong>ArrayList</strong> — an array inside
+      <div class="flow"><span class="box">A</span><span class="box">B</span><span class="box">C</span><span class="box">D</span><span class="box info">(spare)</span></div>
+      Jumping to position 3 is instant. Inserting at the front means shifting every element right. When full, it creates a bigger array (×1.5) and copies.</div>
+    <div class="card"><strong>LinkedList</strong> — a chain of nodes
+      <div class="flow"><span class="box alt">A</span><span class="arrow">⇄</span><span class="box alt">B</span><span class="arrow">⇄</span><span class="box alt">C</span><span class="arrow">⇄</span><span class="box alt">D</span></div>
+      Adding/removing at either end is instant (just re-link). But to reach position 3 it must walk node by node. Each node also stores 2 links (more memory).</div>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th>Operation</th><th>ArrayList</th><th>LinkedList</th></tr>
+    <tr><td><code>get(i)</code> / <code>set(i)</code></td><td>⚡ Fast — O(1)</td><td>🐢 Slow — O(n), must walk</td></tr>
+    <tr><td><code>add(e)</code> at end</td><td>⚡ Fast (usually)</td><td>⚡ Fast</td></tr>
+    <tr><td>add/remove at the <strong>front</strong></td><td>🐢 Slow — shifts everything</td><td>⚡ Fast</td></tr>
+    <tr><td>add/remove in the middle</td><td>🐢 Shift</td><td>🐢 Walk there first (fast only if you're already there with an iterator)</td></tr>
+    <tr><td>Memory</td><td>Compact</td><td>Extra 2 links per element</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ What does O(1) / O(n) mean?</strong>"Big-O" describes how the work grows with the size <em>n</em>. <strong>O(1)</strong> = same time no matter how big
+    (like opening a book at page 300 when you know the page). <strong>O(n)</strong> = time grows with size (like reading every page to find a word). <strong>O(log n)</strong> = in between,
+    grows very slowly (like finding a word in a dictionary by halving).</div>
+  <div class="callout tip"><strong>💡 The practical answer</strong>Use <strong><code>ArrayList</code> by default</strong> — it's the right choice 95% of the time thanks to fast reads and
+    CPU-cache friendliness. If you need a queue or stack, use <code>ArrayDeque</code>, not <code>LinkedList</code>.</div>
+
+  <h3>3.4 Set — no duplicates</h3>
+  <p>A Set refuses duplicates. <code>add()</code> returns <code>false</code> if the element is already there. "Duplicate" is decided by <code>equals()</code>
+    (and <code>hashCode()</code> for hash-based sets — see 3.10).</p>
+  <div class="table-wrap"><table>
+    <tr><th>Class</th><th>Order when you loop/print</th><th>Speed of add/contains</th><th>Inside</th><th>Use when</th></tr>
+    <tr><td><code>HashSet</code></td><td>No promise (looks random)</td><td>⚡ O(1)</td><td>A HashMap</td><td>Default: you only care about uniqueness</td></tr>
+    <tr><td><code>LinkedHashSet</code></td><td>Insertion order</td><td>⚡ O(1)</td><td>HashMap + linked list</td><td>Unique + keep the original order</td></tr>
+    <tr><td><code>TreeSet</code></td><td><strong>Sorted</strong></td><td>O(log n)</td><td>Red-black tree</td><td>Unique + always sorted, range queries</td></tr>
+  </table></div>
+  <p>Same input <code>{"veg", "spicy", "combo", "veg", "dessert", "spicy"}</code>, three results:</p>
+  <pre class="terminal"><code>HashSet       : [dessert, veg, combo, spicy]
+LinkedHashSet : [veg, spicy, combo, dessert]
+TreeSet       : [combo, dessert, spicy, veg]</code></pre>
+  <p>Useful tricks:</p>
+  <pre><code class="lang-java">// Remove duplicates from a list, keep order
+Set&lt;String&gt; uniqueCities = new LinkedHashSet&lt;&gt;(cities);
+
+// Set maths (work on copies!)
+union.addAll(other);        // A ∪ B
+common.retainAll(other);    // A ∩ B
+onlyMine.removeAll(other);  // A − B
+
+// TreeSet navigation
+prices.first();  prices.last();  prices.headSet(150);  prices.ceiling(120);</code></pre>
+
+  <h3>3.5 Map — key → value</h3>
+  <p>A Map stores <strong>pairs</strong>. You find a value by its key, very fast. Keys are unique; putting an existing key <strong>replaces</strong> its value.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>What it does</th></tr>
+    <tr><td><code>put(k, v)</code></td><td>Add or replace. Returns the old value (or null).</td></tr>
+    <tr><td><code>get(k)</code></td><td>Value for k, or <strong>null</strong> if missing.</td></tr>
+    <tr><td><code>getOrDefault(k, def)</code></td><td>Value, or <code>def</code> if missing. Avoids null checks.</td></tr>
+    <tr><td><code>containsKey(k)</code> / <code>containsValue(v)</code></td><td>Is it there? (containsValue is slow: O(n))</td></tr>
+    <tr><td><code>remove(k)</code></td><td>Delete the pair.</td></tr>
+    <tr><td><code>putIfAbsent(k, v)</code></td><td>Only add if the key is new.</td></tr>
+    <tr><td><code>merge(k, v, fn)</code></td><td>Add, or combine with the existing value (great for counting).</td></tr>
+    <tr><td><code>keySet()</code> / <code>values()</code> / <code>entrySet()</code></td><td>Views for looping.</td></tr>
+  </table></div>
+  <p>Looping — <code>entrySet()</code> is the best way when you need both key and value:</p>
+  <pre><code class="lang-java">for (Map.Entry&lt;String, Integer&gt; entry : menu.entrySet()) {
+    System.out.println(entry.getKey() + " costs " + entry.getValue());
+}</code></pre>
+  <p>Counting things — a pattern you'll use forever:</p>
+  <pre><code class="lang-java">Map&lt;String, Integer&gt; counts = new LinkedHashMap&lt;&gt;();
+for (String item : orders) {
+    counts.put(item, counts.getOrDefault(item, 0) + 1);
+}
+// {Dosa=3, Idli=2, Vada=1}</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>Class</th><th>Key order</th><th>Speed</th><th>Null key?</th><th>Use when</th></tr>
+    <tr><td><code>HashMap</code></td><td>No promise</td><td>⚡ O(1)</td><td>One allowed</td><td>Default choice</td></tr>
+    <tr><td><code>LinkedHashMap</code></td><td>Insertion order</td><td>⚡ O(1)</td><td>One allowed</td><td>Predictable output, simple caches (LRU)</td></tr>
+    <tr><td><code>TreeMap</code></td><td>Sorted by key</td><td>O(log n)</td><td>No</td><td>Sorted reports, "first key after X"</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Why isn't Map a Collection?</strong>A <code>Collection</code> holds single elements (<code>add(e)</code>). A Map holds <em>pairs</em> (<code>put(k, v)</code>),
+    so it has a different shape. It's still part of the "Collections Framework" family.</div>
+
+  <h3>3.6 Queue, Deque, Stack and PriorityQueue</h3>
+  <div class="flow">
+    <span class="arrow">offer →</span><span class="box">ORD-3</span><span class="box">ORD-2</span><span class="box alt">ORD-1</span><span class="arrow">→ poll</span>
+    <span class="arrow">&nbsp;&nbsp;(Queue: FIFO)</span>
+  </div>
+  <div class="flow">
+    <span class="arrow">push / pop ⇅</span><span class="box alt">cart (top)</span><span class="box">product</span><span class="box">home</span>
+    <span class="arrow">&nbsp;&nbsp;(Stack: LIFO)</span>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th>Action</th><th>Throws if it fails</th><th>Returns special value</th></tr>
+    <tr><td>Add at back</td><td><code>add(e)</code></td><td><code>offer(e)</code> → false</td></tr>
+    <tr><td>Remove from front</td><td><code>remove()</code> → NoSuchElementException</td><td><code>poll()</code> → null</td></tr>
+    <tr><td>Look at front</td><td><code>element()</code></td><td><code>peek()</code> → null</td></tr>
+  </table></div>
+  <ul>
+    <li><strong><code>ArrayDeque</code></strong> — the go-to class for both <strong>queues</strong> (<code>offer</code>/<code>poll</code>) and <strong>stacks</strong> (<code>push</code>/<code>pop</code>/<code>peek</code>).
+      Also <code>offerFirst</code>/<code>offerLast</code>/<code>pollFirst</code>/<code>pollLast</code>. Faster than <code>LinkedList</code> and the old <code>Stack</code> class. Doesn't allow null.</li>
+    <li><strong><code>PriorityQueue</code></strong> — <code>poll()</code> always returns the <strong>smallest</strong> element (by natural order or a Comparator). Great for "most urgent first" or "cheapest first".
+      Printing it does <strong>not</strong> show sorted order — only <code>poll()</code> does.</li>
+  </ul>
+  <div class="callout warn"><strong>⚠️ Avoid <code>java.util.Stack</code> and <code>Vector</code></strong>They're legacy classes from Java 1.0, synchronized (slower) and with odd design.
+    Use <code>Deque&lt;T&gt; stack = new ArrayDeque&lt;&gt;();</code> and <code>ArrayList</code> instead.</div>
+
+  <h3>3.7 Iterator and ConcurrentModificationException</h3>
+  <p>An <strong>Iterator</strong> is a cursor that walks through a collection: <code>hasNext()</code> ("is there more?"), <code>next()</code> ("give me the next one"),
+    <code>remove()</code> ("remove the one you just gave me"). Every for-each loop secretly uses one.</p>
+  <pre><code class="lang-java">Iterator&lt;String&gt; it = products.iterator();
+while (it.hasNext()) {
+    String p = it.next();
+    ...
+}</code></pre>
+  <p>Now the classic beginner bug:</p>
+  <pre><code class="lang-java">for (String p : products) {
+    if (p.startsWith("OUT:")) {
+        products.remove(p);    // 💥 ConcurrentModificationException
+    }
+}</code></pre>
+  <p><strong>Why?</strong> The list keeps a counter of changes (<code>modCount</code>). The hidden iterator remembers the value when the loop started and checks it on every
+    <code>next()</code>. You changed the list <em>behind the iterator's back</em>, so the counter no longer matches and the iterator stops immediately
+    ("<strong>fail-fast</strong>") rather than give wrong results. The name is confusing: it has nothing to do with threads here.</p>
+  <p>Three correct ways:</p>
+  <pre><code class="lang-java">// 1. Remove THROUGH the iterator
+Iterator&lt;String&gt; iter = products.iterator();
+while (iter.hasNext()) {
+    if (iter.next().startsWith("OUT:")) {
+        iter.remove();
+    }
+}
+
+// 2. removeIf (Java 8+) — a tiny lambda: "remove p if p starts with OUT:" (lambdas: Topic 13)
+products.removeIf(p -&gt; p.startsWith("OUT:"));
+
+// 3. Loop backwards by index
+for (int i = products.size() - 1; i &gt;= 0; i--) {
+    if (products.get(i).startsWith("OUT:")) {
+        products.remove(i);
+    }
+}</code></pre>
+  <div class="callout tip"><strong>💡 In practice</strong>Use <code>removeIf</code> — it's the shortest and clearest. Option 1 is what you'll see in older code.</div>
+
+  <h3>3.8 Sorting: Comparable vs Comparator</h3>
+  <p><code>Collections.sort(names)</code> works for Strings and numbers because they already know how to compare themselves. For your own classes
+    (like <code>Employee</code>) Java needs to be told <strong>how</strong> to order them. There are two ways:</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th><code>Comparable&lt;T&gt;</code></th><th><code>Comparator&lt;T&gt;</code></th></tr>
+    <tr><td>Meaning</td><td>The object's <strong>one natural order</strong></td><td>Any <strong>extra</strong> order, decided from outside</td></tr>
+    <tr><td>Where</td><td>Inside the class: <code>class Employee implements Comparable&lt;Employee&gt;</code></td><td>Separate class, anonymous class, or lambda</td></tr>
+    <tr><td>Method</td><td><code>int compareTo(T other)</code></td><td><code>int compare(T a, T b)</code></td></tr>
+    <tr><td>How many?</td><td>One per class</td><td>As many as you like</td></tr>
+    <tr><td>Used by</td><td><code>Collections.sort(list)</code>, <code>TreeSet</code>, <code>TreeMap</code>, <code>PriorityQueue</code> by default</td><td><code>list.sort(c)</code>, <code>new TreeSet&lt;&gt;(c)</code>…</td></tr>
+    <tr><td>Example</td><td>Employees by id</td><td>By name, by salary desc, by department then name</td></tr>
+  </table></div>
+  <p>The return value rule (for both):</p>
+  <div class="table-wrap"><table>
+    <tr><th>Return</th><th>Meaning</th></tr>
+    <tr><td>negative (e.g. -1)</td><td>first one comes <strong>before</strong> the second</td></tr>
+    <tr><td>0</td><td>equal position</td></tr>
+    <tr><td>positive (e.g. 1)</td><td>first one comes <strong>after</strong> the second</td></tr>
+  </table></div>
+  <pre><span class="file">Example07_ComparableVsComparator.java</span><code class="lang-java">class Employee implements Comparable&lt;Employee&gt; {
+    @Override
+    public int compareTo(Employee other) {
+        return Integer.compare(this.id, other.id);       // natural order: by id
+    }
+}
+
+class NameComparator implements Comparator&lt;Employee&gt; {
+    @Override
+    public int compare(Employee a, Employee b) {
+        return a.getName().compareTo(b.getName());       // alphabetical
+    }
+}
+
+Collections.sort(staff);                 // uses compareTo → by id
+staff.sort(new NameComparator());        // uses the comparator → by name</code></pre>
+  <p>Descending order? Swap <code>a</code> and <code>b</code>, or call <code>.reversed()</code> on a comparator.</p>
+  <h4>Sneak peek: the modern style</h4>
+  <pre><code class="lang-java">staff.sort(Comparator.comparing(Employee::getDepartment)
+                     .thenComparing(Employee::getName));</code></pre>
+  <p>Read it like English: "compare by department, then by name". <code>Employee::getDepartment</code> is a <em>method reference</em> — you'll learn exactly how it works
+    in <a href="../13-Lambdas-And-Functional-Interfaces/lesson.html">Topic 13</a>. You'll see this style constantly in real code.</p>
+  <div class="callout warn"><strong>⚠️ Don't subtract to compare</strong><code>return this.id - other.id;</code> can overflow for big or negative numbers and give the wrong sign.
+    Use <code>Integer.compare(a, b)</code>, <code>Double.compare(a, b)</code>, or <code>Comparator.comparing</code>.</div>
+
+  <h3>3.9 The Collections utility class and immutable collections</h3>
+  <p><code>java.util.Collections</code> (with an <strong>s</strong>) is a utility class (Topic 9!) of static helpers — not to be confused with the <code>Collection</code> interface.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Method</th><th>Does</th></tr>
+    <tr><td><code>sort(list)</code> / <code>sort(list, c)</code></td><td>Sort in place</td></tr>
+    <tr><td><code>reverse(list)</code>, <code>shuffle(list)</code>, <code>swap(list, i, j)</code></td><td>Reorder</td></tr>
+    <tr><td><code>max(coll)</code>, <code>min(coll)</code>, <code>frequency(coll, x)</code></td><td>Find</td></tr>
+    <tr><td><code>nCopies(n, x)</code>, <code>addAll(coll, a, b, c)</code></td><td>Create / fill</td></tr>
+    <tr><td><code>unmodifiableList(list)</code>, <code>emptyList()</code></td><td>Read-only views / empty</td></tr>
+    <tr><td><code>synchronizedList(list)</code></td><td>Thread-safe wrapper (Topic 17 shows better options)</td></tr>
+  </table></div>
+  <h4>Immutable collections (Java 9+)</h4>
+  <pre><code class="lang-java">List&lt;String&gt; colours = List.of("Red", "Green", "Blue");
+Set&lt;String&gt; roles = Set.of("ADMIN", "USER");
+Map&lt;String, String&gt; hours = Map.of("Mon", "9am-5pm", "Sat", "10am-2pm");
+List&lt;String&gt; frozen = List.copyOf(someList);
+
+colours.add("Pink");   // 💥 UnsupportedOperationException</code></pre>
+  <ul>
+    <li><strong>Immutable</strong> = can never change. Safe to share, safe across threads, no surprises.</li>
+    <li>They don't allow <code>null</code> elements (NPE).</li>
+    <li><code>Set.of</code> / <code>Map.of</code> iteration order is unspecified.</li>
+    <li>Need a changeable copy? <code>new ArrayList&lt;&gt;(List.of(...))</code>.</li>
+  </ul>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Changeable?</th><th>Sees later changes to the original?</th></tr>
+    <tr><td><code>Collections.unmodifiableList(orig)</code></td><td>No (read-only <strong>view</strong>)</td><td><strong>Yes</strong> — it's a window onto the original</td></tr>
+    <tr><td><code>List.copyOf(orig)</code></td><td>No</td><td>No — independent copy</td></tr>
+    <tr><td><code>Arrays.asList(a, b)</code></td><td><code>set</code> yes, <code>add</code>/<code>remove</code> <strong>no</strong> (fixed size)</td><td>Backed by the array</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Return immutable lists from methods</strong>If a class keeps a private list (e.g. order items), return <code>List.copyOf(items)</code>
+    or an unmodifiable view from its getter. Otherwise callers can modify your object's insides — that breaks encapsulation.</div>
+
+  <h3>3.10 How HashMap works inside (simply)</h3>
+  <p>How can <code>map.get("Dosa")</code> be instant even with a million entries? HashMap doesn't search one by one. It uses <strong>buckets</strong>:</p>
+  <ol>
+    <li>Ask the key for its <code>hashCode()</code> — an <code>int</code> "fingerprint". <code>"Asha".hashCode()</code> → <code>2050251</code>.</li>
+    <li>Turn that number into a <strong>bucket index</strong> (internal array of, initially, 16 buckets): roughly <code>hash % 16</code> → bucket 4.</li>
+    <li>Go <strong>directly</strong> to bucket 4. No searching through the other buckets.</li>
+    <li>A bucket may hold several entries (a <strong>collision</strong> — <code>"Ravi"</code> also lands in bucket 4). Inside the bucket, use <code>equals()</code> to find the exact key.</li>
+  </ol>
+  <figure class="diagram">
+    <svg viewBox="0 0 700 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="HashMap buckets">
+      <g font-family="Segoe UI, sans-serif" font-size="13" fill="currentColor">
+        <text x="20" y="30" font-weight="bold">key "Ravi"</text>
+        <text x="20" y="50">hashCode() = 2539842</text>
+        <text x="20" y="70">→ bucket index 4</text>
+        <line x1="160" y1="62" x2="250" y2="132" stroke="var(--java)" stroke-width="2"/>
+        <polygon points="250,132 240,130 246,122" fill="var(--java)"/>
+        <!-- buckets -->
+        <g>
+          <rect x="250" y="20" width="60" height="22" fill="none" stroke="currentColor"/><text x="280" y="36" text-anchor="middle">0</text>
+          <rect x="250" y="42" width="60" height="22" fill="none" stroke="currentColor"/><text x="280" y="58" text-anchor="middle">1</text>
+          <rect x="250" y="64" width="60" height="22" fill="none" stroke="currentColor"/><text x="280" y="80" text-anchor="middle">2</text>
+          <rect x="250" y="86" width="60" height="22" fill="none" stroke="currentColor"/><text x="280" y="102" text-anchor="middle">3</text>
+          <rect x="250" y="108" width="60" height="22" fill="none" stroke="var(--java)" stroke-width="2"/><text x="280" y="124" text-anchor="middle" font-weight="bold">4</text>
+          <rect x="250" y="130" width="60" height="22" fill="none" stroke="currentColor"/><text x="280" y="146" text-anchor="middle">…</text>
+          <rect x="250" y="152" width="60" height="22" fill="none" stroke="currentColor"/><text x="280" y="168" text-anchor="middle">12</text>
+          <rect x="250" y="174" width="60" height="22" fill="none" stroke="currentColor"/><text x="280" y="190" text-anchor="middle">…15</text>
+        </g>
+        <!-- bucket 4 chain -->
+        <rect x="340" y="106" width="130" height="26" rx="6" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="405" y="124" text-anchor="middle">"Asha" → 91</text>
+        <line x1="310" y1="119" x2="340" y2="119" stroke="currentColor"/>
+        <rect x="500" y="106" width="130" height="26" rx="6" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="565" y="124" text-anchor="middle">"Ravi" → 85</text>
+        <line x1="470" y1="119" x2="500" y2="119" stroke="currentColor"/>
+        <text x="485" y="155" text-anchor="middle" font-size="12" fill="var(--muted)">collision: equals() picks the right one</text>
+        <!-- bucket 12 -->
+        <rect x="340" y="150" width="130" height="26" rx="6" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="405" y="168" text-anchor="middle">"Meena" → 78</text>
+        <line x1="310" y1="163" x2="340" y2="163" stroke="currentColor"/>
+        <text x="350" y="225" font-size="12" fill="var(--muted)">16 buckets at start; doubles when 75% full (load factor 0.75).</text>
+        <text x="350" y="242" font-size="12" fill="var(--muted)">Very crowded buckets turn into small trees (Java 8+).</text>
+      </g>
+    </svg>
+    <figcaption>hashCode picks the bucket; equals picks the entry inside the bucket.</figcaption>
+  </figure>
+  <p>Extra details (good for interviews):</p>
+  <ul>
+    <li>Default capacity <strong>16</strong>, <strong>load factor 0.75</strong>: when more than 12 entries exist, the table <strong>doubles</strong> and entries are redistributed ("rehashing").</li>
+    <li>Since Java 8, a bucket with many entries (8+) turns from a linked list into a balanced <strong>tree</strong>, so worst case is O(log n) instead of O(n).</li>
+    <li><code>HashSet</code> is just a <code>HashMap</code> where your element is the key and the value is a dummy.</li>
+  </ul>
+
+  <h4>The equals/hashCode contract — the rule you must never break</h4>
+  <div class="callout danger"><strong>❌ If two objects are <code>equals()</code>, they MUST have the same <code>hashCode()</code>.</strong>
+    If you override <code>equals</code> but not <code>hashCode</code>, two "equal" keys get different (identity-based) hash codes → different buckets → <code>map.get()</code>
+    looks in the wrong bucket and returns <code>null</code>, and a <code>HashSet</code> happily stores "duplicates". <code>Example09</code> shows exactly this.</div>
+  <pre><code class="lang-java">final class Isbn {
+    private final String value;
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Isbn)) return false;
+        return value.equals(((Isbn) o).value);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(value);     // use the SAME fields as equals
+    }
+}</code></pre>
+  <ul>
+    <li>The opposite is NOT required: two different objects <em>may</em> share a hash code (collisions are normal).</li>
+    <li><strong>Keys should be immutable</strong>. If you change a key's fields after <code>put</code>, its hash changes and the entry is "lost" in the old bucket.</li>
+    <li>VS Code can generate both methods: right-click → <strong>Source Action… → Generate hashCode() and equals()</strong>. Records (Topic 15) generate them automatically.</li>
+  </ul>
+
+  <h3>3.11 Choosing the right collection</h3>
+  <div class="table-wrap"><table>
+    <tr><th>I need…</th><th>Use</th></tr>
+    <tr><td>An ordered list, access by position, duplicates OK (most common)</td><td><code>ArrayList</code></td></tr>
+    <tr><td>Unique items, order doesn't matter, fast "contains?"</td><td><code>HashSet</code></td></tr>
+    <tr><td>Unique items in the order they were added</td><td><code>LinkedHashSet</code></td></tr>
+    <tr><td>Unique items always sorted / "smallest above X"</td><td><code>TreeSet</code></td></tr>
+    <tr><td>Look up a value by a key</td><td><code>HashMap</code></td></tr>
+    <tr><td>Key → value, keep insertion order (predictable JSON/output)</td><td><code>LinkedHashMap</code></td></tr>
+    <tr><td>Key → value sorted by key</td><td><code>TreeMap</code></td></tr>
+    <tr><td>First-in-first-out queue</td><td><code>ArrayDeque</code> (as <code>Queue</code>)</td></tr>
+    <tr><td>Last-in-first-out stack (undo, back button)</td><td><code>ArrayDeque</code> (as <code>Deque</code>, push/pop)</td></tr>
+    <tr><td>Always take the smallest / most urgent next</td><td><code>PriorityQueue</code></td></tr>
+    <tr><td>A fixed list that must never change</td><td><code>List.of(...)</code> / <code>List.copyOf(...)</code></td></tr>
+    <tr><td>Shared between threads</td><td><code>ConcurrentHashMap</code>, <code>CopyOnWriteArrayList</code> (Topic 17)</td></tr>
+  </table></div>
+  <div class="table-wrap"><table>
+    <tr><th>Class</th><th>add</th><th>contains / get(key)</th><th>get(index)</th><th>remove</th><th>Order</th><th>null?</th></tr>
+    <tr><td>ArrayList</td><td>O(1)*</td><td>O(n)</td><td>O(1)</td><td>O(n)</td><td>insertion</td><td>yes</td></tr>
+    <tr><td>LinkedList</td><td>O(1)</td><td>O(n)</td><td>O(n)</td><td>O(1) at ends</td><td>insertion</td><td>yes</td></tr>
+    <tr><td>HashSet / HashMap</td><td>O(1)</td><td>O(1)</td><td>—</td><td>O(1)</td><td>none</td><td>one null</td></tr>
+    <tr><td>LinkedHashSet / LinkedHashMap</td><td>O(1)</td><td>O(1)</td><td>—</td><td>O(1)</td><td>insertion</td><td>one null</td></tr>
+    <tr><td>TreeSet / TreeMap</td><td>O(log n)</td><td>O(log n)</td><td>—</td><td>O(log n)</td><td>sorted</td><td>no</td></tr>
+    <tr><td>ArrayDeque</td><td>O(1) ends</td><td>O(n)</td><td>—</td><td>O(1) ends</td><td>FIFO/LIFO</td><td>no</td></tr>
+    <tr><td>PriorityQueue</td><td>O(log n)</td><td>O(n)</td><td>—</td><td>poll O(log n)</td><td>by priority</td><td>no</td></tr>
+  </table></div>
+  <p><small>* "amortised": usually instant; occasionally the array grows and copies.</small></p>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>Example01_WhyCollections.java</code></td><td>A shopping cart as an array (full, manual shifting) vs as an <code>ArrayList</code>; autoboxing.</td></tr>
+    <tr><td><code>Example02_ListArrayListVsLinkedList.java</code></td><td>List methods on a class register; the <code>remove(int)</code> trap; a timing test (front inserts, index reads).</td></tr>
+    <tr><td><code>Example03_SetTypes.java</code></td><td>Order tags in 3 kinds of Set; de-duplicating cities; TreeSet navigation; union/intersection/difference of courses.</td></tr>
+    <tr><td><code>Example04_MapTypes.java</code></td><td>A restaurant menu map; all key methods; 3 ways to loop; 3 kinds of Map; counting orders.</td></tr>
+    <tr><td><code>Example05_QueueAndDeque.java</code></td><td>Kitchen order queue, browser back-button stack, a two-ended line, an emergency-room PriorityQueue.</td></tr>
+    <tr><td><code>Example06_IteratorAndConcurrentModification.java</code></td><td>Manual iterator; triggering a CME; 3 safe ways to remove; <code>ListIterator.set</code>.</td></tr>
+    <tr><td><code>Example07_ComparableVsComparator.java</code></td><td><code>Employee implements Comparable</code>; <code>NameComparator</code>; anonymous comparator; <code>Comparator.comparing</code> chain.</td></tr>
+    <tr><td><code>Example08_CollectionsUtilityAndImmutable.java</code></td><td><code>Collections</code> helpers; <code>List.of</code>/<code>Map.of</code>; view vs copy; <code>Arrays.asList</code> surprises.</td></tr>
+    <tr><td><code>Example09_HowHashMapWorks.java</code></td><td>Real hash codes and bucket numbers; a collision; broken vs correct key class; mutating a key.</td></tr>
+  </table></div>
+
+  <h3>4.1 Example02 — the speed test</h3>
+  <pre><code class="lang-java">static long timeInsertFront(List&lt;Integer&gt; list, int n) {
+    long start = System.nanoTime();
+    for (int i = 0; i &lt; n; i++) {
+        list.add(0, i);                // insert at the FRONT
+    }
+    return (System.nanoTime() - start) / 1_000_000;   // nanoseconds → milliseconds
+}</code></pre>
+  <p>Notice the parameter type is <code>List&lt;Integer&gt;</code> — the <em>same method</em> times both an <code>ArrayList</code> and a <code>LinkedList</code>. That's programming
+    to the interface. The results flip depending on the operation: LinkedList wins front-inserts, ArrayList wins index reads by a mile.</p>
+
+  <h3>4.2 Example04 — counting with a map</h3>
+  <pre><code class="lang-java">for (String item : orders) {
+    int current = counts.getOrDefault(item, 0);   // 0 if we've never seen it
+    counts.put(item, current + 1);
+}</code></pre>
+  <p>Then the same with <code>counts2.merge(item, 1, Integer::sum)</code>: "put 1, or if the key exists, combine old and new with <code>Integer.sum</code>".</p>
+
+  <h3>4.3 Example05 — PriorityQueue with your own class</h3>
+  <p><code>Patient implements Comparable&lt;Patient&gt;</code> and compares by severity. The PriorityQueue uses that to always hand out the most urgent patient
+    (severity 1) first, regardless of arrival order.</p>
+
+  <h3>4.4 Example07 — four ways to sort employees</h3>
+  <pre><code class="lang-java">staff.sort(new Comparator&lt;Employee&gt;() {           // anonymous class from Topic 9
+    @Override
+    public int compare(Employee a, Employee b) {
+        return Double.compare(b.getSalary(), a.getSalary());   // b first → descending
+    }
+});</code></pre>
+
+  <h3>4.5 Example09 — seeing the buckets</h3>
+  <pre><code class="lang-java">static int bucketFor(int hash, int tableSize) {
+    int spread = hash ^ (hash &gt;&gt;&gt; 16);   // mix high bits into low bits (what HashMap does)
+    return spread &amp; (tableSize - 1);      // keep the low bits = index 0..15
+}</code></pre>
+  <p>You don't need to memorise the bit tricks — the idea is "hash → small bucket number". Then <code>BrokenIsbn</code> (equals only) fails to find its value and lets
+    a duplicate into a Set, while <code>Isbn</code> (equals + hashCode) works perfectly.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <p>Open <code>D:\Java-SpringBoot\11-Collections-Framework</code> in VS Code and click <strong>▶ Run</strong> above <code>main</code>, or in the terminal:</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\11-Collections-Framework"
+java Example01_WhyCollections.java</code></pre>
+  <pre class="terminal"><code>--- With an array ---
+Cart is full! Cannot add: Soap
+Array cart: [Rice, Milk, Bread]
+After removing Milk by hand: [Rice, Bread, null]
+--- With an ArrayList ---
+List cart: [Rice, Milk, Bread, Soap, Eggs]
+Size: 5
+Contains Milk? true
+Position of Bread: 2
+After remove("Milk"): [Rice, Bread, Soap, Eggs]
+After add(0, "Tea"): [Tea, Rice, Bread, Soap, Eggs]
+Item at index 1: Rice
+--- Numbers in a list (autoboxing) ---
+Quantities: [2, 1, 5]  total = 8</code></pre>
+
+  <pre class="terminal"><code>java Example02_ListArrayListVsLinkedList.java</code></pre>
+  <pre class="terminal"><code>Students: [Asha, Ravi, Meena, Ravi]
+Duplicates allowed -> Ravi appears twice
+First: Asha, last: Ravi
+After set(1, "Kiran"): [Asha, Kiran, Meena, Ravi]
+remove(0) removed: Asha
+remove("Ravi") removed? true -> [Kiran, Meena]
+After addAll: [Kiran, Meena, Zoya, Arjun, Dev]
+subList(1, 3): [Meena, Zoya]
+Loop with index : 0=Kiran 1=Meena 2=Zoya 3=Arjun 4=Dev
+Loop with for-each: Kiran Meena Zoya Arjun Dev
+Integer list before: [10, 20, 30]
+remove(1) -> removes INDEX 1: [10, 30]
+remove(Integer.valueOf(10)) -> removes VALUE 10: [30]
+--- Speed test: 20,000 inserts at the FRONT ---
+ArrayList : 57 ms
+LinkedList: 4 ms
+--- Speed test: 20,000 reads by index (get(i)) ---
+ArrayList : 2 ms
+LinkedList: 344 ms</code></pre>
+  <p>Your timing numbers will be different — compare which one is faster, not the exact numbers.</p>
+
+  <pre class="terminal"><code>java Example03_SetTypes.java</code></pre>
+  <pre class="terminal"><code>HashSet       : [dessert, veg, combo, spicy]
+LinkedHashSet : [veg, spicy, combo, dessert]
+TreeSet       : [combo, dessert, spicy, veg]
+add("veg") again returned: false  size still 4
+Unique cities: [Pune, Delhi, Chennai]
+TreeSet of prices: [49, 99, 149, 199, 299]
+first=49 last=299 cheaper than 150: [49, 99, 149] cheapest >= 120: 149
+Asha's courses: [Java, SQL, Spring]
+Ravi's courses: [Java, Docker, AWS]
+Union        : [Java, SQL, Spring, Docker, AWS]
+Intersection : [Java]
+Only Asha    : [SQL, Spring]</code></pre>
+
+  <pre class="terminal"><code>java Example04_MapTypes.java</code></pre>
+  <pre class="terminal"><code>Menu: {Dosa=60, Idli=40, Vada=30}
+Price of Dosa: 60
+Price of Pizza: null
+Price of Pizza (default): 0
+Has Idli? true   Has 99 as a key? false   Has value 30? true
+put("Dosa", 70) returned old value: 60 -> {Dosa=70, Idli=40, Vada=30}
+putIfAbsent("Idli", 999) kept: 40
+After remove("Vada"): {Dosa=70, Idli=40}
+--- Looping ---
+key: Dosa
+key: Idli
+value: 70
+value: 40
+Dosa costs 70
+Idli costs 40
+--- 3 kinds of Map with the same data ---
+HashMap       : {banana=2, cherry=7, apple=5}
+LinkedHashMap : {cherry=7, apple=5, banana=2}
+TreeMap       : {apple=5, banana=2, cherry=7}
+--- Counting orders ---
+Order counts: {Dosa=3, Idli=2, Vada=1}
+merge() version: {Dosa=3, Idli=2, Vada=1}</code></pre>
+
+  <pre class="terminal"><code>java Example05_QueueAndDeque.java</code></pre>
+  <pre class="terminal"><code>--- Queue (FIFO) ---
+Waiting orders: [ORD-1, ORD-2, ORD-3]
+Next to cook (peek): ORD-1
+Cooking: ORD-1
+Cooking: ORD-2
+Cooking: ORD-3
+poll() on empty queue: null
+remove() on empty queue throws: NoSuchElementException
+--- Stack (LIFO) with ArrayDeque ---
+History: [cart, product, home]
+Back from: cart
+Back from: product
+Now on: home
+--- Deque: both ends ---
+[VIP-guest, regular-1, regular-2, late-guest]
+first=VIP-guest last=late-guest
+--- PriorityQueue ---
+Treating: Patient{name=Meena, severity=1}
+Treating: Patient{name=Ravi, severity=2}
+Treating: Patient{name=Asha, severity=3}
+Treating: Patient{name=Dev, severity=5}
+Smallest numbers first: 3 7 12 25</code></pre>
+
+  <pre class="terminal"><code>java Example06_IteratorAndConcurrentModification.java</code></pre>
+  <pre class="terminal"><code>Products: [Pen, OUT:Notebook, Bag, OUT:Ruler, Glue]
+--- Manual iterator ---
+Pen OUT:Notebook Bag OUT:Ruler Glue
+--- Wrong: remove inside for-each ---
+Boom! ConcurrentModificationException
+--- Right #1: iterator.remove() ---
+[Pen, Bag, Glue]
+--- Right #2: removeIf ---
+[Pen, Bag, Glue]
+--- Right #3: backwards index loop ---
+[Pen, Bag, Glue]
+--- ListIterator: change while looping ---
+[PEN, OUT:NOTEBOOK, BAG, OUT:RULER, GLUE]</code></pre>
+
+  <pre class="terminal"><code>java Example07_ComparableVsComparator.java</code></pre>
+  <pre class="terminal"><code>Names sorted: [Asha, Dev, Meena, Ravi]
+Natural order (by id):
+  [101 Ravi, IT, 75000.0, 102 Asha, HR, 52000.0, 103 Meena, IT, 91000.0, 104 Dev, HR, 52000.0]
+By name (Comparator class):
+  [102 Asha, HR, 52000.0, 104 Dev, HR, 52000.0, 103 Meena, IT, 91000.0, 101 Ravi, IT, 75000.0]
+By salary, highest first (anonymous class):
+  [103 Meena, IT, 91000.0, 101 Ravi, IT, 75000.0, 102 Asha, HR, 52000.0, 104 Dev, HR, 52000.0]
+By department, then salary desc, then name (Comparator.comparing):
+  [102 Asha, HR, 52000.0, 104 Dev, HR, 52000.0, 103 Meena, IT, 91000.0, 101 Ravi, IT, 75000.0]
+TreeSet with a name comparator: [Asha, Dev, Meena, Ravi]</code></pre>
+
+  <pre class="terminal"><code>java Example08_CollectionsUtilityAndImmutable.java</code></pre>
+  <pre class="terminal"><code>Original : [40, 10, 30, 20, 10]
+sort     : [10, 10, 20, 30, 40]
+reverse  : [40, 30, 20, 10, 10]
+max=40 min=10 frequency(10)=2
+swap(0,4): [10, 30, 20, 10, 40]
+shuffle(seed 42): [30, 20, 10, 40, 10]
+nCopies  : [-, -, -, -, -]
+addAll   : [Mon, Tue, Wed]
+--- Immutable collections ---
+List.of : [Red, Green, Blue]
+Cannot add to List.of -> UnsupportedOperationException
+List.of(null) -> NullPointerException
+Map.of  : Mon=9am-5pm
+--- View vs copy ---
+view : [A, B, C]   copy : [A, B]
+view.add() -> UnsupportedOperationException
+--- Arrays.asList ---
+[x, y, z] -> set(0) works: [X, y, z]
+asList.add() -> UnsupportedOperationException (fixed size)</code></pre>
+
+  <pre class="terminal"><code>java Example09_HowHashMapWorks.java</code></pre>
+  <pre class="terminal"><code>--- Buckets (table size 16) ---
+"Asha"  hashCode=2050251  -> bucket 4
+"Ravi"  hashCode=2539842  -> bucket 4
+"Meena" hashCode=74220576 -> bucket 12
+"Aa" and "BB" have the SAME hashCode: 2112 and 2112 -> a collision, still both stored: {Aa=1, BB=2}
+--- Broken key (equals WITHOUT hashCode) ---
+equals? true   same hashCode? false
+get with an equal key: null      &lt;- lost!
+Set size (should be 1): 2
+--- Correct key (equals AND hashCode) ---
+equals? true   same hashCode? true
+get with an equal key: Clean Code
+Set size (should be 1): 1
+--- Mutating a key after put ---
+Before change: Java Basics
+After change : null      &lt;- the entry is stuck in the old bucket</code></pre>
+  <div class="callout info"><strong>ℹ️ "HashSet order looks different on my PC"</strong>The order of <code>HashSet</code>/<code>HashMap</code> depends on hash codes and table size.
+    It's stable for the same data on the same Java version, but you must <strong>never rely on it</strong>. If order matters, use the Linked or Tree versions.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>❌ Mistake: removing inside a for-each loop</strong>
+    → <code>ConcurrentModificationException</code>.
+    <br><strong>Fix:</strong> <code>removeIf</code>, <code>iterator.remove()</code>, or a backwards index loop.</div>
+  <div class="callout danger"><strong>❌ Mistake: overriding <code>equals</code> without <code>hashCode</code></strong>
+    Objects "disappear" from HashMaps and HashSets contain duplicates.
+    <br><strong>Fix:</strong> always override both, using the same fields (let VS Code generate them, or use a record).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: raw types</strong>
+    <code>List list = new ArrayList();</code> (no <code>&lt;String&gt;</code>) compiles with a warning, accepts anything, and crashes later with <code>ClassCastException</code>.
+    <br><strong>Fix:</strong> always write the type: <code>List&lt;String&gt;</code>. (More in Topic 12.)</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>list.remove(1)</code> on a <code>List&lt;Integer&gt;</code></strong>
+    Removes index 1, not the value 1.
+    <br><strong>Fix:</strong> <code>list.remove(Integer.valueOf(1))</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: <code>map.get(key)</code> returning null and unboxing it</strong>
+    <code>int price = menu.get("Pizza");</code> → <code>NullPointerException</code> (null can't become an <code>int</code>).
+    <br><strong>Fix:</strong> <code>getOrDefault("Pizza", 0)</code> or check <code>containsKey</code> first.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: trying to change <code>List.of(...)</code> or <code>Arrays.asList(...)</code></strong>
+    → <code>UnsupportedOperationException</code>.
+    <br><strong>Fix:</strong> wrap in <code>new ArrayList&lt;&gt;(...)</code> when you need a changeable list.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: relying on HashMap/HashSet order</strong>
+    Tests pass on your PC and fail elsewhere.
+    <br><strong>Fix:</strong> <code>LinkedHashMap</code>/<code>TreeMap</code> when order matters.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: confusing <code>Collection</code> and <code>Collections</code></strong>
+    <code>Collection</code> = the interface. <code>Collections</code> = the utility class with static helpers.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: using <code>==</code> to compare elements</strong>
+    <code>contains</code>, <code>indexOf</code>, <code>remove(obj)</code> all use <code>equals()</code>. Your own classes need a proper <code>equals</code> for these to work as expected.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>Declare with interfaces</strong>: <code>List&lt;Order&gt; orders = new ArrayList&lt;&gt;();</code>; use interfaces in method parameters and return types.</li>
+    <li><strong>Defaults</strong>: <code>ArrayList</code>, <code>HashMap</code>, <code>HashSet</code>, <code>ArrayDeque</code>. Switch only with a reason.</li>
+    <li><strong>Always use generics</strong>; never raw types.</li>
+    <li><strong>Return empty collections, not null</strong>: <code>return List.of();</code> — callers can loop safely without null checks.</li>
+    <li><strong>Prefer immutable</strong> collections for constants and for data you hand out (<code>List.copyOf</code>).</li>
+    <li>Use <strong>immutable keys</strong> (String, Integer, records, final classes) in maps and sets.</li>
+    <li>When you know roughly how many items you'll add, give a starting capacity: <code>new ArrayList&lt;&gt;(10_000)</code> — avoids repeated growing.</li>
+    <li>Use <code>isEmpty()</code> instead of <code>size() == 0</code> — clearer.</li>
+    <li>Use <code>entrySet()</code> to loop over maps when you need keys and values.</li>
+    <li>Don't use legacy <code>Vector</code>, <code>Hashtable</code>, <code>Stack</code> in new code.</li>
+    <li>In <a href="../14-Streams-API-And-Optional/lesson.html">Topic 14</a> you'll process collections with Streams (<code>filter</code>, <code>map</code>, <code>groupingBy</code>) — even more concise.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Collections grow automatically and come with ready-made methods; they hold objects (use wrappers for primitives).</li>
+    <li><strong>List</strong> = ordered + duplicates + index. <strong>Set</strong> = unique. <strong>Map</strong> = key → value. <strong>Queue/Deque</strong> = FIFO/LIFO/both ends.</li>
+    <li>Hash* = fastest, no order; Linked* = insertion order; Tree* = sorted.</li>
+    <li><code>ArrayList</code> is the default list; <code>ArrayDeque</code> is the default queue and stack; <code>PriorityQueue</code> hands out the smallest first.</li>
+    <li>Don't remove inside for-each — use <code>removeIf</code> or <code>Iterator.remove()</code>.</li>
+    <li><code>Comparable</code> = one natural order inside the class; <code>Comparator</code> = any number of orders from outside.</li>
+    <li><code>List.of</code>/<code>Set.of</code>/<code>Map.of</code> are immutable and reject null.</li>
+    <li>HashMap: <code>hashCode</code> picks the bucket, <code>equals</code> picks the entry. Override <strong>both</strong> together, and keep keys immutable.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. To-do list.</strong> Create an <code>ArrayList&lt;String&gt;</code> of 4 tasks. Print it, mark the second task done by removing it, insert "Call mom" at the top,
+      and print the number of tasks and the final list.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">import java.util.ArrayList;
+import java.util.List;
+
+public class TodoList {
+    public static void main(String[] args) {
+        List&lt;String&gt; tasks = new ArrayList&lt;&gt;(List.of("Buy milk", "Pay bill", "Gym", "Read"));
+        System.out.println(tasks);            // [Buy milk, Pay bill, Gym, Read]
+        tasks.remove(1);                      // "Pay bill" done
+        tasks.add(0, "Call mom");
+        System.out.println(tasks.size() + " tasks: " + tasks);   // 4 tasks: [Call mom, Buy milk, Gym, Read]
+    }
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Unique visitors.</strong> Given the visitor names <code>"Asha", "Ravi", "Asha", "Dev", "Ravi", "Zoya"</code>, print how many unique visitors there were, first in
+      arrival order, then alphabetically.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
+
+public class UniqueVisitors {
+    public static void main(String[] args) {
+        List&lt;String&gt; visits = List.of("Asha", "Ravi", "Asha", "Dev", "Ravi", "Zoya");
+        Set&lt;String&gt; inOrder = new LinkedHashSet&lt;&gt;(visits);
+        Set&lt;String&gt; sorted = new TreeSet&lt;&gt;(visits);
+        System.out.println(inOrder.size() + " unique: " + inOrder);   // 4 unique: [Asha, Ravi, Dev, Zoya]
+        System.out.println("Sorted: " + sorted);                       // Sorted: [Asha, Dev, Ravi, Zoya]
+    }
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Word frequency.</strong> Count how often each word appears in <code>"the cat and the dog and the bird"</code> and print the words in alphabetical order with their counts.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">import java.util.Map;
+import java.util.TreeMap;
+
+public class WordCount {
+    public static void main(String[] args) {
+        String text = "the cat and the dog and the bird";
+        Map&lt;String, Integer&gt; counts = new TreeMap&lt;&gt;();   // TreeMap → sorted keys
+        for (String word : text.split(" ")) {
+            counts.put(word, counts.getOrDefault(word, 0) + 1);
+        }
+        for (Map.Entry&lt;String, Integer&gt; e : counts.entrySet()) {
+            System.out.println(e.getKey() + " = " + e.getValue());
+        }
+    }
+}
+// and = 2
+// bird = 1
+// cat = 1
+// dog = 1
+// the = 3</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Balanced brackets.</strong> Using an <code>ArrayDeque</code> as a stack, write <code>isBalanced(String s)</code> that returns true for <code>"{[()]}"</code> and false for
+      <code>"{[(])}"</code> and <code>"(("</code>. (A very common interview question!)</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">import java.util.ArrayDeque;
+import java.util.Deque;
+
+public class Brackets {
+    static boolean isBalanced(String s) {
+        Deque&lt;Character&gt; stack = new ArrayDeque&lt;&gt;();
+        for (char c : s.toCharArray()) {
+            if (c == '(' || c == '[' || c == '{') {
+                stack.push(c);
+            } else if (c == ')' || c == ']' || c == '}') {
+                if (stack.isEmpty()) return false;
+                char open = stack.pop();
+                if ((c == ')' &amp;&amp; open != '(') || (c == ']' &amp;&amp; open != '[') || (c == '}' &amp;&amp; open != '{')) {
+                    return false;
+                }
+            }
+        }
+        return stack.isEmpty();   // anything left open → not balanced
+    }
+
+    public static void main(String[] args) {
+        System.out.println(isBalanced("{[()]}"));   // true
+        System.out.println(isBalanced("{[(])}"));   // false
+        System.out.println(isBalanced("(("));       // false
+    }
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>5. Sort products.</strong> Create a class <code>Product(name, price, rating)</code> whose natural order is by name. Sort a list naturally, then by price (lowest first) with a
+      Comparator class, then by rating (highest first) with an anonymous class.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+
+public class SortProducts {
+    public static void main(String[] args) {
+        List&lt;Product&gt; list = new ArrayList&lt;&gt;(List.of(
+                new Product("Mouse", 499, 4.2), new Product("Keyboard", 999, 4.6), new Product("Cable", 199, 3.9)));
+        Collections.sort(list);
+        System.out.println(list);   // [Cable, Keyboard, Mouse]
+        list.sort(new PriceComparator());
+        System.out.println(list);   // [Cable, Mouse, Keyboard]
+        list.sort(new Comparator&lt;Product&gt;() {
+            @Override
+            public int compare(Product a, Product b) {
+                return Double.compare(b.rating, a.rating);
+            }
+        });
+        System.out.println(list);   // [Keyboard, Mouse, Cable]
+    }
+}
+
+class Product implements Comparable&lt;Product&gt; {
+    final String name;
+    final double price;
+    final double rating;
+
+    Product(String name, double price, double rating) {
+        this.name = name;
+        this.price = price;
+        this.rating = rating;
+    }
+
+    @Override
+    public int compareTo(Product other) {
+        return this.name.compareTo(other.name);
+    }
+
+    @Override
+    public String toString() {
+        return name;
+    }
+}
+
+class PriceComparator implements Comparator&lt;Product&gt; {
+    @Override
+    public int compare(Product a, Product b) {
+        return Double.compare(a.price, b.price);
+    }
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Student grade book.</strong> Build a <code>Map&lt;String, List&lt;Integer&gt;&gt;</code> where each student has a list of marks. Add marks for 3 students, then print
+      each student's average, and the name of the top student. Also make a <code>Point(x, y)</code> class with proper <code>equals</code>/<code>hashCode</code> and prove that a
+      <code>HashSet</code> keeps only one <code>new Point(1, 2)</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+
+public class GradeBook {
+    public static void main(String[] args) {
+        Map&lt;String, List&lt;Integer&gt;&gt; marks = new LinkedHashMap&lt;&gt;();
+        addMark(marks, "Asha", 90);
+        addMark(marks, "Asha", 80);
+        addMark(marks, "Ravi", 70);
+        addMark(marks, "Ravi", 75);
+        addMark(marks, "Dev", 95);
+
+        String top = null;
+        double best = -1;
+        for (Map.Entry&lt;String, List&lt;Integer&gt;&gt; e : marks.entrySet()) {
+            double sum = 0;
+            for (int m : e.getValue()) sum += m;
+            double avg = sum / e.getValue().size();
+            System.out.println(e.getKey() + " average: " + avg);
+            if (avg &gt; best) { best = avg; top = e.getKey(); }
+        }
+        System.out.println("Top student: " + top);
+
+        Set&lt;Point&gt; points = new HashSet&lt;&gt;();
+        points.add(new Point(1, 2));
+        points.add(new Point(1, 2));
+        System.out.println("Points stored: " + points.size());   // 1
+    }
+
+    static void addMark(Map&lt;String, List&lt;Integer&gt;&gt; marks, String student, int mark) {
+        if (!marks.containsKey(student)) {
+            marks.put(student, new ArrayList&lt;&gt;());
+        }
+        marks.get(student).add(mark);
+        // Shorter (Topic 13): marks.computeIfAbsent(student, k -&gt; new ArrayList&lt;&gt;()).add(mark);
+    }
+}
+
+final class Point {
+    private final int x;
+    private final int y;
+
+    Point(int x, int y) { this.x = x; this.y = y; }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Point)) return false;
+        Point p = (Point) o;
+        return x == p.x &amp;&amp; y == p.y;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(x, y);
+    }
+}
+// Asha average: 85.0
+// Ravi average: 72.5
+// Dev average: 95.0
+// Top student: Dev
+// Points stored: 1</code></pre></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the Collections Framework? Collection vs Collections?</summary>
+    <p>A unified set of interfaces (List, Set, Queue, Map…), implementations (ArrayList, HashMap…) and algorithms for storing and processing groups of objects.
+      <code>Collection</code> is the root interface for List/Set/Queue; <code>Collections</code> is a utility class with static methods (sort, reverse, unmodifiableList…).</p></details>
+  <details><summary>Q2. ArrayList vs LinkedList?</summary>
+    <p>ArrayList is backed by a resizable array: O(1) random access, O(n) inserts/removes in the middle/front because of shifting, compact memory. LinkedList is a
+      doubly-linked list: O(1) add/remove at the ends, O(n) access by index, more memory per element. ArrayList is the default choice; for queues/stacks use ArrayDeque.</p></details>
+  <details><summary>Q3. List vs Set vs Map?</summary>
+    <p>List: ordered, allows duplicates, index-based. Set: no duplicates (by equals/hashCode or comparison). Map: key-value pairs with unique keys; it doesn't extend Collection.</p></details>
+  <details><summary>Q4. HashSet vs LinkedHashSet vs TreeSet (and the same for maps)?</summary>
+    <p>Hash*: O(1) operations, no ordering guarantee, allows one null. LinkedHash*: same speed plus predictable insertion order (maintains a linked list). Tree*: sorted by natural
+      order or a Comparator, O(log n), no null keys, offers navigation methods (first, ceiling, headSet…).</p></details>
+  <details><summary>Q5. How does HashMap work internally?</summary>
+    <p>It keeps an array of buckets. <code>put</code> computes the key's <code>hashCode</code>, spreads it, and maps it to a bucket index. Entries with the same bucket form a linked list
+      (converted to a red-black tree when a bucket has 8+ entries, Java 8+). <code>get</code> finds the bucket the same way and uses <code>equals</code> to locate the key. Default capacity 16, load
+      factor 0.75; when the size exceeds capacity × load factor, the table doubles and entries are rehashed.</p></details>
+  <details><summary>Q6. What is the equals/hashCode contract and what happens if you break it?</summary>
+    <p>If <code>a.equals(b)</code> then <code>a.hashCode() == b.hashCode()</code> must hold (the reverse isn't required). If you override equals without hashCode, equal objects land in different
+      buckets: HashMap lookups fail and HashSet allows logical duplicates.</p></details>
+  <details><summary>Q7. What is ConcurrentModificationException and how do you avoid it?</summary>
+    <p>Thrown by fail-fast iterators when a collection is structurally modified during iteration other than through the iterator itself (e.g. <code>list.remove</code> inside a for-each).
+      Avoid it with <code>Iterator.remove()</code>, <code>removeIf</code>, iterating over a copy, or, for multi-threaded code, concurrent collections like <code>CopyOnWriteArrayList</code> /
+      <code>ConcurrentHashMap</code> (whose iterators are fail-safe/weakly consistent).</p></details>
+  <details><summary>Q8. Comparable vs Comparator?</summary>
+    <p>Comparable (<code>compareTo</code>) defines the single natural ordering inside the class itself. Comparator (<code>compare</code>) defines external, alternative orderings and can be combined
+      (<code>thenComparing</code>, <code>reversed</code>). Use Comparable for the obvious default, Comparator for everything else or for classes you can't modify.</p></details>
+  <details><summary>Q9. What's the difference between List.of, Collections.unmodifiableList and Arrays.asList?</summary>
+    <p><code>List.of</code>: truly immutable, no nulls. <code>unmodifiableList</code>: a read-only view — changes to the underlying list are visible through it. <code>Arrays.asList</code>: fixed-size
+      list backed by the array — <code>set</code> works, <code>add</code>/<code>remove</code> throw UnsupportedOperationException.</p></details>
+  <details><summary>Q10. Which collection would you use for: a cache of user sessions by id, a leaderboard, an undo feature, a job queue?</summary>
+    <p>Sessions by id: <code>HashMap</code> (or <code>ConcurrentHashMap</code> if multi-threaded). Leaderboard: <code>TreeMap</code>/<code>TreeSet</code> with a comparator, or sort a list. Undo:
+      <code>ArrayDeque</code> as a stack. Job queue: <code>ArrayDeque</code> (FIFO) or <code>PriorityQueue</code> if jobs have priorities.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../10-Exception-Handling/lesson.html"><small>← Previous</small>10. Exception Handling</a>
+    <a class="next" href="../12-Generics/lesson.html"><small>Next →</small>12. Generics</a>
+  </nav>
+</main>
+</body>
+</html>

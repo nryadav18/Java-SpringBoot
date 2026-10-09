@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>50 · OAuth2 &amp; OpenID Connect</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part D · Security › Topic 50</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag">Part D · Security</span>
+  <span class="tag">⏱ ~4 hours</span>
+  <h1>50. OAuth2 &amp; OpenID Connect</h1>
+  <p class="subtitle">Add "Login with GitHub / Google" to a Spring Boot app, and protect an API with tokens issued by a real authorization server like Keycloak – without ever storing a password yourself.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="50-OAuth2-And-OpenID-Connect"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>The problem OAuth2 solves, its <b>four roles</b>, and the vocabulary (client id, scope, redirect URI, access token…), with the <b>valet key</b> analogy.</li>
+      <li>The <b>Authorization Code flow</b> step by step (diagram + the real redirect URLs), and why PKCE and <code>state</code> exist.</li>
+      <li><b>OpenID Connect</b>: the identity layer on top of OAuth2 (ID token, <code>openid</code> scope, discovery).</li>
+      <li><b>"Login with GitHub/Google"</b> with <code>spring-boot-starter-oauth2-client</code>, including how to register a GitHub OAuth app.</li>
+      <li>A <b>Resource Server</b> with <code>spring-boot-starter-oauth2-resource-server</code> that validates JWTs from an issuer such as Keycloak or Auth0, mapping scopes and roles.</li>
+      <li>Running a free local <b>Keycloak</b> with Docker to try everything end to end.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../47-Spring-Security-Fundamentals/lesson.html">Topic 47 · Filter chain</a> and
+    <a href="../49-JWT-Authentication/lesson.html">Topic 49 · JWT</a> (token structure, signature, Bearer header). Docker basics help (full lesson in topic 66).
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ============================================================ -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>In topics 47–49 <b>our</b> application stored usernames and password hashes and created its own tokens. That works – but it also means <b>we</b> are responsible for
+     password resets, two-factor login, account lockout, leaked databases… Big companies prefer to give this job to a specialist:</p>
+  <ul>
+    <li><b>"Login with Google / GitHub / Microsoft"</b> buttons – users do not need yet another password, and you never see theirs.</li>
+    <li><b>Single Sign-On (SSO)</b> in companies: employees log in once (Keycloak, Okta, Azure AD / Entra ID, Auth0) and can use dozens of internal apps.</li>
+    <li><b>Microservices</b> (Part F): one central authorization server issues tokens; every service only <i>checks</i> them.</li>
+    <li><b>Third-party access</b>: "Allow this photo-printing app to read your Google Photos" – without giving it your Google password.</li>
+  </ul>
+  <p>All of these are built on two standards: <b>OAuth 2.0</b> (delegated <i>authorization</i>) and <b>OpenID Connect</b> (<i>authentication</i> on top of OAuth2).
+     They appear in almost every enterprise job description that mentions security. Spring Security supports both with very little code.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🚗 The valet key</strong>
+    <p>You arrive at a fancy restaurant. A valet will park your car. You do <b>not</b> hand over your house keys and your normal car key (your <b>password</b>).
+       Many cars come with a special <b>valet key</b>: it starts the engine and drives a short distance, but it <b>cannot open the boot or the glove box</b>.</p>
+    <ul>
+      <li><b>You</b> = the <i>resource owner</i> (the car is yours).</li>
+      <li><b>The valet</b> = the <i>client</i> application that wants to do something for you.</li>
+      <li><b>The valet key</b> = the <i>access token</i>: limited power (<i>scope</i>: "drive, but not open the boot"), temporary, and you can take it back.</li>
+      <li><b>The car</b> = the <i>resource server</i> that accepts the valet key.</li>
+      <li><b>The restaurant's key desk</b> that checks your identity and hands out valet keys = the <i>authorization server</i>.</li>
+    </ul>
+    <p>The valet never learns your master key. If they misbehave, you cancel that one key – your house is still safe. That is exactly what OAuth2 gives you online.</p>
+    <p><b>OpenID Connect</b> adds a <b>name badge</b> to the deal: along with the valet key, the desk gives the valet a signed card saying
+       <i>"This car belongs to Alice Learner, alice@example.com"</i>. Now the valet knows <b>who</b> you are, not just what they may do.</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 The problem: the "password anti-pattern"</h3>
+  <p>Years ago, apps that wanted your Gmail contacts simply asked: <i>"Enter your Gmail password"</i>. The app could then read <b>all</b> your mail, change your password,
+     and keep access forever. If that app was hacked, millions of Gmail passwords leaked. OAuth2 (2012) replaced this with <b>tokens</b>: limited, temporary, revocable permissions
+     – and the password is typed only at Google.</p>
+
+  <h3>3.2 The four roles</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Role</th><th>Meaning</th><th>"Login with GitHub" example</th><th>In this topic</th></tr>
+    <tr><td><b>Resource Owner</b></td><td>The person who owns the data and gives permission</td><td>You, the GitHub user</td><td>alice</td></tr>
+    <tr><td><b>Client</b></td><td>The application that wants access on the user's behalf</td><td>Our Spring Boot app</td><td><code>oauth2-login-client</code></td></tr>
+    <tr><td><b>Authorization Server</b></td><td>Authenticates the user, asks for consent, issues tokens</td><td>github.com</td><td>Keycloak (Docker)</td></tr>
+    <tr><td><b>Resource Server</b></td><td>The API holding the data; accepts access tokens</td><td>api.github.com</td><td><code>resource-server</code></td></tr>
+  </table></div>
+  <figure class="diagram">
+    <svg viewBox="0 0 820 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The four OAuth2 roles">
+      <defs>
+        <marker id="ar50a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g font-family="Segoe UI, sans-serif" font-size="13" fill="currentColor">
+        <rect x="20" y="95" width="160" height="70" rx="10" fill="none" stroke="var(--java)" stroke-width="2"/>
+        <text x="100" y="125" text-anchor="middle" font-weight="bold">Resource Owner</text>
+        <text x="100" y="145" text-anchor="middle" font-size="12">(user + browser)</text>
+        <rect x="320" y="20" width="180" height="70" rx="10" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="410" y="50" text-anchor="middle" font-weight="bold">Client</text>
+        <text x="410" y="70" text-anchor="middle" font-size="12">our app</text>
+        <rect x="320" y="170" width="180" height="70" rx="10" fill="none" stroke="var(--info)" stroke-width="2"/>
+        <text x="410" y="200" text-anchor="middle" font-weight="bold">Authorization Server</text>
+        <text x="410" y="220" text-anchor="middle" font-size="12">GitHub / Google / Keycloak</text>
+        <rect x="630" y="95" width="170" height="70" rx="10" fill="none" stroke="var(--danger)" stroke-width="2"/>
+        <text x="715" y="125" text-anchor="middle" font-weight="bold">Resource Server</text>
+        <text x="715" y="145" text-anchor="middle" font-size="12">API with the data</text>
+        <line x1="180" y1="115" x2="315" y2="60" stroke="currentColor" stroke-width="2" marker-end="url(#ar50a)"/>
+        <text x="215" y="75" font-size="12">uses</text>
+        <line x1="180" y1="145" x2="315" y2="200" stroke="currentColor" stroke-width="2" marker-end="url(#ar50a)"/>
+        <text x="175" y="200" font-size="12">logs in + consents</text>
+        <line x1="410" y1="165" x2="410" y2="95" stroke="currentColor" stroke-width="2" marker-end="url(#ar50a)"/>
+        <text x="418" y="135" font-size="12">issues access token</text>
+        <line x1="500" y1="60" x2="625" y2="115" stroke="currentColor" stroke-width="2" marker-end="url(#ar50a)"/>
+        <text x="520" y="70" font-size="12">calls with Bearer token</text>
+        <line x1="625" y1="150" x2="505" y2="200" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#ar50a)"/>
+        <text x="555" y="200" font-size="12">trusts (public keys)</text>
+      </g>
+    </svg>
+    <figcaption>The client never sees the password; the resource server only trusts tokens from the authorization server.</figcaption>
+  </figure>
+
+  <h3>3.3 Vocabulary you will meet</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Term</th><th>Simple meaning</th></tr>
+    <tr><td><b>Client ID</b></td><td>Public name of your app at the authorization server (like a username for the app).</td></tr>
+    <tr><td><b>Client secret</b></td><td>Password of your app. Only for <i>confidential</i> clients running on a server. Never in browser JavaScript or mobile apps.</td></tr>
+    <tr><td><b>Redirect URI</b> (callback)</td><td>Where the authorization server sends the browser back after login. Must be registered <b>exactly</b>.</td></tr>
+    <tr><td><b>Scope</b></td><td>What the app asks permission for: <code>read:user</code>, <code>email</code>, <code>openid profile</code>…</td></tr>
+    <tr><td><b>Consent</b></td><td>The "Allow <i>Course App</i> to read your profile?" screen.</td></tr>
+    <tr><td><b>Authorization code</b></td><td>A short-lived, one-time code sent via the browser; the client swaps it for tokens.</td></tr>
+    <tr><td><b>Access token</b></td><td>The valet key. Sent as <code>Authorization: Bearer ...</code> to resource servers. Often a JWT (topic 49).</td></tr>
+    <tr><td><b>Refresh token</b></td><td>Used by the client to get new access tokens without bothering the user.</td></tr>
+    <tr><td><b>ID token</b> (OIDC)</td><td>A JWT that says <i>who</i> logged in. Meant for the client, not for APIs.</td></tr>
+    <tr><td><b>state</b></td><td>Random value the client sends and checks on return – blocks CSRF on the login callback.</td></tr>
+    <tr><td><b>PKCE</b> ("pixy")</td><td>Proof Key for Code Exchange: a one-time secret proving the code is redeemed by the same client that asked for it. Mandatory for public clients, recommended for all.</td></tr>
+    <tr><td><b>Issuer</b></td><td>The authorization server's identity URL, e.g. <code>http://localhost:8180/realms/course</code>. Appears as <code>iss</code> in tokens.</td></tr>
+  </table></div>
+
+  <h3>3.4 Grant types ("flows")</h3>
+  <p>OAuth2 defines several ways to get a token, for different situations:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Grant type</th><th>Who uses it</th><th>Status</th></tr>
+    <tr><td><b>Authorization Code</b> (+ PKCE)</td><td>Web apps, SPAs, mobile apps – whenever a <b>user</b> logs in</td><td>✅ The standard. This topic.</td></tr>
+    <tr><td><b>Client Credentials</b></td><td>Machine-to-machine: a backend job calling an API as <i>itself</i> (no user)</td><td>✅ Common in microservices</td></tr>
+    <tr><td><b>Refresh Token</b></td><td>Getting a new access token</td><td>✅</td></tr>
+    <tr><td><b>Device Code</b></td><td>TVs, CLI tools ("go to example.com/device and enter ABCD-1234")</td><td>✅</td></tr>
+    <tr><td>Implicit</td><td>Old SPAs (token in the URL fragment)</td><td>❌ Deprecated – use Code + PKCE</td></tr>
+    <tr><td>Password (Resource Owner Password Credentials)</td><td>App collects the user's password and sends it</td><td>❌ Deprecated – we use it <b>only</b> with curl against local Keycloak for testing</td></tr>
+  </table></div>
+
+  <h3>3.5 The Authorization Code flow, step by step</h3>
+  <figure class="diagram">
+    <svg viewBox="0 0 880 520" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Authorization code flow">
+      <defs>
+        <marker id="ar50b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g font-family="Segoe UI, sans-serif" font-size="12" fill="currentColor">
+        <rect x="30" y="10" width="140" height="36" rx="8" fill="none" stroke="var(--java)" stroke-width="2"/>
+        <text x="100" y="33" text-anchor="middle" font-weight="bold">Browser (user)</text>
+        <rect x="360" y="10" width="160" height="36" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="440" y="33" text-anchor="middle" font-weight="bold">Client (our app)</text>
+        <rect x="700" y="10" width="160" height="36" rx="8" fill="none" stroke="var(--info)" stroke-width="2"/>
+        <text x="780" y="33" text-anchor="middle" font-weight="bold">Authorization Server</text>
+        <line x1="100" y1="46" x2="100" y2="510" stroke="currentColor" stroke-dasharray="4 4"/>
+        <line x1="440" y1="46" x2="440" y2="510" stroke="currentColor" stroke-dasharray="4 4"/>
+        <line x1="780" y1="46" x2="780" y2="510" stroke="currentColor" stroke-dasharray="4 4"/>
+
+        <line x1="100" y1="75" x2="435" y2="75" stroke="currentColor" stroke-width="2" marker-end="url(#ar50b)"/>
+        <text x="270" y="68" text-anchor="middle">① click "Login with GitHub" → GET /oauth2/authorization/github</text>
+        <line x1="440" y1="110" x2="105" y2="110" stroke="currentColor" stroke-width="2" marker-end="url(#ar50b)"/>
+        <text x="270" y="103" text-anchor="middle">② 302 redirect to GitHub …/authorize?client_id&amp;scope&amp;state&amp;redirect_uri</text>
+        <line x1="100" y1="145" x2="775" y2="145" stroke="currentColor" stroke-width="2" marker-end="url(#ar50b)"/>
+        <text x="440" y="138" text-anchor="middle">③ browser follows the redirect</text>
+        <text x="790" y="180">④ user types password</text>
+        <text x="790" y="196">AT GITHUB + clicks</text>
+        <text x="790" y="212">"Authorize"</text>
+        <line x1="780" y1="240" x2="105" y2="240" stroke="currentColor" stroke-width="2" marker-end="url(#ar50b)"/>
+        <text x="440" y="233" text-anchor="middle">⑤ 302 redirect to redirect_uri ?code=abc123&amp;state=…</text>
+        <line x1="100" y1="275" x2="435" y2="275" stroke="currentColor" stroke-width="2" marker-end="url(#ar50b)"/>
+        <text x="270" y="268" text-anchor="middle">⑥ GET /login/oauth2/code/github?code=abc123&amp;state=…</text>
+        <line x1="440" y1="320" x2="775" y2="320" stroke="var(--danger)" stroke-width="2" marker-end="url(#ar50b)"/>
+        <text x="610" y="303" text-anchor="middle">⑦ back channel (server → server):</text>
+        <text x="610" y="315" text-anchor="middle">POST /token code + client_id + client_secret</text>
+        <line x1="780" y1="355" x2="445" y2="355" stroke="var(--danger)" stroke-width="2" marker-end="url(#ar50b)"/>
+        <text x="610" y="348" text-anchor="middle">⑧ access token (+ ID token with OIDC)</text>
+        <line x1="440" y1="395" x2="775" y2="395" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#ar50b)"/>
+        <text x="610" y="388" text-anchor="middle">⑨ GET /user (user-info) with the access token</text>
+        <text x="450" y="430">⑩ create a login session (JSESSIONID) for this user</text>
+        <line x1="440" y1="460" x2="105" y2="460" stroke="currentColor" stroke-width="2" marker-end="url(#ar50b)"/>
+        <text x="270" y="453" text-anchor="middle">⑪ 302 to the page the user wanted (/me)</text>
+        <text x="105" y="495" font-size="11">The password only ever goes to GitHub. The tokens never go through the browser.</text>
+      </g>
+    </svg>
+    <figcaption>Front channel (via the browser) carries only a short-lived code. The real tokens travel on the back channel.</figcaption>
+  </figure>
+  <p>When we ran our <code>oauth2-login-client</code> and asked for <code>/oauth2/authorization/github</code>, step ② produced exactly this redirect (client id is our placeholder):</p>
+  <pre class="terminal"><code>HTTP/1.1 302
+Location: https://github.com/login/oauth/authorize?response_type=code
+          &amp;client_id=replace-with-your-github-client-id
+          &amp;scope=read:user%20user:email
+          &amp;state=7EE-fj9DK32Ut04Fd6lFr1UvYBXrqA-i78_QuKyEyzM%3D
+          &amp;redirect_uri=http://localhost:8080/login/oauth2/code/github</code></pre>
+  <p><b>Why the extra code step instead of sending the token directly in ⑤?</b> Everything in a redirect URL can end up in browser history, logs, or extensions.
+     The code is useless on its own – exchanging it needs the client secret (or the PKCE verifier), which never leaves our server.</p>
+
+  <h3>3.6 OAuth2 vs OpenID Connect</h3>
+  <p>OAuth2 was designed for <b>authorization</b> ("may this app read my photos?"). It says nothing about <i>who</i> the user is. People used it for login anyway, each provider in its own way.
+     <b>OpenID Connect (OIDC)</b> is a thin, standard identity layer on top:</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>OAuth 2.0</th><th>OpenID Connect</th></tr>
+    <tr><td>Answers</td><td>What may the client do?</td><td>Who is the user? (+ everything OAuth2 does)</td></tr>
+    <tr><td>Main token</td><td>Access token (for APIs)</td><td>+ <b>ID token</b> (JWT for the client)</td></tr>
+    <tr><td>Trigger</td><td>Any scopes</td><td>Scope <code>openid</code></td></tr>
+    <tr><td>User info</td><td>Provider-specific API (GitHub: <code>/user</code>)</td><td>Standard claims (<code>sub</code>, <code>name</code>, <code>email</code>…) + <code>/userinfo</code> endpoint</td></tr>
+    <tr><td>Discovery</td><td>No standard</td><td><code>/.well-known/openid-configuration</code> lists all URLs and keys</td></tr>
+    <tr><td>Examples</td><td>GitHub</td><td>Google, Microsoft, Keycloak, Auth0, Okta</td></tr>
+    <tr><td>Spring principal</td><td><code>OAuth2User</code></td><td><code>OidcUser</code> (extends <code>OAuth2User</code>)</td></tr>
+  </table></div>
+  <p>A decoded ID token from Keycloak looks like this (shortened):</p>
+  <pre><code class="lang-json">{
+  "iss": "http://localhost:8180/realms/course",
+  "sub": "8c1f0e7a-3b2d-4c55-9a8e-6f1d2b7c9e10",
+  "aud": "course-client",
+  "exp": 1791521810,
+  "iat": 1791521510,
+  "preferred_username": "alice",
+  "email": "alice@example.com",
+  "name": "Alice Learner"
+}</code></pre>
+  <div class="callout warn"><strong>⚠️ ID token ≠ access token</strong>
+    The ID token is <b>for the client</b> ("who logged in?"). APIs must be called with the <b>access token</b>. Never send an ID token to a resource server as a Bearer token.</div>
+
+  <h3>3.7 Spring Boot's three OAuth2 pieces</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Starter</th><th>Your app is…</th><th>Typical use</th></tr>
+    <tr><td><code>spring-boot-starter-oauth2-client</code></td><td>a <b>Client</b></td><td>"Login with …" (<code>oauth2Login()</code>), or calling other APIs with tokens</td></tr>
+    <tr><td><code>spring-boot-starter-oauth2-resource-server</code></td><td>a <b>Resource Server</b></td><td>REST API that accepts Bearer tokens</td></tr>
+    <tr><td><code>spring-boot-starter-oauth2-authorization-server</code></td><td>an <b>Authorization Server</b></td><td>Building your own Keycloak-like server (Spring Authorization Server) – advanced, not in this course</td></tr>
+  </table></div>
+  <p>This topic contains one small project for each of the first two.</p>
+
+  <h3>3.8 "Login with GitHub / Google" – the client side</h3>
+  <p>With the client starter on the classpath, the whole login is configuration plus one line in the filter chain:</p>
+  <pre><span class="file">oauth2-login-client/src/main/resources/application.yml</span><code class="lang-yaml">spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          github:                                   # the "registrationId"
+            client-id: ${GITHUB_CLIENT_ID:replace-with-your-github-client-id}
+            client-secret: ${GITHUB_CLIENT_SECRET:replace-with-your-github-client-secret}
+            scope: read:user, user:email
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:replace-with-your-google-client-id}
+            client-secret: ${GOOGLE_CLIENT_SECRET:replace-with-your-google-client-secret}
+            scope: openid, profile, email</code></pre>
+  <p>GitHub, Google, Facebook and Okta are built into Spring (<code>CommonOAuth2Provider</code>): it already knows their authorize/token/user-info URLs. For other providers you add a
+     <code>provider</code> section – usually just an <code>issuer-uri</code> (see the Keycloak profile below).</p>
+  <pre><span class="file">oauth2-login-client/.../SecurityConfig.java</span><code class="lang-java">http
+    .authorizeHttpRequests(auth -&gt; auth
+        .requestMatchers("/", "/error", "/favicon.ico").permitAll()
+        .anyRequest().authenticated())
+    .oauth2Login(Customizer.withDefaults())
+    .logout(logout -&gt; logout.logoutSuccessUrl("/"));</code></pre>
+  <p><code>oauth2Login()</code> adds two filters to the chain:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Filter</th><th>URL</th><th>Flow step</th></tr>
+    <tr><td><code>OAuth2AuthorizationRequestRedirectFilter</code></td><td><code>/oauth2/authorization/{registrationId}</code></td><td>② builds the redirect (client_id, scope, state, PKCE/nonce)</td></tr>
+    <tr><td><code>OAuth2LoginAuthenticationFilter</code></td><td><code>/login/oauth2/code/{registrationId}</code></td><td>⑥–⑩ checks state, exchanges the code, loads the user, creates the session</td></tr>
+  </table></div>
+  <p>After login you read the user in a controller:</p>
+  <pre><span class="file">oauth2-login-client/.../ProfileController.java</span><code class="lang-java">@GetMapping("/me")
+public Map&lt;String, Object&gt; me(@AuthenticationPrincipal OAuth2User user) {
+    Map&lt;String, Object&gt; result = new LinkedHashMap&lt;&gt;();
+    result.put("name", user.getName());
+    result.put("attributes", user.getAttributes());      // GitHub: login, name, avatar_url, ...
+    if (user instanceof OidcUser oidcUser) {              // Google / Keycloak
+        result.put("idTokenClaims", oidcUser.getIdToken().getClaims());
+    }
+    return result;
+}
+
+@GetMapping("/me/token")
+public Map&lt;String, Object&gt; token(@RegisteredOAuth2AuthorizedClient OAuth2AuthorizedClient client) {
+    // the access token our app received - we only show metadata, never the token itself
+    ...
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ Our app is still session-based</strong>
+    After an OAuth2 login, <i>our</i> app creates a normal session (<code>JSESSIONID</code>) for the browser, exactly like form login in topic 47. That is why CSRF stays <b>on</b> here.
+    The GitHub access token is stored server-side in an <code>OAuth2AuthorizedClient</code> – the browser never sees it.</div>
+
+  <h3>3.9 Registering a GitHub OAuth App (step by step)</h3>
+  <ol>
+    <li>Log in to GitHub → click your avatar → <b>Settings</b> → <b>Developer settings</b> (bottom of the left menu) → <b>OAuth Apps</b> → <b>New OAuth App</b>.</li>
+    <li>Fill in:
+      <ul>
+        <li><b>Application name:</b> <code>Spring Course Demo</code></li>
+        <li><b>Homepage URL:</b> <code>http://localhost:8080</code></li>
+        <li><b>Authorization callback URL:</b> <code>http://localhost:8080/login/oauth2/code/github</code> ← must match exactly</li>
+      </ul></li>
+    <li>Click <b>Register application</b>. Copy the <b>Client ID</b>.</li>
+    <li>Click <b>Generate a new client secret</b> and copy it immediately (GitHub shows it only once).</li>
+    <li>In PowerShell, in the same window where you start the app:
+      <pre class="terminal"><code>$env:GITHUB_CLIENT_ID="Ov23li...your id..."
+$env:GITHUB_CLIENT_SECRET="...your secret..."
+cd "D:\Java-SpringBoot\50-OAuth2-And-OpenID-Connect\oauth2-login-client"
+mvn spring-boot:run</code></pre></li>
+    <li>Open <code>http://localhost:8080</code> → <b>Login with GitHub</b> → GitHub asks <i>"Authorize Spring Course Demo?"</i> → <b>Authorize</b> → you land on <code>/me</code> with your GitHub data.</li>
+  </ol>
+  <p><b>Google</b> works the same way: <i>Google Cloud Console → APIs &amp; Services → Credentials → Create credentials → OAuth client ID → Web application</i>, authorized redirect URI
+     <code>http://localhost:8080/login/oauth2/code/google</code>, then set <code>GOOGLE_CLIENT_ID</code> / <code>GOOGLE_CLIENT_SECRET</code>. (Google first asks you to configure a consent screen.)</p>
+  <div class="callout warn"><strong>⚠️ Real credentials are needed to actually log in</strong>
+    The placeholders in <code>application.yml</code> let the app <b>start</b> and the tests <b>pass</b>, but GitHub will answer "404 / invalid client" for a fake client id.
+    If you do not want to create accounts, use the local Keycloak instead (section 3.11) – it needs nothing but Docker.</div>
+
+  <h3>3.10 The Resource Server – validating tokens from an issuer</h3>
+  <p>In topic 49 our API created <b>and</b> checked tokens with one shared secret (HS256). In the OAuth2 world, the authorization server signs tokens with its <b>private key</b> (RS256),
+     and every API verifies them with the matching <b>public key</b>. The API never needs a secret at all. Configuration:</p>
+  <pre><span class="file">resource-server/src/main/resources/application.yml</span><code class="lang-yaml">spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${ISSUER_URI:http://localhost:8180/realms/course}</code></pre>
+  <p>That single line makes Spring:</p>
+  <ol>
+    <li>Fetch <code>{issuer-uri}/.well-known/openid-configuration</code> (OIDC discovery) on the <b>first request with a token</b>.</li>
+    <li>Read <code>jwks_uri</code> from it and download the issuer's <b>public keys</b> (cached, refreshed when a new <code>kid</code> appears).</li>
+    <li>For each request, <code>BearerTokenAuthenticationFilter</code> takes the token from <code>Authorization: Bearer ...</code> and checks <b>signature</b>, <b>exp/nbf</b> and <b>iss</b>.</li>
+    <li>Turn the token into a <code>JwtAuthenticationToken</code> with authorities and put it into the <code>SecurityContext</code>.</li>
+  </ol>
+  <figure class="diagram">
+    <svg viewBox="0 0 860 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Resource server validation">
+      <defs>
+        <marker id="ar50c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g font-family="Segoe UI, sans-serif" font-size="12" fill="currentColor">
+        <rect x="10" y="80" width="120" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="2"/>
+        <text x="70" y="104" text-anchor="middle" font-weight="bold">Client</text>
+        <text x="70" y="122" text-anchor="middle" font-size="11">has access token</text>
+        <line x1="130" y1="108" x2="225" y2="108" stroke="currentColor" stroke-width="2" marker-end="url(#ar50c)"/>
+        <text x="178" y="100" text-anchor="middle" font-size="11">Bearer eyJ…</text>
+        <rect x="230" y="20" width="400" height="180" rx="10" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <text x="430" y="40" text-anchor="middle" font-weight="bold">resource-server (port 8081)</text>
+        <rect x="250" y="55" width="170" height="40" rx="6" fill="none" stroke="var(--java)" stroke-width="2"/>
+        <text x="335" y="80" text-anchor="middle">BearerTokenAuthFilter</text>
+        <rect x="440" y="55" width="170" height="40" rx="6" fill="none" stroke="var(--info)" stroke-width="2"/>
+        <text x="525" y="73" text-anchor="middle">JwtDecoder</text>
+        <text x="525" y="88" text-anchor="middle" font-size="11">sig · exp · iss</text>
+        <line x1="420" y1="75" x2="435" y2="75" stroke="currentColor" stroke-width="2" marker-end="url(#ar50c)"/>
+        <rect x="250" y="120" width="170" height="40" rx="6" fill="none" stroke="var(--info)" stroke-width="2"/>
+        <text x="335" y="138" text-anchor="middle">JwtAuthentication</text>
+        <text x="335" y="153" text-anchor="middle">Converter (roles)</text>
+        <line x1="525" y1="95" x2="420" y2="135" stroke="currentColor" stroke-width="2" marker-end="url(#ar50c)"/>
+        <rect x="440" y="120" width="170" height="40" rx="6" fill="none" stroke="var(--danger)" stroke-width="2"/>
+        <text x="525" y="145" text-anchor="middle">AuthorizationFilter</text>
+        <line x1="420" y1="140" x2="435" y2="140" stroke="currentColor" stroke-width="2" marker-end="url(#ar50c)"/>
+        <rect x="690" y="40" width="160" height="70" rx="8" fill="none" stroke="var(--info)" stroke-width="2"/>
+        <text x="770" y="65" text-anchor="middle" font-weight="bold">Keycloak</text>
+        <text x="770" y="83" text-anchor="middle" font-size="11">/.well-known/…</text>
+        <text x="770" y="99" text-anchor="middle" font-size="11">/certs (JWKS public keys)</text>
+        <line x1="610" y1="70" x2="685" y2="70" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#ar50c)"/>
+        <text x="648" y="62" text-anchor="middle" font-size="10">once, cached</text>
+        <text x="650" y="185" font-size="11">No shared secret. No call to Keycloak per request.</text>
+      </g>
+    </svg>
+    <figcaption>The API trusts the issuer's public keys and validates every token locally.</figcaption>
+  </figure>
+  <p><b>Scopes → authorities.</b> By default Spring turns the <code>scope</code> claim into authorities with a <code>SCOPE_</code> prefix:
+     <code>"scope": "openid profile email"</code> → <code>SCOPE_openid</code>, <code>SCOPE_profile</code>, <code>SCOPE_email</code>. So rules look like
+     <code>hasAuthority("SCOPE_profile")</code>.</p>
+  <p><b>Roles from Keycloak.</b> Keycloak puts the user's roles in a nested claim that Spring does not know: <code>"realm_access": {"roles": ["user","admin"]}</code>.
+     A small converter adds them as <code>ROLE_USER</code>, <code>ROLE_ADMIN</code>:</p>
+  <pre><span class="file">resource-server/.../KeycloakRealmRoleConverter.java</span><code class="lang-java">public class KeycloakRealmRoleConverter implements Converter&lt;Jwt, Collection&lt;GrantedAuthority&gt;&gt; {
+
+    private final JwtGrantedAuthoritiesConverter scopesConverter = new JwtGrantedAuthoritiesConverter();
+
+    @Override
+    public Collection&lt;GrantedAuthority&gt; convert(Jwt jwt) {
+        List&lt;GrantedAuthority&gt; authorities = new ArrayList&lt;&gt;(scopesConverter.convert(jwt)); // SCOPE_...
+        Map&lt;String, Object&gt; realmAccess = jwt.getClaimAsMap("realm_access");
+        if (realmAccess != null &amp;&amp; realmAccess.get("roles") instanceof Collection&lt;?&gt; roles) {
+            for (Object role : roles) {
+                authorities.add(new SimpleGrantedAuthority("ROLE_" + role.toString().toUpperCase()));
+            }
+        }
+        return authorities;
+    }
+}</code></pre>
+  <pre><span class="file">resource-server/.../SecurityConfig.java</span><code class="lang-java">http
+    .csrf(AbstractHttpConfigurer::disable)
+    .sessionManagement(sm -&gt; sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+    .authorizeHttpRequests(auth -&gt; auth
+        .requestMatchers("/api/public/**", "/error").permitAll()
+        .requestMatchers("/api/profile").hasAuthority("SCOPE_profile")
+        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+        .anyRequest().authenticated())
+    .oauth2ResourceServer(oauth2 -&gt; oauth2
+        .jwt(jwt -&gt; jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));
+
+@Bean
+public JwtAuthenticationConverter jwtAuthenticationConverter() {
+    JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+    converter.setJwtGrantedAuthoritiesConverter(new KeycloakRealmRoleConverter());
+    converter.setPrincipalClaimName("preferred_username");   // getName() = "alice" instead of a UUID
+    return converter;
+}</code></pre>
+  <p>Other providers need only a different <code>issuer-uri</code> (and maybe a different role claim):</p>
+  <div class="table-wrap"><table>
+    <tr><th>Provider</th><th><code>issuer-uri</code></th><th>Roles usually in…</th></tr>
+    <tr><td>Keycloak</td><td><code>https://host/realms/{realm}</code></td><td><code>realm_access.roles</code></td></tr>
+    <tr><td>Auth0</td><td><code>https://{tenant}.auth0.com/</code> (with trailing slash!)</td><td>a custom namespaced claim, or <code>permissions</code></td></tr>
+    <tr><td>Okta</td><td><code>https://{domain}.okta.com/oauth2/default</code></td><td><code>groups</code> / <code>scp</code></td></tr>
+    <tr><td>Azure AD / Entra ID</td><td><code>https://login.microsoftonline.com/{tenant}/v2.0</code></td><td><code>roles</code></td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 Topic 49 vs topic 50</strong>
+    In topic 49 we wrote <code>JwtService</code> + <code>JwtAuthenticationFilter</code> + login endpoints ourselves. A resource server needs <b>none</b> of that:
+    no users table, no passwords, no login endpoint – just <code>issuer-uri</code> and authorization rules. That is why companies love central authorization servers.</div>
+
+  <h3>3.11 A free authorization server on your laptop: Keycloak</h3>
+  <p><b>Keycloak</b> is a popular open-source identity server (by Red Hat). Our <code>docker-compose.yml</code> starts it and imports a ready realm
+     (<i>realm</i> = an isolated space with its own users, roles and clients):</p>
+  <pre><span class="file">docker-compose.yml</span><code class="lang-yaml">services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.7
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8180:8080"
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro</code></pre>
+  <div class="table-wrap"><table>
+    <tr><th>What</th><th>Value (from <code>keycloak/realm-course.json</code>)</th></tr>
+    <tr><td>Admin console</td><td><code>http://localhost:8180</code> – admin / admin</td></tr>
+    <tr><td>Realm / issuer</td><td><code>course</code> → <code>http://localhost:8180/realms/course</code></td></tr>
+    <tr><td>Users</td><td><code>alice / alice123</code> (role user), <code>boss / boss123</code> (roles user, admin)</td></tr>
+    <tr><td>Client</td><td><code>course-client</code> / secret <code>course-secret</code>, redirect <code>http://localhost:8080/login/oauth2/code/keycloak</code></td></tr>
+  </table></div>
+  <p>The login client has a <code>keycloak</code> profile so you can do a <b>full OIDC login</b> without any external account:</p>
+  <pre><span class="file">oauth2-login-client/src/main/resources/application-keycloak.yml</span><code class="lang-yaml">spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          keycloak:
+            client-id: course-client
+            client-secret: course-secret
+            scope: openid, profile, email
+            authorization-grant-type: authorization_code
+        provider:
+          keycloak:
+            issuer-uri: http://localhost:8180/realms/course
+            user-name-attribute: preferred_username</code></pre>
+
+  <h3>3.12 Security notes for OAuth2/OIDC</h3>
+  <ul>
+    <li><b>Redirect URIs must be exact</b> – no wildcards in production. Otherwise an attacker can steal codes by redirecting to their site.</li>
+    <li><b><code>state</code> and PKCE</b> – Spring adds and checks <code>state</code> automatically, and uses PKCE for public clients (and can for confidential ones).</li>
+    <li><b>Client secrets only on servers.</b> SPAs and mobile apps are <i>public</i> clients: use Authorization Code + PKCE without a secret, or a Backend-for-Frontend.</li>
+    <li><b>Validate the audience</b> (<code>aud</code>) in resource servers when possible: a token for API A should not be accepted by API B
+        (<code>spring.security.oauth2.resourceserver.jwt.audiences</code>).</li>
+    <li><b>Request the smallest scopes</b> you need. Users trust apps that ask for less.</li>
+    <li><b>HTTPS</b> for everything except your laptop.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>This topic folder contains two independent Maven projects plus Keycloak configuration:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>README.md</code></td><td>Start order</td></tr>
+    <tr><td><code>docker-compose.yml</code></td><td>Keycloak 26 on port 8180 with realm import</td></tr>
+    <tr><td><code>keycloak/realm-course.json</code></td><td>Realm <code>course</code>: roles, users alice/boss, client course-client</td></tr>
+    <tr><td><code>requests.http</code></td><td>Get tokens from Keycloak, call the resource server, refresh a token</td></tr>
+    <tr><td colspan="2"><b><code>oauth2-login-client/</code></b> – package <code>com.course.oauth2login</code>, port 8080</td></tr>
+    <tr><td><code>pom.xml</code></td><td>web + <code>spring-boot-starter-oauth2-client</code> + spring-security-test</td></tr>
+    <tr><td><code>OAuth2LoginApplication.java</code></td><td>Main class, run instructions</td></tr>
+    <tr><td><code>SecurityConfig.java</code></td><td><code>oauth2Login()</code>, public home page, logout</td></tr>
+    <tr><td><code>ProfileController.java</code></td><td><code>/</code> (links), <code>/me</code> (<code>OAuth2User</code> / <code>OidcUser</code>), <code>/me/token</code> (<code>OAuth2AuthorizedClient</code>)</td></tr>
+    <tr><td><code>application.yml</code></td><td>GitHub + Google registrations with env-variable placeholders</td></tr>
+    <tr><td><code>application-keycloak.yml</code></td><td>Keycloak registration + provider (<code>issuer-uri</code>)</td></tr>
+    <tr><td><code>src/test/.../OAuth2LoginTest.java</code></td><td>4 tests with <code>oauth2Login()</code> and <code>oidcLogin()</code></td></tr>
+    <tr><td colspan="2"><b><code>resource-server/</code></b> – package <code>com.course.resourceserver</code>, port 8081</td></tr>
+    <tr><td><code>pom.xml</code></td><td>web + <code>spring-boot-starter-oauth2-resource-server</code> + spring-security-test</td></tr>
+    <tr><td><code>ResourceServerApplication.java</code></td><td>Main class</td></tr>
+    <tr><td><code>SecurityConfig.java</code></td><td>Stateless chain, scope and role rules, <code>oauth2ResourceServer().jwt()</code></td></tr>
+    <tr><td><code>KeycloakRealmRoleConverter.java</code></td><td>Scopes + <code>realm_access.roles</code> → authorities</td></tr>
+    <tr><td><code>CourseController.java</code></td><td><code>/api/public/courses</code>, <code>/api/me</code> (<code>@AuthenticationPrincipal Jwt</code>), <code>/api/profile</code>, <code>/api/admin/report</code></td></tr>
+    <tr><td><code>application.yml</code></td><td><code>issuer-uri</code> (overridable with <code>ISSUER_URI</code>)</td></tr>
+    <tr><td><code>src/test/.../ResourceServerTest.java</code></td><td>6 tests with the <code>jwt()</code> post-processor + a converter unit test</td></tr>
+  </table></div>
+  <h3>4.1 Testing without GitHub or Keycloak</h3>
+  <p><code>spring-security-test</code> can fake the <b>result</b> of an OAuth2 login or a validated JWT, so the tests run offline:</p>
+  <pre><span class="file">oauth2-login-client/src/test/.../OAuth2LoginTest.java</span><code class="lang-java">@Test
+void openIdConnectLogin() throws Exception {
+    mockMvc.perform(get("/me").with(oidcLogin()
+                    .idToken(token -&gt; token.claim("email", "alice@example.com"))))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.idTokenClaims.email").value("alice@example.com"));
+}</code></pre>
+  <pre><span class="file">resource-server/src/test/.../ResourceServerTest.java</span><code class="lang-java">@Test
+void adminReportNeedsAdminRole() throws Exception {
+    mockMvc.perform(get("/api/admin/report").with(jwt().authorities(new SimpleGrantedAuthority("ROLE_USER"))))
+           .andExpect(status().isForbidden());
+    mockMvc.perform(get("/api/admin/report").with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+           .andExpect(status().isOk());
+}
+
+@Test
+void converterReadsScopesAndRealmRoles() {
+    Jwt keycloakToken = Jwt.withTokenValue("dummy").header("alg", "RS256")
+            .claim("scope", "openid profile email")
+            .claim("realm_access", Map.of("roles", List.of("user", "admin")))
+            .issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(300)).build();
+    List&lt;String&gt; authorities = new KeycloakRealmRoleConverter().convert(keycloakToken).stream()
+            .map(Object::toString).toList();
+    assertThat(authorities).containsExactlyInAnyOrder(
+            "SCOPE_openid", "SCOPE_profile", "SCOPE_email", "ROLE_USER", "ROLE_ADMIN");
+}</code></pre>
+  <div class="callout info"><strong>ℹ️ <code>jwt()</code> and custom converters</strong>
+    <code>jwt()</code> builds the <code>Authentication</code> itself and does not call your <code>JwtAuthenticationConverter</code>. That is why we pass the authorities explicitly and
+    unit-test the converter separately.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="run">5. How to run</h2>
+  <h3>5.1 Run the tests (works offline, no Docker)</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\50-OAuth2-And-OpenID-Connect\oauth2-login-client"
+mvn test
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0
+
+cd ..\resource-server
+mvn test
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0</code></pre>
+
+  <h3>5.2 Start Keycloak</h3>
+  <p>Start <b>Docker Desktop</b> first (whale icon must be steady), then:</p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\50-OAuth2-And-OpenID-Connect"
+docker compose up -d
+docker compose logs -f keycloak        (wait for "Running the server in development mode", then Ctrl+C)</code></pre>
+  <p>Open <code>http://localhost:8180</code> and log in as <code>admin / admin</code>. Switch to realm <b>course</b> (top-left drop-down) and look around:
+     <i>Users</i> (alice, boss), <i>Realm roles</i> (user, admin), <i>Clients → course-client</i> (redirect URI, credentials tab).</p>
+
+  <h3>5.3 Resource server with real Keycloak tokens</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\50-OAuth2-And-OpenID-Connect\resource-server"
+mvn spring-boot:run</code></pre>
+  <p>In another PowerShell window (or use <code>requests.http</code>, which reuses the tokens automatically):</p>
+  <pre class="terminal"><code>PS&gt; $t = Invoke-RestMethod -Method Post -Uri http://localhost:8180/realms/course/protocol/openid-connect/token `
+       -ContentType "application/x-www-form-urlencoded" `
+       -Body "grant_type=password&amp;client_id=course-client&amp;client_secret=course-secret&amp;username=alice&amp;password=alice123&amp;scope=openid%20profile%20email"
+PS&gt; $t.token_type; $t.expires_in
+Bearer
+300
+
+PS&gt; curl.exe http://localhost:8081/api/public/courses
+["Java Basics","Spring Boot","Spring Security"]
+
+PS&gt; curl.exe -i http://localhost:8081/api/me
+HTTP/1.1 401
+WWW-Authenticate: Bearer
+
+PS&gt; curl.exe http://localhost:8081/api/me -H "Authorization: Bearer $($t.access_token)"
+{"name":"alice","subject":"8c1f...","email":"alice@example.com","issuer":"http://localhost:8180/realms/course",
+ "expiresAt":"...","authorities":["ROLE_USER","SCOPE_email","SCOPE_openid","SCOPE_profile", ...]}
+
+PS&gt; curl.exe -i http://localhost:8081/api/admin/report -H "Authorization: Bearer $($t.access_token)"
+HTTP/1.1 403            (alice has no admin role - get a token for boss / boss123 and you get 200)</code></pre>
+  <p>(The exact <code>subject</code>, times and the order of authorities differ on your machine. Keycloak may also add its built-in realm roles such as <code>default-roles-course</code>, <code>offline_access</code> and <code>uma_authorization</code>, which our converter turns into extra <code>ROLE_...</code> authorities – harmless.) The token Keycloak gives you is a JWT – decode the middle part as in topic 49
+     and look at <code>iss</code>, <code>realm_access</code>, <code>scope</code>, <code>preferred_username</code>.</p>
+  <div class="callout warn"><strong>⚠️ Keycloak not running?</strong>
+    The resource server still starts (Spring contacts the issuer lazily). Public URLs work and requests <i>without</i> a token get 401. But a request <i>with</i> a token fails
+    with <b>500</b> and the log says <i>"Unable to resolve the Configuration with the provided Issuer of http://localhost:8180/realms/course"</i> – we saw exactly this when testing
+    without Docker. Start Keycloak and try again.</div>
+
+  <h3>5.4 Full OIDC browser login against Keycloak</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\50-OAuth2-And-OpenID-Connect\oauth2-login-client"
+mvn spring-boot:run "-Dspring-boot.run.profiles=keycloak"</code></pre>
+  <ol>
+    <li>Open <code>http://localhost:8080</code> → <b>Login with local Keycloak</b>.</li>
+    <li>The browser jumps to <code>localhost:8180</code> – Keycloak's login page. Log in as <code>alice / alice123</code>.</li>
+    <li>You are sent back to <code>/login/oauth2/code/keycloak?code=...&amp;state=...</code>, Spring exchanges the code and redirects you on.</li>
+    <li>Open <code>/me</code>: <code>"loginType": "OpenID Connect (has an ID token)"</code> and the ID token claims (<code>email</code>, <code>preferred_username</code>…).</li>
+    <li>Open <code>/me/token</code>: provider <code>keycloak</code>, token type <code>Bearer</code>, scopes, expiry, <code>hasRefreshToken: true</code>.</li>
+  </ol>
+
+  <h3>5.5 GitHub login</h3>
+  <p>Follow section 3.9, set the two environment variables and run without a profile. Without real credentials you can still see step ② of the flow:</p>
+  <pre class="terminal"><code>curl.exe -s -o NUL -w "%{http_code} -&gt; %{redirect_url}" http://localhost:8080/oauth2/authorization/github
+302 -&gt; https://github.com/login/oauth/authorize?response_type=code&amp;client_id=replace-with-your-github-client-id&amp;scope=read:user%20user:email&amp;state=...&amp;redirect_uri=http://localhost:8080/login/oauth2/code/github</code></pre>
+  <p>Stop everything when finished: <code>Ctrl+C</code> in the app windows and <code>docker compose down</code> in the topic folder.</p>
+
+  <!-- ============================================================ -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout warn"><strong>⚠️ Mistake: "redirect_uri_mismatch" / "The redirect_uri is not associated with this application"</strong>
+    The callback URL registered at GitHub/Google/Keycloak differs from what Spring sends (port, http vs https, trailing slash, registration id).<br>
+    <strong>Fix:</strong> register exactly <code>http://localhost:8080/login/oauth2/code/{registrationId}</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: app with the <code>keycloak</code> profile fails at startup</strong>
+    A client registration with <code>issuer-uri</code> performs discovery <b>at startup</b> – Keycloak must already be running.<br>
+    <strong>Fix:</strong> <code>docker compose up -d</code> and wait until Keycloak is ready, then start the app.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: 401 with "The iss claim is not valid"</strong>
+    The token was issued for <code>http://127.0.0.1:8180/...</code> or <code>http://keycloak:8080/...</code> but the API expects <code>http://localhost:8180/...</code>. Issuer strings must match <b>exactly</b>.<br>
+    <strong>Fix:</strong> request tokens using the same host name that is configured in <code>issuer-uri</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: admin user still gets 403 on <code>hasRole("ADMIN")</code></strong>
+    Spring's default converter only reads <code>scope</code>; Keycloak roles in <code>realm_access</code> are ignored.<br>
+    <strong>Fix:</strong> a custom converter like <code>KeycloakRealmRoleConverter</code>. Check the token's claims and <code>/api/me</code>'s authorities.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: sending the ID token to the API</strong>
+    The ID token's audience is the client; APIs expect access tokens.<br>
+    <strong>Fix:</strong> use <code>access_token</code> from the token response (or <code>OAuth2AuthorizedClient.getAccessToken()</code>).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: GitHub user has <code>email: null</code></strong>
+    GitHub hides private emails from <code>/user</code>, and GitHub is not OIDC.<br>
+    <strong>Fix:</strong> request scope <code>user:email</code> and call <code>https://api.github.com/user/emails</code> with the access token, or use a stable id (<code>id</code>) to identify users.</div>
+  <div class="callout danger"><strong>🔥 Mistake: client secret committed to Git or shipped in a SPA</strong>
+    Anyone can impersonate your app.<br>
+    <strong>Fix:</strong> environment variables / secret manager; public clients use PKCE and no secret. Rotate a leaked secret immediately.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: using the password grant in a real app</strong>
+    It teaches users to type their password into your app – the very thing OAuth2 exists to avoid – and it is removed in OAuth 2.1.<br>
+    <strong>Fix:</strong> Authorization Code + PKCE for users, Client Credentials for machines.</div>
+
+  <!-- ============================================================ -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><b>Don't build your own identity provider</b> for serious systems – use Keycloak, Auth0, Okta, Entra ID or Spring Authorization Server.</li>
+    <li><b>Authorization Code + PKCE</b> for every user-facing client; <b>Client Credentials</b> for service-to-service calls.</li>
+    <li>Resource servers: configure <code>issuer-uri</code>, validate <code>aud</code>, map roles/scopes explicitly, stay <b>stateless</b>.</li>
+    <li>Keep <b>access tokens short-lived</b>; let the client starter refresh them automatically.</li>
+    <li>Use <b>stable identifiers</b> (<code>sub</code>) to link external accounts to your own user records – emails and usernames can change.</li>
+    <li>Ask for the <b>minimum scopes</b>; check scopes in APIs (<code>SCOPE_orders.read</code>) for fine-grained access.</li>
+    <li>Secrets only in environment variables or a vault; separate client registrations per environment (dev/test/prod).</li>
+    <li>Test with <code>oauth2Login()</code>, <code>oidcLogin()</code> and <code>jwt()</code> – no real provider needed in CI. Use Testcontainers + Keycloak for full integration tests.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li><b>OAuth2</b> = delegated authorization with tokens (the valet key); <b>OIDC</b> = OAuth2 + identity (ID token, <code>openid</code> scope, discovery).</li>
+    <li>Four roles: resource owner, client, authorization server, resource server.</li>
+    <li><b>Authorization Code flow</b>: redirect to the server → user logs in there → code comes back → client swaps code for tokens on the back channel.</li>
+    <li><code>spring-boot-starter-oauth2-client</code> + <code>oauth2Login()</code> + a <code>registration</code> in YAML = "Login with GitHub/Google/Keycloak".</li>
+    <li><code>spring-boot-starter-oauth2-resource-server</code> + <code>issuer-uri</code> = an API that validates JWTs with the issuer's public keys (JWKS).</li>
+    <li>Scopes become <code>SCOPE_x</code> authorities; provider-specific roles need a custom <code>JwtAuthenticationConverter</code>.</li>
+    <li>Real client id/secret (or a local Keycloak) are needed to actually log in; tests use <code>oauth2Login()</code>, <code>oidcLogin()</code>, <code>jwt()</code>.</li>
+  </ul></div>
+
+  <!-- ============================================================ -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Read the discovery document.</b> With Keycloak running, open <code>http://localhost:8180/realms/course/.well-known/openid-configuration</code>.
+       Find: the authorization endpoint, the token endpoint, the JWKS URI and the supported signing algorithms.</p>
+    <details><summary>Hint / solution</summary><p>Look for <code>authorization_endpoint</code> (…/protocol/openid-connect/auth), <code>token_endpoint</code> (…/protocol/openid-connect/token),
+       <code>jwks_uri</code> (…/protocol/openid-connect/certs) and <code>id_token_signing_alg_values_supported</code> (RS256 and others). Open the <code>jwks_uri</code>: those are the
+       <b>public</b> keys our resource server downloads – notice there is nothing secret in them.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Show the GitHub avatar.</b> Change the home page so that, when a user is logged in, it shows "Hello &lt;name&gt;" and their <code>avatar_url</code> image.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@GetMapping(value = "/", produces = MediaType.TEXT_HTML_VALUE)
+public String home(@AuthenticationPrincipal OAuth2User user) {
+    if (user == null) {                        // anonymous visitor (/ is permitAll)
+        return "&lt;a href='/oauth2/authorization/github'&gt;Login with GitHub&lt;/a&gt;";
+    }
+    String name = String.valueOf(user.getAttributes().getOrDefault("name", user.getName()));
+    String avatar = String.valueOf(user.getAttributes().get("avatar_url"));
+    return "&lt;h1&gt;Hello " + HtmlUtils.htmlEscape(name) + "&lt;/h1&gt;&lt;img src='" + avatar + "' width='80'&gt;";
+}
+// HtmlUtils (org.springframework.web.util) escapes the name - never put user data into HTML unescaped (XSS).</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Validate the audience.</b> In Keycloak add an <i>Audience</i> mapper to <code>course-client</code> (Client scopes → course-client-dedicated → Add mapper → By configuration → Audience,
+       included client audience <code>course-api</code>). Then set <code>audiences: course-api</code> in the resource server and verify that old tokens are rejected and new ones accepted.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-yaml">spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8180/realms/course
+          audiences: course-api</code></pre>
+      <p>Tokens without <code>"aud": [..., "course-api"]</code> now give 401 with <i>"The aud claim is not valid"</i>. Audience validation stops a token meant for one API from being replayed against another.</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Method security with scopes.</b> Enable method security in the resource server and protect a new endpoint <code>POST /api/courses</code> with
+       <code>@PreAuthorize("hasRole('ADMIN') and hasAuthority('SCOPE_profile')")</code>. Write two <code>jwt()</code> tests (allowed / forbidden).</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@EnableMethodSecurity      // on SecurityConfig
+
+@PostMapping("/courses")
+@PreAuthorize("hasRole('ADMIN') and hasAuthority('SCOPE_profile')")
+public Map&lt;String, String&gt; create(@RequestBody Map&lt;String, String&gt; body) {
+    return Map.of("created", body.get("title"));
+}
+
+@Test
+void adminWithProfileScopeCanCreate() throws Exception {
+    mockMvc.perform(post("/api/courses").contentType(MediaType.APPLICATION_JSON).content("{\"title\":\"Kafka\"}")
+            .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN"),
+                                    new SimpleGrantedAuthority("SCOPE_profile"))))
+           .andExpect(status().isOk());
+}
+@Test
+void adminWithoutScopeIsForbidden() throws Exception {
+    mockMvc.perform(post("/api/courses").contentType(MediaType.APPLICATION_JSON).content("{\"title\":\"Kafka\"}")
+            .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+           .andExpect(status().isForbidden());
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>Client calls the resource server.</b> In <code>oauth2-login-client</code> (keycloak profile) add <code>GET /courses-from-api</code> that calls
+       <code>http://localhost:8081/api/me</code> with the logged-in user's access token and returns the result. Use <code>RestClient</code> (topic 45).</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@GetMapping("/courses-from-api")
+public String callApi(@RegisteredOAuth2AuthorizedClient("keycloak") OAuth2AuthorizedClient client) {
+    return RestClient.create("http://localhost:8081")
+            .get().uri("/api/me")
+            .headers(h -&gt; h.setBearerAuth(client.getAccessToken().getTokenValue()))
+            .retrieve()
+            .body(String.class);
+}
+// The ACCESS token (not the ID token) travels to the API.
+// Spring refreshes it automatically with the refresh token when you inject
+// OAuth2AuthorizedClient via @RegisteredOAuth2AuthorizedClient.
+// Advanced: Spring Security 6.4+ can attach tokens automatically with an
+// OAuth2ClientHttpRequestInterceptor on the RestClient.</code></pre></details>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is OAuth2? Explain its roles.</summary>
+    <p>An authorization framework that lets a client app access resources on behalf of a user using tokens instead of passwords. Roles: resource owner (user), client (app),
+       authorization server (issues tokens after authenticating the user and getting consent), resource server (API that accepts access tokens).</p></details>
+  <details><summary>Q2. Difference between OAuth2 and OpenID Connect?</summary>
+    <p>OAuth2 handles authorization (access tokens, scopes) but defines no standard way to identify the user. OIDC is a layer on OAuth2 that adds authentication: the <code>openid</code> scope,
+       an ID token (JWT with <code>sub</code>, <code>email</code>…), a userinfo endpoint and discovery metadata.</p></details>
+  <details><summary>Q3. Walk through the Authorization Code flow.</summary>
+    <p>Client redirects the browser to the authorization endpoint with client_id, scope, redirect_uri, state (and PKCE challenge). User authenticates and consents. Server redirects back with a
+       one-time code. Client verifies state and exchanges the code (plus secret or PKCE verifier) at the token endpoint over a back channel, receiving access/refresh (and ID) tokens.</p></details>
+  <details><summary>Q4. What is PKCE and why is it needed?</summary>
+    <p>Proof Key for Code Exchange: the client creates a random <code>code_verifier</code>, sends its hash (<code>code_challenge</code>) with the authorization request, and the original verifier with the token request.
+       An attacker who intercepts the code cannot redeem it. Essential for public clients (SPAs, mobile) that cannot keep a secret; recommended for all in OAuth 2.1.</p></details>
+  <details><summary>Q5. Which grant type for which scenario?</summary>
+    <p>User logging in to web/SPA/mobile: Authorization Code + PKCE. Backend service calling another service: Client Credentials. Devices without a browser: Device Code. Renewing tokens: Refresh Token.
+       Implicit and Password grants are deprecated.</p></details>
+  <details><summary>Q6. How does a Spring resource server validate a JWT?</summary>
+    <p>From <code>issuer-uri</code> it discovers the JWKS URI, downloads and caches the issuer's public keys, then for each request verifies the signature (matching <code>kid</code>), expiry/not-before,
+       issuer (and audience if configured), and converts claims into a <code>JwtAuthenticationToken</code> with authorities (scopes as <code>SCOPE_*</code> by default).</p></details>
+  <details><summary>Q7. Access token vs ID token vs refresh token?</summary>
+    <p>Access token: presented to resource servers to access APIs (audience = API). ID token: tells the client who the user is (audience = client), never sent to APIs.
+       Refresh token: long-lived, sent only to the authorization server to obtain new access tokens.</p></details>
+  <details><summary>Q8. How do you map Keycloak roles to Spring Security authorities?</summary>
+    <p>Provide a <code>JwtAuthenticationConverter</code> with a custom <code>Converter&lt;Jwt, Collection&lt;GrantedAuthority&gt;&gt;</code> that reads <code>realm_access.roles</code>
+       (or <code>resource_access.{client}.roles</code>) and creates <code>ROLE_*</code> authorities, optionally keeping the default scope authorities.</p></details>
+  <details><summary>Q9. What is the <code>state</code> parameter for?</summary>
+    <p>A random value bound to the user's session, sent in the authorization request and checked on the callback. It prevents CSRF/login-injection attacks where an attacker makes the victim complete
+       a login with the attacker's code. Spring generates and validates it automatically.</p></details>
+  <details><summary>Q10. When would you still implement your own JWT (topic 49) instead of OAuth2?</summary>
+    <p>For a single small application with its own user base, no third-party clients and no SSO need, a self-issued JWT can be simpler. As soon as you have multiple apps/services, external identity providers,
+       SSO, MFA or compliance requirements, a dedicated authorization server with OAuth2/OIDC is the better, safer choice.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../49-JWT-Authentication/lesson.html"><small>← Previous</small>49. JWT Authentication</a>
+    <a class="next" href="../51-Caching-With-Redis/lesson.html"><small>Next →</small>51. Caching with Redis</a>
+  </nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,207 @@
+/* ==========================================================
+   Java + Spring Boot Course - shared stylesheet
+   Used by every lesson page:  <link rel="stylesheet" href="../assets/style.css">
+   ========================================================== */
+
+:root {
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #f0f2f6;
+  --text: #1d2330;
+  --muted: #5b6475;
+  --border: #dde1e8;
+  --accent: #2f7d32;          /* Spring green */
+  --accent-soft: #e6f4e7;
+  --java: #c0561b;            /* Java orange */
+  --java-soft: #fbeee6;
+  --info: #1f6fb2;
+  --info-soft: #e5f0fa;
+  --warn: #9a6400;
+  --warn-soft: #fdf3dc;
+  --danger: #b3261e;
+  --danger-soft: #fbe7e6;
+  --code-bg: #1e2330;
+  --code-text: #e6e8ee;
+  --code-kw: #ff9e64;
+  --code-str: #9ece6a;
+  --code-com: #7f8ba3;
+  --code-ann: #e0af68;
+  --code-type: #7dcfff;
+  --code-num: #bb9af7;
+  --shadow: 0 1px 3px rgba(20, 30, 50, .08), 0 4px 14px rgba(20, 30, 50, .05);
+  --radius: 10px;
+  --maxw: 920px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151c; --surface: #1a1f29; --surface-2: #222836; --text: #e4e7ee; --muted: #9aa3b5;
+    --border: #2e3546; --accent: #6cc070; --accent-soft: #1d3320; --java: #f0925a; --java-soft: #3a2518;
+    --info: #6cb2f0; --info-soft: #172a3d; --warn: #e8b64c; --warn-soft: #3a2e12;
+    --danger: #f08b84; --danger-soft: #3d1c1a; --code-bg: #0d1017;
+    --shadow: 0 1px 3px rgba(0,0,0,.4); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151c; --surface: #1a1f29; --surface-2: #222836; --text: #e4e7ee; --muted: #9aa3b5;
+  --border: #2e3546; --accent: #6cc070; --accent-soft: #1d3320; --java: #f0925a; --java-soft: #3a2518;
+  --info: #6cb2f0; --info-soft: #172a3d; --warn: #e8b64c; --warn-soft: #3a2e12;
+  --danger: #f08b84; --danger-soft: #3d1c1a; --code-bg: #0d1017;
+  --shadow: 0 1px 3px rgba(0,0,0,.4); color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.7 "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+}
+
+/* ---------- top bar ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.topbar a { color: var(--text); text-decoration: none; font-weight: 600; }
+.topbar .crumb { color: var(--muted); font-size: 14px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.theme-btn {
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  border-radius: 8px; padding: 5px 10px; cursor: pointer; font-size: 14px;
+}
+
+/* ---------- layout ---------- */
+main { max-width: var(--maxw); margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 2.1rem; line-height: 1.25; margin: 8px 0 6px; }
+h2 { font-size: 1.5rem; margin: 44px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--border); }
+h3 { font-size: 1.18rem; margin: 28px 0 8px; }
+p { margin: 10px 0; }
+a { color: var(--info); }
+.subtitle { color: var(--muted); font-size: 1.1rem; margin-top: 0; }
+.tag {
+  display: inline-block; font-size: 13px; font-weight: 600;
+  padding: 2px 10px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent); margin-right: 6px;
+}
+.tag.java { background: var(--java-soft); color: var(--java); }
+.tag.adv { background: var(--info-soft); color: var(--info); }
+
+/* ---------- cards & callouts ---------- */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px 20px; box-shadow: var(--shadow); margin: 16px 0;
+}
+.callout { border-left: 4px solid; border-radius: 8px; padding: 12px 16px; margin: 16px 0; }
+.callout > strong:first-child { display: block; margin-bottom: 4px; }
+.callout.analogy { background: var(--java-soft); border-color: var(--java); }
+.callout.tip     { background: var(--accent-soft); border-color: var(--accent); }
+.callout.info    { background: var(--info-soft); border-color: var(--info); }
+.callout.warn    { background: var(--warn-soft); border-color: var(--warn); }
+.callout.danger  { background: var(--danger-soft); border-color: var(--danger); }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+
+/* ---------- code ---------- */
+code {
+  font-family: "Cascadia Code", Consolas, "JetBrains Mono", monospace;
+  font-size: .9em; background: var(--surface-2); padding: 1px 6px; border-radius: 5px;
+}
+pre {
+  position: relative;
+  background: var(--code-bg); color: var(--code-text);
+  padding: 16px 18px; border-radius: var(--radius);
+  overflow-x: auto; font-size: 14.5px; line-height: 1.55; margin: 14px 0;
+}
+pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+pre .file {
+  display: block; margin: -16px -18px 12px; padding: 6px 18px;
+  background: rgba(255,255,255,.06); color: #aab3c5; font-size: 12.5px;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.copy-btn {
+  position: absolute; top: 6px; right: 8px;
+  background: rgba(255,255,255,.1); color: #cfd5e2; border: 0; border-radius: 6px;
+  padding: 3px 9px; font-size: 12px; cursor: pointer;
+}
+.copy-btn:hover { background: rgba(255,255,255,.2); }
+/* simple syntax colours added by course.js */
+.tok-kw { color: var(--code-kw); }
+.tok-str { color: var(--code-str); }
+.tok-com { color: var(--code-com); font-style: italic; }
+.tok-ann { color: var(--code-ann); }
+.tok-type { color: var(--code-type); }
+.tok-num { color: var(--code-num); }
+
+/* terminal blocks */
+pre.terminal { background: #0b0d12; }
+pre.terminal::before { content: "Terminal"; display: block; color: #6b7488; font-size: 12px; margin-bottom: 6px; }
+
+/* ---------- tables ---------- */
+.table-wrap { overflow-x: auto; margin: 14px 0; }
+table { border-collapse: collapse; width: 100%; background: var(--surface); font-size: 15px; }
+th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: var(--surface-2); }
+
+/* ---------- diagrams (pure CSS flow boxes) ---------- */
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 16px 0; }
+.flow .box {
+  background: var(--surface); border: 2px solid var(--accent); border-radius: 8px;
+  padding: 8px 14px; font-weight: 600; font-size: 15px; text-align: center;
+}
+.flow .box.alt { border-color: var(--java); }
+.flow .box.info { border-color: var(--info); }
+.flow .arrow { color: var(--muted); font-size: 20px; }
+figure.diagram { margin: 18px 0; text-align: center; }
+figure.diagram svg { max-width: 100%; height: auto; }
+figure.diagram figcaption { color: var(--muted); font-size: 14px; margin-top: 6px; }
+
+/* ---------- table of contents ---------- */
+.toc { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 20px; }
+.toc ol { margin: 6px 0; padding-left: 22px; }
+.toc a { text-decoration: none; }
+
+/* ---------- exercises & interview Q&A ---------- */
+.exercise { background: var(--surface); border: 1px dashed var(--accent); border-radius: var(--radius); padding: 12px 18px; margin: 12px 0; }
+.exercise .level { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--accent); }
+details {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 16px; margin: 10px 0;
+}
+details summary { cursor: pointer; font-weight: 600; }
+details[open] summary { margin-bottom: 8px; }
+
+/* ---------- prev / next ---------- */
+.pager { display: flex; justify-content: space-between; gap: 12px; margin-top: 56px; flex-wrap: wrap; }
+.pager a {
+  flex: 1 1 240px; display: block; padding: 14px 18px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--border); text-decoration: none; color: var(--text);
+}
+.pager a:hover { border-color: var(--accent); }
+.pager small { display: block; color: var(--muted); }
+.pager .next { text-align: right; }
+
+/* ---------- course home page ---------- */
+.hero { padding: 28px 0 8px; }
+.section-title { display: flex; align-items: baseline; gap: 10px; }
+.topic-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.topic-list li a {
+  display: flex; gap: 12px; align-items: baseline;
+  padding: 10px 14px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border);
+  text-decoration: none; color: var(--text);
+}
+.topic-list li a:hover { border-color: var(--accent); }
+.topic-list .num { font-weight: 700; color: var(--accent); min-width: 2.2em; }
+.topic-list .desc { color: var(--muted); font-size: 14.5px; display: block; }
+.progress-box { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); }
+.done-check { accent-color: var(--accent); width: 18px; height: 18px; }
+
+@media (max-width: 600px) {
+  body { font-size: 16px; }
+  h1 { font-size: 1.65rem; }
+  pre { font-size: 13px; }
+}

@@ -1,0 +1,43 @@
+# payment-service configuration (Topic 65)
+server:
+  port: 8082
+
+spring:
+  application:
+    name: payment-service       # appears in every log line and as the service name in Zipkin
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0          # trace 100 % of requests (great for learning; use ~0.1 in production)
+    baggage:
+      remote-fields: correlation-id          # read/write this HTTP header and pass it along
+      correlation:
+        fields: correlation-id               # ...and also put it into the logging MDC
+  zipkin:
+    tracing:
+      endpoint: http://localhost:9411/api/v2/spans   # where to send finished spans
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+logging:
+  include-application-name: false   # the name is already inside our correlation block below
+  pattern:
+    # Default in Boot 3.5 is "[appName,traceId,spanId] ". We add the correlation-id baggage field.
+    correlation: "[${spring.application.name:},%X{traceId:-},%X{spanId:-},%X{correlation-id:-}] "
+
+---
+# ----- "json-logs" profile: write structured JSON logs to a file (ready for ELK / Loki) -----
+#   mvn spring-boot:run -Dspring-boot.run.profiles=json-logs
+spring:
+  config:
+    activate:
+      on-profile: json-logs
+logging:
+  file:
+    name: logs/payment-service.json
+  structured:
+    format:
+      file: ecs                 # Elastic Common Schema JSON, one object per line (Boot 3.4+)

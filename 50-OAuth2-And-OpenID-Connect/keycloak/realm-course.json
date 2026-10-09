@@ -1,0 +1,52 @@
+{
+  "realm": "course",
+  "enabled": true,
+  "accessTokenLifespan": 300,
+  "roles": {
+    "realm": [
+      { "name": "user", "description": "Normal course user" },
+      { "name": "admin", "description": "Course administrator" }
+    ]
+  },
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@example.com",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Learner",
+      "credentials": [ { "type": "password", "value": "alice123", "temporary": false } ],
+      "realmRoles": [ "user" ]
+    },
+    {
+      "username": "boss",
+      "enabled": true,
+      "email": "boss@example.com",
+      "emailVerified": true,
+      "firstName": "Bea",
+      "lastName": "Boss",
+      "credentials": [ { "type": "password", "value": "boss123", "temporary": false } ],
+      "realmRoles": [ "user", "admin" ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "course-client",
+      "name": "Course demo client",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "course-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [ "http://localhost:8080/login/oauth2/code/keycloak" ],
+      "webOrigins": [ "http://localhost:8080" ],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:8080/"
+      }
+    }
+  ]
+}

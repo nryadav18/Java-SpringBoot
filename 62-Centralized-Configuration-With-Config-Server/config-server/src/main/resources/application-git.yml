@@ -1,0 +1,24 @@
+# ------------------------------------------------------------------
+# OPTIONAL: Git backend (Topic 62)
+# ------------------------------------------------------------------
+# This is how real teams use Config Server: config files live in a Git repo,
+# so every change is reviewed (pull request), versioned and can be rolled back.
+#
+# To try it:
+#   1. Create a Git repository (e.g. on GitHub) and copy the files from ../config-repo into it.
+#   2. Put its URL below.
+#   3. Start the server with the git profile instead of native:
+#        mvn spring-boot:run "-Dspring-boot.run.profiles=git"
+#
+# Private repo? add username + password (a personal access token), read from env variables:
+#   username: ${GIT_USER}
+#   password: ${GIT_TOKEN}
+spring:
+  cloud:
+    config:
+      server:
+        git:
+          uri: https://github.com/YOUR-GITHUB-USER/course-config-repo
+          default-label: main        # branch to read when the client does not ask for one
+          clone-on-start: true       # fail fast at startup if the repo is wrong
+          # search-paths: '{application}'   # optional: one sub-folder per service

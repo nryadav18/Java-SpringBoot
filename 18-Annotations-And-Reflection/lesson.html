@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>18 · Annotations &amp; Reflection</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 18</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~2 hours</span>
+  <h1>18. Annotations &amp; Reflection</h1>
+  <p class="subtitle">Understand the "@ labels" you will see everywhere in Spring, write your own, read them with reflection — and build a tiny Spring-like container so Spring never feels like magic.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="18-Annotations-And-Reflection"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What annotations are and why they exist (metadata = "data about code").</li>
+      <li>The built-in annotations: <code>@Override</code>, <code>@Deprecated</code>, <code>@FunctionalInterface</code>, <code>@SuppressWarnings</code>.</li>
+      <li>Meta-annotations <code>@Retention</code> and <code>@Target</code>, and how to write your own annotation with <code>@interface</code>.</li>
+      <li>The Reflection API: <code>Class</code>, <code>Field</code>, <code>Method</code>, <code>Constructor</code>, calling methods and creating objects at runtime.</li>
+      <li>How to read annotations at runtime and act on them.</li>
+      <li>How Spring's <code>@Component</code> + <code>@Autowired</code> work inside — by building a mini DI container.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../8-OOP-Polymorphism-Abstraction-Interfaces/lesson.html">Topic 8 · Interfaces</a>, <a href="../12-Generics/lesson.html">Topic 12 · Generics</a>, <a href="../10-Exception-Handling/lesson.html">Topic 10 · Exceptions</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Look at a typical piece of Spring Boot code you will write in a few weeks:</p>
+  <pre><code class="lang-java">@RestController
+@RequestMapping("/api/products")
+public class ProductController {
+
+    @Autowired
+    private ProductService service;
+
+    @GetMapping("/{id}")
+    public Product getOne(@PathVariable Long id) { ... }
+}</code></pre>
+  <p>Almost every line has an <code>@Something</code>. These are <b>annotations</b>. You never write <code>new ProductController()</code>, you never write code that connects the URL <code>/api/products/5</code> to this method — and yet it works. How?</p>
+  <p>The answer is <b>reflection</b>: when your app starts, Spring <i>looks at your classes while the program runs</i>, finds these annotations, creates the objects, fills the fields, and remembers which method handles which URL.</p>
+  <ul>
+    <li><b>Spring</b> uses annotations + reflection for beans, injection, web endpoints, transactions, security.</li>
+    <li><b>Hibernate/JPA</b> uses <code>@Entity</code>, <code>@Id</code>, <code>@Column</code> to map classes to tables.</li>
+    <li><b>Jackson</b> uses reflection to turn objects into JSON and back.</li>
+    <li><b>JUnit</b> finds your <code>@Test</code> methods with reflection and calls them (Topic 21).</li>
+  </ul>
+  <p>You will rarely write reflection code at work. But understanding it turns Spring from "magic" into "oh, it's just doing <i>this</i>". That makes you far better at debugging Spring errors — and it is a favourite interview topic.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🧳 Luggage tags at the airport</strong>
+    <ul>
+      <li>An <b>annotation</b> is like a <b>tag</b> stuck on a suitcase: "FRAGILE", "PRIORITY", "Destination: DEL". The tag doesn't move the bag by itself. It is just <i>information</i>.</li>
+      <li>The <b>airport staff and the conveyor system</b> read the tags and act: fragile bags are handled gently, priority bags come out first. In Java, the "staff" are the compiler, Spring, JUnit, Hibernate.</li>
+      <li><b>Reflection</b> is the <b>X-ray scanner</b>: it can look <i>inside</i> any bag (any class) while it travels — see what's inside (fields, methods), and even open a locked pocket (private fields).</li>
+      <li>Some tags are torn off after check-in (annotations with <code>SOURCE</code> retention: only the compiler sees them). Others stay on until the end of the trip (<code>RUNTIME</code> retention: frameworks can read them while the program runs).</li>
+    </ul>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 What is an annotation?</h3>
+  <p>An annotation is a <b>label with an @ sign</b> that you put on a class, method, field, parameter, etc. It adds <b>metadata</b> — information <i>about</i> the code — without changing what the code does.</p>
+  <pre><code class="lang-java">@Override                         // on a method
+public String toString() { ... }
+
+@Deprecated(since = "2.0")         // with elements (like named parameters)
+public void oldMethod() { ... }
+
+@SuppressWarnings("unchecked")    // with a single 'value'
+List list = ...;</code></pre>
+  <p>Key idea: <b>an annotation alone does nothing</b>. Something must read it:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Who reads it?</th><th>When?</th><th>Example</th></tr>
+    <tr><td>The compiler (<code>javac</code>)</td><td>While compiling</td><td><code>@Override</code>, <code>@FunctionalInterface</code></td></tr>
+    <tr><td>Annotation processors (code generators)</td><td>While compiling</td><td>Lombok's <code>@Getter</code>, MapStruct</td></tr>
+    <tr><td>Frameworks via reflection</td><td>While the program runs</td><td>Spring's <code>@Component</code>, JUnit's <code>@Test</code>, JPA's <code>@Entity</code></td></tr>
+  </table></div>
+
+  <h3>3.2 Built-in annotations</h3>
+  <div class="table-wrap"><table>
+    <tr><th>Annotation</th><th>Meaning</th><th>Why use it</th></tr>
+    <tr><td><code>@Override</code></td><td>"This method overrides a parent/interface method"</td><td>If you misspell the name or get the parameters wrong, the compiler gives an error instead of silently creating a new method.</td></tr>
+    <tr><td><code>@Deprecated</code></td><td>"Don't use this any more"</td><td>Callers get a warning (VS Code shows a strike-through). <code>since</code> and <code>forRemoval</code> give more info.</td></tr>
+    <tr><td><code>@FunctionalInterface</code></td><td>"This interface has exactly one abstract method"</td><td>Compile error if someone adds a second one, which would break all lambdas using it.</td></tr>
+    <tr><td><code>@SuppressWarnings("...")</code></td><td>"Hide this compiler warning here"</td><td>For warnings you've checked and accept, e.g. <code>"unchecked"</code>, <code>"rawtypes"</code>, <code>"deprecation"</code>, <code>"removal"</code>.</td></tr>
+    <tr><td><code>@SafeVarargs</code></td><td>"My generic varargs method is safe"</td><td>Removes a generics warning (rarely needed).</td></tr>
+  </table></div>
+  <pre><code class="lang-java">class Dog extends Animal {
+    @Override
+    String sund() { return "Woof"; }   // typo!
+}
+// javac: error: method does not override or implement a method from a supertype</code></pre>
+  <div class="callout tip"><strong>💡 Always write @Override</strong>
+    It costs nothing and catches real bugs. Without it, the typo above would compile, and <code>Animal.sound()</code> would be called instead of yours — a silent bug.</div>
+
+  <h3>3.3 Writing your own annotation</h3>
+  <p>You declare an annotation with <code>@interface</code> (an "annotation interface"):</p>
+  <pre><code class="lang-java">import java.lang.annotation.*;
+
+@Retention(RetentionPolicy.RUNTIME)          // keep it until runtime
+@Target({ElementType.METHOD, ElementType.TYPE}) // allowed on methods and classes
+public @interface Role {
+    String value();                // an element (required, because no default)
+    int priority() default 1;      // an optional element with a default
+}</code></pre>
+  <p>Using it:</p>
+  <pre><code class="lang-java">@Role(value = "MANAGER", priority = 3)   // all elements named
+public void printReport() { ... }
+
+@Role("ADMIN")                           // shortcut: only 'value' given, name can be skipped
+public void deleteOrders() { ... }</code></pre>
+  <p>Rules for elements:</p>
+  <ul>
+    <li>They look like methods with no body and no parameters.</li>
+    <li>Allowed types: primitives, <code>String</code>, <code>Class</code>, enums, other annotations, and arrays of these. (Not <code>Integer</code>, not <code>List</code>, not your own objects.)</li>
+    <li>Values must be <b>constants</b> known at compile time.</li>
+    <li>An element named <code>value</code> is special: if it's the only one you set, you can write <code>@Role("ADMIN")</code>.</li>
+    <li>An annotation with no elements is a <b>marker annotation</b>, e.g. <code>@RunMe</code>.</li>
+  </ul>
+
+  <h3>3.4 Meta-annotations: @Retention and @Target</h3>
+  <p><b>Meta-annotations</b> are annotations you put on <i>annotation declarations</i>. The two most important:</p>
+  <p><b>@Retention</b> — how long the annotation "lives":</p>
+  <div class="table-wrap"><table>
+    <tr><th>RetentionPolicy</th><th>Kept in .java</th><th>Kept in .class</th><th>Visible to reflection at runtime</th><th>Example</th></tr>
+    <tr><td><code>SOURCE</code></td><td>✅</td><td>❌</td><td>❌</td><td><code>@Override</code>, Lombok</td></tr>
+    <tr><td><code>CLASS</code> <i>(default!)</i></td><td>✅</td><td>✅</td><td>❌</td><td>Bytecode tools</td></tr>
+    <tr><td><code>RUNTIME</code></td><td>✅</td><td>✅</td><td>✅</td><td>Spring, JPA, JUnit annotations</td></tr>
+  </table></div>
+  <div class="callout danger"><strong>🚫 The classic trap</strong>
+    If you forget <code>@Retention(RetentionPolicy.RUNTIME)</code>, the default is <code>CLASS</code>, and <code>isAnnotationPresent(...)</code> will <b>always return false</b>. No error, it just "doesn't work". This is the #1 custom-annotation bug.</div>
+  <p><b>@Target</b> — where the annotation may be placed:</p>
+  <div class="table-wrap"><table>
+    <tr><th>ElementType</th><th>Where</th><th>Spring example</th></tr>
+    <tr><td><code>TYPE</code></td><td>class, interface, enum, record</td><td><code>@Service</code>, <code>@Entity</code></td></tr>
+    <tr><td><code>METHOD</code></td><td>methods</td><td><code>@GetMapping</code>, <code>@Bean</code>, <code>@Transactional</code></td></tr>
+    <tr><td><code>FIELD</code></td><td>fields</td><td><code>@Autowired</code>, <code>@Column</code>, <code>@Id</code></td></tr>
+    <tr><td><code>PARAMETER</code></td><td>method parameters</td><td><code>@PathVariable</code>, <code>@RequestBody</code></td></tr>
+    <tr><td><code>CONSTRUCTOR</code></td><td>constructors</td><td><code>@Autowired</code> on a constructor</td></tr>
+    <tr><td><code>ANNOTATION_TYPE</code></td><td>other annotations</td><td>used to build "composed" annotations</td></tr>
+  </table></div>
+  <p>Other meta-annotations: <code>@Documented</code> (show in Javadoc), <code>@Inherited</code> (subclasses inherit a class-level annotation), <code>@Repeatable</code> (can be used several times on the same element).</p>
+  <div class="callout info"><strong>ℹ️ Composed annotations — a Spring favourite</strong>
+    Spring puts annotations on annotations. For example <code>@RestController</code> is itself annotated with <code>@Controller</code> and <code>@ResponseBody</code>, and <code>@Service</code> is annotated with <code>@Component</code>. That's why Spring treats a <code>@Service</code> class as a component. <code>@SpringBootApplication</code> combines three annotations into one (Topic 28).</div>
+
+  <h3>3.5 Reflection — looking at classes while the program runs</h3>
+  <p>Normally your code knows the classes it uses when you write it: <code>new Student("Asha", 88)</code>. <b>Reflection</b> lets code work with classes it <i>does not know in advance</i> — given only a <code>Class</code> object or even just a class <b>name as a String</b>.</p>
+  <p>Everything starts with a <code>Class</code> object — the JVM's description of a class. There is exactly one per loaded class.</p>
+  <pre><code class="lang-java">Class&lt;?&gt; c1 = Student.class;                     // 1. from the type
+Class&lt;?&gt; c2 = someStudent.getClass();            // 2. from an object
+Class&lt;?&gt; c3 = Class.forName("com.shop.Student");  // 3. from a String (full name)</code></pre>
+  <p>(<code>Class&lt;?&gt;</code> means "a Class of some type" — the <code>?</code> wildcard from Topic 12.)</p>
+  <div class="table-wrap"><table>
+    <tr><th>Reflection class</th><th>Represents</th><th>Common methods</th></tr>
+    <tr><td><code>Class</code></td><td>a class / interface</td><td><code>getSimpleName()</code>, <code>getDeclaredFields()</code>, <code>getDeclaredMethods()</code>, <code>getDeclaredConstructor(...)</code>, <code>getAnnotation(...)</code>, <code>isAnnotationPresent(...)</code>, <code>getInterfaces()</code>, <code>getSuperclass()</code>, <code>isAssignableFrom(...)</code></td></tr>
+    <tr><td><code>Field</code></td><td>a field</td><td><code>getName()</code>, <code>getType()</code>, <code>get(obj)</code>, <code>set(obj, value)</code>, <code>setAccessible(true)</code></td></tr>
+    <tr><td><code>Method</code></td><td>a method</td><td><code>getName()</code>, <code>getParameterTypes()</code>, <code>getReturnType()</code>, <code>invoke(obj, args...)</code></td></tr>
+    <tr><td><code>Constructor</code></td><td>a constructor</td><td><code>newInstance(args...)</code></td></tr>
+    <tr><td><code>Modifier</code></td><td>helper</td><td><code>Modifier.toString(field.getModifiers())</code> → "private static final"</td></tr>
+  </table></div>
+  <div class="callout tip"><strong>💡 getXxx vs getDeclaredXxx</strong>
+    <code>getMethods()</code> / <code>getFields()</code> → only <b>public</b> members, <b>including inherited</b> ones.<br>
+    <code>getDeclaredMethods()</code> / <code>getDeclaredFields()</code> → <b>all</b> members (private too), but only those <b>declared in this class</b>, not inherited.</div>
+
+  <h3>3.6 Doing things with reflection</h3>
+  <p><b>Create an object</b> without writing <code>new</code>:</p>
+  <pre><code class="lang-java">Constructor&lt;?&gt; ctor = clazz.getDeclaredConstructor(String.class, int.class);
+Object student = ctor.newInstance("Asha", 88);      // = new Student("Asha", 88)
+
+Object empty = clazz.getDeclaredConstructor().newInstance();  // no-arg constructor</code></pre>
+  <p><b>Call a method</b> by its name:</p>
+  <pre><code class="lang-java">Method addBonus = clazz.getMethod("addBonus", int.class);  // name + parameter types
+addBonus.invoke(student, 5);                                // = student.addBonus(5)</code></pre>
+  <p><b>Read/write a private field</b>:</p>
+  <pre><code class="lang-java">Field name = clazz.getDeclaredField("name");
+name.setAccessible(true);           // turn off the 'private' check
+System.out.println(name.get(student));
+name.set(student, "Asha Rao");      // change it!</code></pre>
+  <div class="callout warn"><strong>⚠️ "Isn't that breaking encapsulation?"</strong>
+    Yes! <code>setAccessible(true)</code> bypasses <code>private</code>. That's why it is meant for <b>frameworks and tools</b>, not for normal business code. Since Java 9 the module system also restricts deep reflection into JDK internals (e.g. you can't freely open private fields of <code>java.lang.String</code>) — you'd see an <code>InaccessibleObjectException</code>.</div>
+
+  <h3>3.7 Reading annotations with reflection</h3>
+  <p>Every reflection object (<code>Class</code>, <code>Method</code>, <code>Field</code>, ...) can tell you its annotations:</p>
+  <pre><code class="lang-java">for (Method m : clazz.getDeclaredMethods()) {
+    if (m.isAnnotationPresent(RunMe.class)) {       // is the label there?
+        Role role = m.getAnnotation(Role.class);    // get it (or null)
+        if (role != null) {
+            System.out.println("Needs role " + role.value());   // read its elements
+        }
+        m.invoke(object);                           // act on it
+    }
+}</code></pre>
+  <p>This tiny loop is <b>exactly how JUnit works</b>: find every method with <code>@Test</code> and invoke it. And it's how Spring finds <code>@GetMapping</code> methods to register URL routes.</p>
+
+  <h3>3.8 How Spring uses this: the DI container idea</h3>
+  <p>When a Spring app starts, the container roughly does:</p>
+  <div class="flow">
+    <span class="box info">1. Scan classes</span><span class="arrow">→</span>
+    <span class="box info">2. Keep those with @Component</span><span class="arrow">→</span>
+    <span class="box">3. Create one object each (reflection)</span><span class="arrow">→</span>
+    <span class="box">4. Inject @Autowired dependencies (reflection)</span><span class="arrow">→</span>
+    <span class="box alt">5. App ready</span>
+  </div>
+  <p>The created objects are called <b>beans</b>, and the place that holds them is the <b>container</b> (or <i>application context</i>). Giving an object the other objects it needs, instead of letting it create them with <code>new</code>, is called <b>Dependency Injection (DI)</b>. You will study it properly in Topics 22–24 — but in Example04 you build a mini version of it yourself!</p>
+  <div class="table-wrap"><table>
+    <tr><th>Our mini container (Example04)</th><th>Real Spring</th></tr>
+    <tr><td><code>@MyComponent</code></td><td><code>@Component</code>, <code>@Service</code>, <code>@Repository</code>, <code>@Controller</code></td></tr>
+    <tr><td><code>@MyAutowired</code> on fields</td><td><code>@Autowired</code> (constructor injection preferred)</td></tr>
+    <tr><td>A <code>List</code> of classes to scan</td><td><code>@ComponentScan</code> scans packages on disk/classpath</td></tr>
+    <tr><td><code>Map&lt;Class, Object&gt; beans</code></td><td>The <code>ApplicationContext</code> bean registry</td></tr>
+    <tr><td><code>getBean(OrderController.class)</code></td><td><code>context.getBean(OrderController.class)</code></td></tr>
+    <tr><td>Fails if no bean found</td><td><code>NoSuchBeanDefinitionException</code> / "required a bean of type ... that could not be found"</td></tr>
+    <tr><td>Takes the first matching bean</td><td>Fails with <code>NoUniqueBeanDefinitionException</code> if there are 2+ → fix with <code>@Primary</code> / <code>@Qualifier</code> (Topic 24)</td></tr>
+  </table></div>
+
+  <h3>3.9 Downsides of reflection</h3>
+  <ul>
+    <li><b>Slower</b> than direct calls (frameworks cache reflection results, so it's mostly a startup cost).</li>
+    <li><b>No compile-time safety</b>: a typo in <code>getMethod("adBonus")</code> compiles fine and fails at runtime with <code>NoSuchMethodException</code>.</li>
+    <li><b>Breaks encapsulation</b> with <code>setAccessible</code>.</li>
+    <li><b>Lots of checked exceptions</b> (<code>NoSuchMethodException</code>, <code>IllegalAccessException</code>, <code>InvocationTargetException</code>...).</li>
+  </ul>
+  <p>So: understand it, let frameworks use it, and use it yourself only for tools and generic code.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>Example01_BuiltInAnnotations.java</code></td><td><code>@Override</code>, <code>@Deprecated(since, forRemoval)</code>, <code>@FunctionalInterface</code>, <code>@SuppressWarnings</code></td></tr>
+    <tr><td><code>Example02_CustomAnnotation.java</code></td><td>Declaring <code>@RunMe</code> and <code>@Role</code>; a mini "test runner" that invokes <code>@RunMe</code> methods</td></tr>
+    <tr><td><code>Example03_ReflectionBasics.java</code></td><td>Inspecting <code>Student</code>: fields, methods, constructors, <code>invoke</code>, private access, static field</td></tr>
+    <tr><td><code>Example04_MiniDIContainer.java</code></td><td>The mini Spring: scan → create → inject → use</td></tr>
+    <tr><td><code>Example05_AnnotationValidator.java</code></td><td>A mini Bean Validation with <code>@NotBlank</code> and <code>@Min</code></td></tr>
+  </table></div>
+
+  <h3>Example01 — built-in annotations</h3>
+  <p><code>Dog.sound()</code> carries <code>@Override</code>. <code>PriceCalculator.priceWithGst</code> is marked <code>@Deprecated(since = "2.0", forRemoval = true)</code>, and a Javadoc <code>@deprecated</code> tag tells users what to use instead. <code>main</code> still calls it — it works, VS Code just shows it with a strike-through. <code>oldStyleList()</code> uses an old "raw" <code>List</code> (no generics), so it carries <code>@SuppressWarnings({"rawtypes", "unchecked"})</code> to hide exactly those two warnings. <code>DiscountRule</code> is a <code>@FunctionalInterface</code> used with a lambda.</p>
+
+  <h3>Example02 — a custom annotation and a mini test runner</h3>
+  <pre><span class="file">Example02_CustomAnnotation.java (declaration)</span><code class="lang-java">@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
+@interface RunMe { }                       // marker annotation
+
+@Retention(RetentionPolicy.RUNTIME)
+@Target({ElementType.METHOD, ElementType.TYPE})
+@interface Role {
+    String value();
+    int priority() default 1;
+}</code></pre>
+  <pre><span class="file">Example02_CustomAnnotation.java (processing)</span><code class="lang-java">for (Method m : methods) {
+    if (m.isAnnotationPresent(RunMe.class)) {
+        Role role = m.getAnnotation(Role.class);          // may be null
+        String who = (role == null) ? "anyone" : role.value() + " (priority " + role.priority() + ")";
+        System.out.println("* " + m.getName() + "  [allowed: " + who + "]");
+        m.invoke(tasks);                                  // call it
+    }
+}</code></pre>
+  <p><code>notAnnotated()</code> is never called because it has no <code>@RunMe</code>. Note that <code>deleteOldOrders</code> prints priority 1 — the <b>default</b> value. We sort the methods by name because <code>getDeclaredMethods()</code> does not promise any order.</p>
+
+  <h3>Example03 — reflection basics</h3>
+  <p>It proves the three ways of getting a <code>Class</code> give the same object, lists fields and methods with their modifiers, builds two students via constructors, calls <code>grade()</code> and <code>addBonus(5)</code> by name, then reads and changes the private <code>name</code> field and calls the private <code>secret()</code> method.</p>
+  <div class="callout info"><strong>ℹ️ What is <code>Example03_ReflectionBasics$Student</code>?</strong>
+    <code>Student</code> is a nested class inside <code>Example03_ReflectionBasics</code>. Its binary name uses a <code>$</code>. In a real project with packages, you would write <code>Class.forName("com.course.model.Student")</code>.</div>
+
+  <h3>Example04 — the mini DI container ⭐</h3>
+  <p>The application classes never create their dependencies:</p>
+  <pre><span class="file">Example04_MiniDIContainer.java (application code)</span><code class="lang-java">@MyComponent
+static class OrderService {
+    @MyAutowired
+    private OrderRepository repository;   // who sets this? the container!
+
+    @MyAutowired
+    private Notifier notifier;            // an INTERFACE - container finds EmailSender
+
+    void placeOrder(int id, String item) {
+        repository.save(id, item);
+        notifier.notifyCustomer("Your order " + id + " for " + item + " is confirmed");
+    }
+}</code></pre>
+  <p>The container does the work in its constructor:</p>
+  <pre><span class="file">Example04_MiniDIContainer.java (the container)</span><code class="lang-java">// Step 1 + 2: SCAN and CREATE
+for (Class&lt;?&gt; clazz : classesToScan) {
+    if (clazz.isAnnotationPresent(MyComponent.class)) {
+        Object bean = clazz.getDeclaredConstructor().newInstance();
+        beans.put(clazz, bean);
+    }
+}
+
+// Step 3: INJECT
+for (Object bean : beans.values()) {
+    for (Field field : bean.getClass().getDeclaredFields()) {
+        if (field.isAnnotationPresent(MyAutowired.class)) {
+            Object dependency = findBeanOfType(field.getType());
+            field.setAccessible(true);
+            field.set(bean, dependency);
+        }
+    }
+}
+
+private Object findBeanOfType(Class&lt;?&gt; type) {
+    for (Object bean : beans.values()) {
+        if (type.isAssignableFrom(bean.getClass())) {   // "can a bean of this class go into this type?"
+            return bean;
+        }
+    }
+    throw new IllegalStateException("No bean found for type " + type.getSimpleName());
+}</code></pre>
+  <p>Line by line:</p>
+  <ul>
+    <li><code>isAnnotationPresent(MyComponent.class)</code> — only labelled classes become beans; <code>HelperNotABean</code> is skipped.</li>
+    <li><code>getDeclaredConstructor().newInstance()</code> — creates the object using its no-arg constructor.</li>
+    <li>We create <b>all</b> beans first, then inject. That way the order of the list doesn't matter.</li>
+    <li><code>type.isAssignableFrom(bean.getClass())</code> — "is the bean's class the same as, a subclass of, or an implementation of <code>type</code>?" This is why the <code>Notifier</code> field receives the <code>EmailSender</code> bean.</li>
+    <li><code>field.set(bean, dependency)</code> — the moment of injection.</li>
+    <li>Asking <code>getBean</code> twice returns the same object — beans are <b>singletons</b>, like Spring's default.</li>
+  </ul>
+  <div class="callout tip"><strong>💡 Try it</strong>
+    Remove <code>@MyComponent</code> from <code>EmailSender</code> and run again. You get <code>IllegalStateException: No bean found for type Notifier</code>. Spring gives the same kind of error: <i>"Parameter 0 of constructor in OrderService required a bean of type 'Notifier' that could not be found."</i> Now you know what it means!</div>
+
+  <h3>Example05 — a mini validator</h3>
+  <p>The <code>RegistrationForm</code> fields carry <code>@NotBlank</code> and <code>@Min(18)</code>. <code>SimpleValidator.validate(obj)</code> loops over the fields of <i>any</i> object, reads each value with <code>field.get(obj)</code>, checks the rules from the annotations, and returns a list of error messages. Spring's <code>@Valid</code> + Hibernate Validator (Topic 34) work on the same idea, with dozens of ready-made annotations.</p>
+
+  <!-- ===================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <p><b>In VS Code:</b> open the folder, open an example and click <b>▶ Run</b> above <code>main</code>.</p>
+  <p><b>From the terminal:</b></p>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\18-Annotations-And-Reflection"
+java Example02_CustomAnnotation.java
+java Example04_MiniDIContainer.java</code></pre>
+  <p>Expected output of <code>Example04</code>:</p>
+  <pre class="terminal"><code>=== Starting MiniContainer ===
+Created bean: OrderController
+Created bean: OrderService
+Created bean: OrderRepository
+Created bean: EmailSender
+Skipped (no @MyComponent): HelperNotABean
+Injected OrderService into OrderController.orderService
+Injected OrderRepository into OrderService.repository
+Injected EmailSender into OrderService.notifier
+
+=== Application ready, handling a request ===
+  [OrderController] POST /orders 101 Wireless Mouse
+    [OrderRepository] saved order 101 (Wireless Mouse)
+    [EmailSender] email: Your order 101 for Wireless Mouse is confirmed
+
+Same OrderService both times? true</code></pre>
+  <p>Expected output of <code>Example05</code>:</p>
+  <pre class="terminal"><code>Good form errors: []
+Bad form errors:
+  - name: Name is required
+  - email: must not be blank
+  - age: You must be at least 18 (got 15)</code></pre>
+  <div class="callout info"><strong>ℹ️ When does @Deprecated produce a warning?</strong>
+    The compiler warns when <b>other</b> classes use a deprecated method — for example, if a separate file <code>Shop.java</code> called <code>PriceCalculator.priceWithGst(100)</code>, <code>javac</code> would print<br>
+    <code>warning: [removal] priceWithGst(double) in PriceCalculator has been deprecated and marked for removal</code>.<br>
+    Uses inside the <i>same</i> top-level class (like in Example01) are not warned about, because the class's own author is assumed to know. In that other file you could silence the warning with <code>@SuppressWarnings("removal")</code> — but the better fix is to switch to the replacement method.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>🚫 Mistake: forgetting @Retention(RUNTIME)</strong>
+    Your custom annotation is "invisible": <code>isAnnotationPresent</code> returns false, <code>getAnnotation</code> returns null. <br><strong>Fix:</strong> add <code>@Retention(RetentionPolicy.RUNTIME)</code> to every annotation you want to read at runtime.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: using getMethods()/getFields() to find private members</strong>
+    They only return public members. <br><strong>Fix:</strong> use <code>getDeclaredMethods()</code>/<code>getDeclaredFields()</code> and <code>setAccessible(true)</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: IllegalAccessException when reading a private field</strong>
+    <br><strong>Fix:</strong> call <code>field.setAccessible(true)</code> before <code>get</code>/<code>set</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: NoSuchMethodException with the right name</strong>
+    <code>getMethod("addBonus")</code> fails because the method takes an <code>int</code>. <br><strong>Fix:</strong> pass parameter types: <code>getMethod("addBonus", int.class)</code>. Note <code>int.class</code> ≠ <code>Integer.class</code>.</div>
+  <div class="callout warn"><strong>⚠️ Mistake: confusing InvocationTargetException</strong>
+    If the method you <code>invoke</code> throws an exception, reflection wraps it in <code>InvocationTargetException</code>. <br><strong>Fix:</strong> look at <code>e.getCause()</code> to see the real exception. (You will see this inside long Spring stack traces too.)</div>
+  <div class="callout warn"><strong>⚠️ Mistake: no no-arg constructor</strong>
+    <code>getDeclaredConstructor().newInstance()</code> throws <code>NoSuchMethodException</code> if the class only has constructors with parameters. JPA entities need a no-arg constructor for exactly this reason (Topic 38).</div>
+  <div class="callout warn"><strong>⚠️ Mistake: putting a wrong type in an annotation element</strong>
+    <code>Integer count();</code> or <code>List&lt;String&gt; names();</code> do not compile. <br><strong>Fix:</strong> use <code>int</code>, <code>String[]</code>, enums, <code>Class</code>.</div>
+
+  <!-- ===================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><b>Always use <code>@Override</code></b> when overriding — it's free safety.</li>
+    <li><b>Use <code>@SuppressWarnings</code> as narrowly as possible</b> (on one method or variable, not a whole class), and only after you understand the warning.</li>
+    <li>When deprecating, add <b><code>since</code></b>, a Javadoc <b><code>@deprecated</code></b> tag that points to the replacement, and <b><code>forRemoval = true</code></b> if it will be deleted.</li>
+    <li>Give custom annotations a clear <b><code>@Target</code></b> so they can't be misused, and sensible <b>defaults</b>.</li>
+    <li><b>Prefer normal code over reflection</b> in business logic. Reflection is for frameworks, libraries, tests and tools.</li>
+    <li><b>Cache</b> reflection lookups (<code>Method</code>, <code>Field</code> objects) if you use them repeatedly — frameworks do this.</li>
+    <li>In Spring, <b>prefer constructor injection</b> over field injection (<code>@Autowired</code> on fields, like our mini container). You will see why in Topic 24 — the short version: dependencies become <code>final</code>, required and easy to pass in tests.</li>
+  </ul>
+
+  <!-- ===================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>Annotations are <b>metadata labels</b>; they do nothing until a compiler, tool or framework reads them.</li>
+    <li>Built-ins: <code>@Override</code>, <code>@Deprecated</code>, <code>@FunctionalInterface</code>, <code>@SuppressWarnings</code>.</li>
+    <li>Declare your own with <code>@interface</code>; elements look like methods and can have <code>default</code> values.</li>
+    <li><code>@Retention(RUNTIME)</code> is required to read an annotation with reflection; <code>@Target</code> controls where it can be used.</li>
+    <li>Reflection works from a <code>Class</code> object: inspect and use <code>Field</code>, <code>Method</code>, <code>Constructor</code> at runtime.</li>
+    <li><code>getDeclaredXxx</code> gives all members of this class; <code>setAccessible(true)</code> opens private ones.</li>
+    <li>Spring = scan for <code>@Component</code> → create beans with reflection → inject <code>@Autowired</code> dependencies → ready. You built that in Example04.</li>
+    <li>Reflection is powerful but slower, unchecked at compile time, and breaks encapsulation — leave it to frameworks.</li>
+  </ul></div>
+
+  <!-- ===================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>Class inspector.</b> Write a method <code>printInfo(Class&lt;?&gt; c)</code> that prints the class's simple name, its superclass, its interfaces, and the number of declared methods. Try it with <code>String.class</code> and <code>ArrayList.class</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">static void printInfo(Class&lt;?&gt; c) {
+    System.out.println("Class      : " + c.getSimpleName());
+    System.out.println("Superclass : " + c.getSuperclass().getSimpleName());
+    System.out.println("Interfaces : " + java.util.Arrays.toString(c.getInterfaces()));
+    System.out.println("Methods    : " + c.getDeclaredMethods().length);
+}
+
+printInfo(String.class);
+printInfo(java.util.ArrayList.class);</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><b>@Author annotation.</b> Create an annotation <code>@Author(name = "...", date = "...")</code> usable on classes, with <code>date</code> defaulting to <code>"unknown"</code>. Put it on a class and print its values with reflection.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+@interface Author {
+    String name();
+    String date() default "unknown";
+}
+
+@Author(name = "Kiran")
+class Invoice { }
+
+Author a = Invoice.class.getAnnotation(Author.class);
+System.out.println(a.name() + " / " + a.date());   // Kiran / unknown</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Mini JUnit.</b> Create <code>@MyTest</code>. Write a class <code>CalculatorChecks</code> with three <code>@MyTest</code> methods; one of them throws an exception. Your runner must call every test method, catch failures, and print <code>PASS</code>/<code>FAIL</code> for each and a summary like <code>2 passed, 1 failed</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">int passed = 0, failed = 0;
+Object instance = CalculatorChecks.class.getDeclaredConstructor().newInstance();
+for (Method m : CalculatorChecks.class.getDeclaredMethods()) {
+    if (!m.isAnnotationPresent(MyTest.class)) continue;
+    try {
+        m.invoke(instance);
+        System.out.println("PASS " + m.getName());
+        passed++;
+    } catch (InvocationTargetException e) {          // the test itself threw
+        System.out.println("FAIL " + m.getName() + ": " + e.getCause());
+        failed++;
+    }
+}
+System.out.println(passed + " passed, " + failed + " failed");</code></pre>
+    <p>That's essentially what JUnit does — plus a lot of polish (Topic 21).</p></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><b>Object to "JSON".</b> Write <code>toJson(Object obj)</code> that uses reflection to produce <code>{"name":"Asha","marks":88}</code> from any object's declared fields (skip static fields). Add a <code>@JsonIgnore</code> annotation that hides a field. (This is what Jackson does!)</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">static String toJson(Object obj) throws IllegalAccessException {
+    StringJoiner json = new StringJoiner(",", "{", "}");
+    for (Field f : obj.getClass().getDeclaredFields()) {
+        if (Modifier.isStatic(f.getModifiers())) continue;
+        if (f.isAnnotationPresent(JsonIgnore.class)) continue;
+        f.setAccessible(true);
+        Object v = f.get(obj);
+        String value = (v instanceof String) ? "\"" + v + "\"" : String.valueOf(v);
+        json.add("\"" + f.getName() + "\":" + value);
+    }
+    return json.toString();
+}</code></pre></details>
+  </div>
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><b>Constructor injection in the mini container.</b> Change Example04 so <code>OrderService</code> has <b>final</b> fields and a constructor <code>OrderService(OrderRepository repo, Notifier notifier)</code>. Make the container create beans by finding the constructor, resolving each parameter type to a bean (creating it first if needed), then calling <code>newInstance(args)</code>.</p>
+    <details><summary>Hint / solution</summary><pre><code class="lang-java">private final Map&lt;Class&lt;?&gt;, Object&gt; beans = new HashMap&lt;&gt;();
+private final List&lt;Class&lt;?&gt;&gt; componentClasses;   // the @MyComponent classes
+
+Object getOrCreate(Class&lt;?&gt; type) throws Exception {
+    // 1. already created?
+    for (Object b : beans.values()) if (type.isAssignableFrom(b.getClass())) return b;
+    // 2. find the component class that fits the type
+    Class&lt;?&gt; impl = componentClasses.stream()
+            .filter(type::isAssignableFrom).findFirst()
+            .orElseThrow(() -&gt; new IllegalStateException("No bean for " + type));
+    // 3. use its (single) constructor, resolving parameters recursively
+    Constructor&lt;?&gt; ctor = impl.getDeclaredConstructors()[0];
+    Object[] args = new Object[ctor.getParameterCount()];
+    Class&lt;?&gt;[] paramTypes = ctor.getParameterTypes();
+    for (int i = 0; i &lt; args.length; i++) {
+        args[i] = getOrCreate(paramTypes[i]);       // dependencies first
+    }
+    ctor.setAccessible(true);
+    Object bean = ctor.newInstance(args);
+    beans.put(impl, bean);
+    return bean;
+}</code></pre>
+    <p>Bonus question: what happens if A needs B and B needs A? (Infinite recursion — a <b>circular dependency</b>, which Spring also reports as an error. Topic 24.)</p></details>
+  </div>
+
+  <!-- ===================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is an annotation in Java?</summary>
+    <p>A form of metadata attached to program elements (classes, methods, fields, parameters...). It doesn't change the code's behaviour by itself; it's processed by the compiler, annotation processors at compile time, or frameworks via reflection at runtime.</p></details>
+  <details><summary>Q2. What are the retention policies and what is the default?</summary>
+    <p><code>SOURCE</code> (discarded by the compiler), <code>CLASS</code> (stored in the .class file but not available at runtime — this is the default), and <code>RUNTIME</code> (stored and readable via reflection). Frameworks like Spring need <code>RUNTIME</code>.</p></details>
+  <details><summary>Q3. What is the purpose of @Override if the code works without it?</summary>
+    <p>It asks the compiler to verify that the method really overrides a superclass or interface method. It turns mistakes like a misspelled name or wrong parameter type into compile errors instead of silent bugs, and documents intent.</p></details>
+  <details><summary>Q4. What is reflection? Give real uses.</summary>
+    <p>Reflection is the ability of a program to inspect and manipulate classes, methods, fields and constructors at runtime, even ones not known at compile time. Uses: dependency injection (Spring), ORM mapping (Hibernate), JSON serialization (Jackson), test frameworks (JUnit finding @Test methods), IDE tools, and mocking libraries.</p></details>
+  <details><summary>Q5. Difference between getMethods() and getDeclaredMethods()?</summary>
+    <p><code>getMethods()</code> returns all public methods including inherited ones. <code>getDeclaredMethods()</code> returns all methods declared in that class (any access modifier) but not inherited ones.</p></details>
+  <details><summary>Q6. What are the drawbacks of reflection?</summary>
+    <p>Performance overhead, loss of compile-time type checking (errors appear at runtime), breaking encapsulation via setAccessible, verbose checked exceptions, and restrictions under the module system. It's best kept to frameworks and infrastructure code.</p></details>
+  <details><summary>Q7. How does Spring use annotations and reflection to perform dependency injection?</summary>
+    <p>At startup, Spring scans the configured packages for classes annotated with stereotypes like <code>@Component</code> (or registered via <code>@Bean</code>), creates bean definitions, instantiates beans via reflection (constructors), resolves dependencies by type (and qualifiers), and injects them through constructors, setters or fields (using reflection). It stores beans in the ApplicationContext and may wrap them in proxies for features like transactions.</p></details>
+  <details><summary>Q8. What is a meta-annotation? Give an example from Spring.</summary>
+    <p>An annotation applied to another annotation. Java's <code>@Retention</code> and <code>@Target</code> are meta-annotations. Spring uses meta-annotations to compose annotations: <code>@Service</code> is meta-annotated with <code>@Component</code>; <code>@RestController</code> combines <code>@Controller</code> and <code>@ResponseBody</code>.</p></details>
+  <details><summary>Q9. What types can annotation elements have?</summary>
+    <p>Primitives, <code>String</code>, <code>Class</code>, enums, other annotations, and one-dimensional arrays of those. Values must be compile-time constants and can't be null.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../17-Multithreading-And-Concurrency/lesson.html"><small>← Previous</small>17. Multithreading &amp; Concurrency</a>
+    <a class="next" href="../19-JDBC-Basics/lesson.html"><small>Next →</small>19. JDBC Basics</a>
+  </nav>
+</main>
+</body>
+</html>

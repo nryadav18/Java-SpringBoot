@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>6 · OOP: Classes &amp; Objects</title>
+  <link rel="stylesheet" href="../assets/style.css">
+  <script src="../assets/course.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <a href="../index.html">☕ Java + Spring Boot</a>
+  <span class="crumb">Part A · Core Java › Topic 6</span>
+  <button class="theme-btn" type="button">☾ Dark</button>
+</header>
+
+<main>
+  <span class="tag java">Part A · Core Java</span>
+  <span class="tag">⏱ ~2.5 hours</span>
+  <h1>6. OOP · Classes &amp; Objects</h1>
+  <p class="subtitle">Learn to think in objects: design your own classes, build objects with constructors, and understand what really happens in memory when you write <code>new</code>.</p>
+
+  <label class="progress-box"><input type="checkbox" class="done-check" data-topic="6-OOP-Classes-And-Objects"> Mark this topic as done</label>
+
+  <div class="card">
+    <strong>🎯 What you will learn</strong>
+    <ul>
+      <li>What Object-Oriented Programming (OOP) is and why almost all enterprise Java uses it.</li>
+      <li>Class vs object — the <strong>blueprint vs house</strong> idea.</li>
+      <li>Fields (data) and methods (behaviour).</li>
+      <li>Constructors: default, parameterized, overloading, the <code>this</code> keyword and constructor chaining.</li>
+      <li>References and memory: what lives on the <strong>stack</strong> and what lives on the <strong>heap</strong>.</li>
+      <li>Why you override <code>toString()</code>, <code>equals()</code> and <code>hashCode()</code>.</li>
+      <li>The life of an object and how the <strong>garbage collector</strong> cleans up.</li>
+    </ul>
+    <strong>📋 Before you start</strong> — you should know: <a href="../5-Strings/lesson.html">Topic 5 · Strings</a> and methods from <a href="../4-Methods-And-Arrays/lesson.html">Topic 4</a>.
+  </div>
+
+  <nav class="toc">
+    <strong>On this page</strong>
+    <ol>
+      <li><a href="#why">Why this matters</a></li>
+      <li><a href="#analogy">Real-life analogy</a></li>
+      <li><a href="#concepts">Concepts step by step</a></li>
+      <li><a href="#code">Code walkthrough</a></li>
+      <li><a href="#run">How to run</a></li>
+      <li><a href="#mistakes">Common mistakes</a></li>
+      <li><a href="#best">Best practices</a></li>
+      <li><a href="#summary">Key takeaways</a></li>
+      <li><a href="#exercises">Practice exercises</a></li>
+      <li><a href="#interview">Interview questions</a></li>
+    </ol>
+  </nav>
+
+  <!-- =========================================================== -->
+  <h2 id="why">1. Why this matters</h2>
+  <p>Until now, our programs were a list of steps inside <code>main</code> with some helper methods. That works for small programs.
+     But imagine writing an online shop with <strong>customers, products, carts, orders, payments and deliveries</strong> using only loose variables
+     like <code>customerName1</code>, <code>customerName2</code>, <code>productPrice7</code> … it becomes a mess very quickly.</p>
+  <p><strong>Object-Oriented Programming (OOP)</strong> is a way of organizing code around <strong>things</strong> (objects) instead of steps.
+     Each thing keeps its own data together with the actions that make sense for it:</p>
+  <ul>
+    <li>A <code>Customer</code> object knows its name and email, and can <code>updateEmail()</code>.</li>
+    <li>A <code>Cart</code> object knows its items, and can <code>addItem()</code> and <code>calculateTotal()</code>.</li>
+    <li>An <code>Order</code> object knows its status, and can <code>cancel()</code>.</li>
+  </ul>
+  <p>Java is an object-oriented language — <strong>everything</strong> you build at work is classes and objects. In Spring Boot,
+     your controllers, services, repositories and entities (like a <code>Product</code> saved in a database) are all classes.
+     Spring itself creates and manages objects for you (they are called <em>beans</em>, Topic 22). So this topic is the foundation of everything ahead.</p>
+  <div class="callout info"><strong>ℹ️ The 4 pillars of OOP (you will learn them over the next topics)</strong>
+    <strong>Encapsulation</strong> (hide data, Topic 7) · <strong>Inheritance</strong> (reuse, Topic 7) ·
+    <strong>Polymorphism</strong> (one interface, many forms, Topic 8) · <strong>Abstraction</strong> (show only what matters, Topic 8).
+    This topic teaches the basic building blocks they all rely on: classes and objects.</div>
+
+  <!-- =========================================================== -->
+  <h2 id="analogy">2. Real-life analogy</h2>
+  <div class="callout analogy"><strong>🏠 Blueprint vs house</strong>
+    An architect draws a <strong>blueprint</strong> of a house: it says every house has rooms, a door colour, and a number of floors.
+    The blueprint itself is <em>not</em> a house — you can't live in it.
+    <br><br>
+    From one blueprint, a builder can build <strong>many houses</strong>. Each house is real, takes up land, and has its own values:
+    house #1 has a blue door, house #2 has a red door. Painting house #1's door doesn't change house #2.
+    <br><br>
+    In Java: the <strong>class</strong> is the blueprint, each <strong>object</strong> is a house, <code>new</code> is the builder,
+    the <strong>constructor</strong> is the "move-in checklist" that runs once when the house is built,
+    and the <strong>reference</strong> variable is the house's <strong>address written on a piece of paper</strong> — not the house itself.
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="concepts">3. Concepts step by step</h2>
+
+  <h3>3.1 Procedural vs object-oriented — a tiny comparison</h3>
+  <p>Procedural style (data and actions are separate):</p>
+  <pre><code class="lang-java">String carBrand = "Tata";
+int carSpeed = 0;
+carSpeed = accelerate(carSpeed, 30);   // we must pass the data around ourselves</code></pre>
+  <p>Object-oriented style (data and actions live together):</p>
+  <pre><code class="lang-java">Car car = new Car();
+car.brand = "Tata";
+car.accelerate(30);                    // the car changes its own speed</code></pre>
+  <p>With 1 car, the difference is small. With 1,000 cars of 10 types, OOP is much easier to read, change and test.</p>
+
+  <h3>3.2 Class vs object</h3>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Class</th><th>Object</th></tr>
+    <tr><td>What is it?</td><td>A blueprint / template / type</td><td>A real instance built from the class</td></tr>
+    <tr><td>How many?</td><td>Written once</td><td>As many as you want</td></tr>
+    <tr><td>Memory</td><td>No object memory until you create objects</td><td>Takes memory on the heap</td></tr>
+    <tr><td>Created by</td><td>You, with the <code>class</code> keyword</td><td>The <code>new</code> keyword at runtime</td></tr>
+    <tr><td>Example</td><td><code>class Car { ... }</code></td><td><code>new Car()</code></td></tr>
+  </table></div>
+  <p>An object is also called an <strong>instance</strong> of the class. "Creating an object" = "instantiating the class".</p>
+
+  <h3>3.3 Anatomy of a class: fields and methods</h3>
+  <pre><span class="file">Example01_ClassAndObject.java (part)</span><code class="lang-java">class Car {
+    // FIELDS = what a car KNOWS (state)
+    String brand;
+    String color;
+    int speed;
+    boolean isElectric;
+
+    // METHODS = what a car can DO (behaviour)
+    void accelerate(int amount) {
+        speed = speed + amount;
+    }
+
+    void describe() {
+        System.out.println("This is a " + color + " " + brand + " going at " + speed + " km/h");
+    }
+}</code></pre>
+  <ul>
+    <li><strong>Fields</strong> (also called instance variables, attributes or properties) are variables declared <em>inside the class but outside any method</em>.
+        Every object gets its <strong>own copy</strong>.</li>
+    <li><strong>Methods</strong> (instance methods) can read and change the fields of the object they are called on.</li>
+    <li>Class names use <strong>PascalCase</strong> (<code>BankAccount</code>), fields and methods use <strong>camelCase</strong> (<code>accountNumber</code>, <code>getBalance()</code>).</li>
+  </ul>
+
+  <h3>3.4 Creating and using objects</h3>
+  <pre><code class="lang-java">Car myCar = new Car();      // 1. declare a variable  2. new builds the object  3. = stores its address
+myCar.brand = "Tata";       // the DOT operator: "go to this object, then its field"
+myCar.accelerate(30);       // "go to this object, then call its method"</code></pre>
+  <div class="flow">
+    <span class="box info">Car myCar</span><span class="arrow">=</span>
+    <span class="box alt">new</span><span class="arrow">→</span>
+    <span class="box">Car()</span><span class="arrow">→</span>
+    <span class="box info">object on heap</span>
+  </div>
+  <p>If you never give a field a value, Java gives it a <strong>default value</strong>:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Field type</th><th>Default value</th></tr>
+    <tr><td><code>int</code>, <code>long</code>, <code>short</code>, <code>byte</code></td><td><code>0</code></td></tr>
+    <tr><td><code>double</code>, <code>float</code></td><td><code>0.0</code></td></tr>
+    <tr><td><code>boolean</code></td><td><code>false</code></td></tr>
+    <tr><td><code>char</code></td><td><code>'\u0000'</code> (an invisible "null character")</td></tr>
+    <tr><td>Any object type (<code>String</code>, <code>Car</code>, arrays …)</td><td><code>null</code></td></tr>
+  </table></div>
+  <div class="callout warn"><strong>⚠️ Only fields get defaults</strong>
+    Local variables (declared inside a method) get <strong>no</strong> default. <code>int x; System.out.println(x);</code> inside a method does not compile:
+    "variable x might not have been initialized".</div>
+
+  <h3>3.5 Constructors</h3>
+  <p>Setting every field by hand after <code>new</code> is boring and risky (you might forget one). A <strong>constructor</strong> is a special block
+     that runs <strong>automatically, exactly once</strong>, when the object is created. Its job: put the new object into a valid starting state.</p>
+  <p>Rules:</p>
+  <ul>
+    <li>Same name as the class (including capital letter).</li>
+    <li><strong>No return type</strong> — not even <code>void</code>. (If you write <code>void Student()</code>, it becomes a normal method by mistake!)</li>
+    <li>Called with <code>new ClassName(arguments)</code>.</li>
+  </ul>
+
+  <h4>a) The default constructor</h4>
+  <p>If you write <strong>no constructor at all</strong>, Java secretly adds an empty one with no parameters: <code>Course() { }</code>.
+     This is called the <strong>default constructor</strong>. That is why <code>new Car()</code> worked in Example01.</p>
+  <div class="callout warn"><strong>⚠️ The disappearing default constructor</strong>
+    As soon as you write <strong>any</strong> constructor yourself, Java no longer adds the default one. If you write only
+    <code>Student(String name)</code>, then <code>new Student()</code> will not compile. Add a no-argument constructor yourself if you need it.</div>
+
+  <h4>b) Parameterized constructor and <code>this</code></h4>
+  <pre><code class="lang-java">class Student {
+    String name;
+    int age;
+
+    Student(String name, int age) {
+        this.name = name;   // this.name = the FIELD of this object, name = the PARAMETER
+        this.age = age;
+    }
+}
+
+Student meera = new Student("Meera", 21);   // values go straight in</code></pre>
+  <p>Inside the constructor there are two things called <code>name</code>: the parameter and the field. The parameter "hides" (shadows) the field.
+     <strong><code>this</code></strong> means "<em>the current object</em>" — the one being built or the one whose method is running. So <code>this.name</code> is the field.</p>
+  <div class="callout danger"><strong>❌ Classic bug</strong>
+    <code>name = name;</code> (without <code>this.</code>) assigns the parameter to itself. The field stays <code>null</code>. No error, just a silent bug!</div>
+
+  <h4>c) Constructor overloading</h4>
+  <p>Like method overloading (Topic 4), a class can have <strong>several constructors with different parameter lists</strong>.
+     This gives callers convenient options:</p>
+  <pre><code class="lang-java">new Student();                              // nothing known yet
+new Student("Arjun");                       // only the name
+new Student("Meera", 21, "Computer Science"); // everything</code></pre>
+
+  <h4>d) Constructor chaining with <code>this(...)</code></h4>
+  <p>To avoid repeating the same assignments in every constructor, one constructor can <strong>call another</strong> using <code>this(...)</code>.
+     The "biggest" constructor does the real work; the others just supply default values.</p>
+  <pre><span class="file">Example02_Constructors.java (part)</span><code class="lang-java">Student() {
+    this("Unknown", 18, "Not assigned");     // MUST be the first statement
+}
+
+Student(String name) {
+    this(name, 18, "Not assigned");
+}
+
+Student(String name, int age, String department) {
+    this.name = name;
+    this.age = age;
+    this.department = department;
+}</code></pre>
+  <div class="flow">
+    <span class="box info">new Student("Arjun")</span><span class="arrow">→</span>
+    <span class="box alt">Student(String)</span><span class="arrow">→ this(...) →</span>
+    <span class="box">Student(String, int, String)</span>
+  </div>
+  <p>Two uses of <code>this</code> — don't mix them up:</p>
+  <div class="table-wrap"><table>
+    <tr><th>Syntax</th><th>Meaning</th><th>Where allowed</th></tr>
+    <tr><td><code>this.field</code> / <code>this.method()</code></td><td>The current object's field / method</td><td>Any instance method or constructor</td></tr>
+    <tr><td><code>this(...)</code></td><td>Call another constructor of the same class</td><td>Only as the <strong>first line</strong> of a constructor</td></tr>
+  </table></div>
+  <p>You can also pass <code>this</code> as an argument — e.g. <code>target.receiveFrom(this)</code> — to hand "myself" to another object.</p>
+
+  <h3>3.6 References and memory: stack vs heap</h3>
+  <p>Java uses two main memory areas while your program runs:</p>
+  <div class="table-wrap"><table>
+    <tr><th></th><th>Stack</th><th>Heap</th></tr>
+    <tr><td>What lives there</td><td>Local variables and method parameters (primitives and <em>references</em>)</td><td>All <strong>objects</strong> (created with <code>new</code>) and their fields</td></tr>
+    <tr><td>Lifetime</td><td>Until the method returns</td><td>Until no one references the object, then the garbage collector removes it</td></tr>
+    <tr><td>Size / speed</td><td>Small, very fast</td><td>Big, managed by the JVM</td></tr>
+    <tr><td>Analogy</td><td>Sticky notes on your desk (thrown away when the task ends)</td><td>A big warehouse of boxes</td></tr>
+  </table></div>
+  <p>Look at this code and the picture:</p>
+  <pre><code class="lang-java">int count = 5;
+Person p1 = new Person("Kiran", 25);
+Person p2 = p1;          // copies the ADDRESS, not the object</code></pre>
+  <figure class="diagram">
+    <svg viewBox="0 0 600 230" width="600" role="img" aria-label="Stack holds count, p1 and p2; p1 and p2 both point to one Person object on the heap">
+      <g fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="20" y="30" width="200" height="180" rx="10"/>
+        <rect x="300" y="30" width="280" height="180" rx="10"/>
+        <rect x="40" y="60" width="160" height="36" rx="5"/>
+        <rect x="40" y="106" width="160" height="36" rx="5"/>
+        <rect x="40" y="152" width="160" height="36" rx="5"/>
+        <rect x="360" y="90" width="180" height="80" rx="8"/>
+        <path d="M200 124 L356 118"/>
+        <path d="M200 170 L356 150"/>
+        <path d="M348 113 L357 118 L349 124"/>
+        <path d="M347 146 L357 150 L349 156"/>
+      </g>
+      <g fill="currentColor" font-family="Segoe UI, sans-serif" font-size="15">
+        <text x="95" y="22">STACK</text>
+        <text x="405" y="22">HEAP</text>
+        <text x="52" y="84">count = 5</text>
+        <text x="52" y="130">p1 = @1a2b</text>
+        <text x="52" y="176">p2 = @1a2b</text>
+        <text x="372" y="112" font-size="13">Person @1a2b</text>
+        <text x="372" y="136">name = "Kiran"</text>
+        <text x="372" y="158">age = 25</text>
+      </g>
+    </svg>
+    <figcaption>Primitives store the value itself. Reference variables store an address. <code>p1</code> and <code>p2</code> point to the <strong>same</strong> object.</figcaption>
+  </figure>
+  <p>Consequence: changing the object through <code>p2</code> is visible through <code>p1</code>: <code>p2.age = 30;</code> → <code>p1.age</code> is also 30.
+     This is called <strong>aliasing</strong> — two names for one object.</p>
+
+  <h4>Passing objects to methods (pass-by-value, again)</h4>
+  <p>Remember from Topic 4: Java always passes a <strong>copy</strong> of the variable. For an object variable, the copy is a copy of the <strong>address</strong>.
+     So:</p>
+  <ul>
+    <li>The method <strong>can change the object's fields</strong> (it follows the address to the same object). → <code>haveBirthday(p1)</code> changes <code>p1.age</code>.</li>
+    <li>The method <strong>cannot make the caller's variable point to a new object</strong> (it only changes its own copy of the address). → <code>tryToReplace(p1)</code> has no effect outside.</li>
+  </ul>
+
+  <h4><code>null</code></h4>
+  <p><code>null</code> means "this reference points to <strong>no object</strong>". It is like an empty address slip. Calling a method or reading a field on
+     <code>null</code> throws a <code>NullPointerException</code> (the most common Java error). Check with <code>if (obj != null)</code> when a value may be missing.</p>
+
+  <h3>3.7 <code>toString()</code> — how an object describes itself</h3>
+  <p>Every class automatically inherits a few methods from Java's built-in class <code>Object</code> (the parent of all classes — details in Topic 7).
+     One of them is <code>toString()</code>, which <code>System.out.println(obj)</code> calls for you. The default version prints something like
+     <code>PlainBook@5ca881b5</code> — class name + a hex number. Not useful! So we <strong>override</strong> it (write our own version):</p>
+  <pre><code class="lang-java">@Override
+public String toString() {
+    return "Book{isbn='" + isbn + "', title='" + title + "'}";
+}</code></pre>
+  <p><code>@Override</code> is an <strong>annotation</strong> (a label for the compiler). It says "I am replacing an inherited method — please complain if I made a typo".
+     <code>public</code> means "anyone can call this" (access modifiers come in Topic 9). Now <code>println(book)</code> prints readable text — very helpful for debugging and logging.</p>
+
+  <h3>3.8 <code>equals()</code> and <code>hashCode()</code> — an introduction</h3>
+  <p>The inherited <code>equals()</code> behaves exactly like <code>==</code>: "is it the very same object?". Often we want <strong>business equality</strong>:
+     "two books are the same book if they have the same ISBN", even if they are different objects in memory.</p>
+  <pre><span class="file">Example05_ToStringEqualsHashCode.java (part)</span><code class="lang-java">@Override
+public boolean equals(Object other) {
+    if (this == other) return true;                          // same object
+    if (other == null || getClass() != other.getClass()) {   // null or different type
+        return false;
+    }
+    Book that = (Book) other;                                // cast to Book (Topic 8)
+    return Objects.equals(isbn, that.isbn);                  // compare what matters
+}
+
+@Override
+public int hashCode() {
+    return Objects.hash(isbn);                               // SAME fields as equals
+}</code></pre>
+  <p><strong>Why hashCode too?</strong> A <code>hashCode</code> is a number computed from the object's data. Collections like <code>HashSet</code> and
+     <code>HashMap</code> (Topic 11) use it like a <strong>locker number</strong>: first they jump to the locker with that number, then they use <code>equals</code>
+     to find the exact item. If two equal books had different hash codes, they would land in different lockers, and the set would think they are different.</p>
+  <div class="callout tip"><strong>💡 The golden rule (the "contract")</strong>
+    If <code>a.equals(b)</code> is true, then <code>a.hashCode() == b.hashCode()</code> <strong>must</strong> be true.
+    So: <strong>always override both together, using the same fields</strong>. (The reverse is not required — two different objects may share a hash code; that's just a "collision".)
+    VS Code can generate both for you: right-click in the class → <em>Source Action… → Generate hashCode() and equals()</em>.</div>
+  <div class="callout info"><strong>ℹ️ Coming later</strong> In Topic 15 you'll meet <strong>records</strong>, which generate <code>toString</code>, <code>equals</code> and <code>hashCode</code>
+    automatically. In Spring Boot we use records a lot for DTOs (data transfer objects).</div>
+
+  <h3>3.9 The life of an object and garbage collection</h3>
+  <div class="flow">
+    <span class="box info">Created (new)</span><span class="arrow">→</span>
+    <span class="box">In use (reachable)</span><span class="arrow">→</span>
+    <span class="box alt">Unreachable</span><span class="arrow">→</span>
+    <span class="box info">Garbage collected (memory freed)</span>
+  </div>
+  <p>In languages like C, the programmer must free memory by hand — forget it and memory "leaks"; free it twice and the program crashes.
+     Java has a <strong>Garbage Collector (GC)</strong>: a background helper in the JVM that finds objects nobody can reach anymore and frees their memory.</p>
+  <p>An object becomes <strong>unreachable</strong> (eligible for GC) when no live variable can lead to it. Three common ways:</p>
+  <pre><code class="lang-java">Ticket t1 = new Ticket(1);
+t1 = null;                 // a) reference set to null
+
+Ticket t2 = new Ticket(2);
+t2 = new Ticket(3);        // b) reference re-pointed; Ticket #2 is orphaned
+
+void book() {
+    Ticket temp = new Ticket(99);
+}                          // c) method ends; local variable 'temp' is gone</code></pre>
+  <ul>
+    <li><code>System.gc()</code> only <strong>suggests</strong> a clean-up; the JVM decides when. Real applications almost never call it.</li>
+    <li>You don't need to (and can't) delete objects yourself in Java.</li>
+    <li>The old <code>finalize()</code> method is <strong>deprecated</strong> — never rely on it. For cleaning up files and connections you will use <em>try-with-resources</em> (Topic 10).</li>
+    <li>A "memory leak" in Java usually means you <em>still hold references</em> you no longer need (for example, objects kept forever in a big list).</li>
+  </ul>
+
+  <!-- =========================================================== -->
+  <h2 id="code">4. Code walkthrough</h2>
+  <p>Files in this folder:</p>
+  <div class="table-wrap"><table>
+    <tr><th>File</th><th>What it shows</th></tr>
+    <tr><td><code>Example01_ClassAndObject.java</code></td><td>The <code>Car</code> blueprint, two independent objects, the dot operator, default field values.</td></tr>
+    <tr><td><code>Example02_Constructors.java</code></td><td><code>Student</code> with three overloaded constructors chained by <code>this(...)</code>; a class with the invisible default constructor.</td></tr>
+    <tr><td><code>Example03_BankAccountObjects.java</code></td><td>A realistic <code>BankAccount</code>: constructor, deposit, withdraw (returns boolean), transfer between two objects, objects in an array.</td></tr>
+    <tr><td><code>Example04_ReferencesAndMemory.java</code></td><td>Aliasing (<code>p2 = p1</code>), passing objects vs primitives to methods, <code>null</code>, an object holding another object.</td></tr>
+    <tr><td><code>Example05_ToStringEqualsHashCode.java</code></td><td><code>PlainBook</code> (no overrides) vs <code>Book</code> (with overrides) inside a <code>HashSet</code>.</td></tr>
+    <tr><td><code>Example06_ObjectLifecycleAndGC.java</code></td><td>Three ways to make objects unreachable, and heap memory before/during/after creating one million objects.</td></tr>
+  </table></div>
+  <div class="callout info"><strong>ℹ️ Several classes in one file</strong>
+    Each example file contains the public class with <code>main</code> <strong>first</strong>, followed by small helper classes (without <code>public</code>).
+    A file may have only one <code>public</code> top-level class and its name must match the file name. In real projects each class gets its own file — we keep
+    them together here so every example runs with a single <code>java File.java</code> command. Each helper class name is used only once in this folder,
+    so VS Code will not complain about duplicates.</div>
+
+  <h3>4.1 Example01 — two cars from one blueprint</h3>
+  <pre><span class="file">Example01_ClassAndObject.java</span><code class="lang-java">Car myCar = new Car();
+myCar.brand = "Tata";
+myCar.color = "Red";
+
+Car yourCar = new Car();
+yourCar.brand = "Honda";
+yourCar.color = "White";
+
+myCar.accelerate(30);
+myCar.accelerate(20);
+yourCar.accelerate(60);
+yourCar.brake(15);</code></pre>
+  <p>Inside <code>accelerate</code>, the word <code>speed</code> refers to the speed of <strong>the car the method was called on</strong>.
+     <code>myCar.accelerate(30)</code> changes only <code>myCar</code>. At the end, <code>myCar</code> is at 50 km/h and <code>yourCar</code> at 45 km/h.
+     <code>brake</code> uses <code>Math.max(0, ...)</code> so the speed can never become negative — a small example of an object protecting its own data.</p>
+
+  <h3>4.2 Example02 — watching constructors run</h3>
+  <p>Each constructor prints a line, so you can see the order. For <code>new Student("Arjun")</code>:</p>
+  <pre class="terminal"><code>--- Creating s2 with name only ---
+  [3-arg constructor running for Arjun]
+  [name-only constructor finished]</code></pre>
+  <p>The name-only constructor first jumps to the 3-argument constructor (because <code>this(...)</code> is its first line), which sets all fields;
+     then control comes back and the rest of the name-only constructor finishes.</p>
+
+  <h3>4.3 Example03 — objects working together</h3>
+  <pre><span class="file">Example03_BankAccountObjects.java</span><code class="lang-java">void transferTo(BankAccount target, double amount) {
+    if (this.withdraw(amount)) {          // 'this' = the account sending money
+        target.deposit(amount);           // 'target' = the account receiving money
+        System.out.println("Transferred " + amount + " from " + holderName + " to " + target.holderName);
+    }
+}</code></pre>
+  <p><code>ravi.transferTo(sita, 2500)</code>: inside the method, <code>this</code> is Ravi's account and <code>target</code> is Sita's account.
+     <code>withdraw</code> returns <code>true</code>/<code>false</code>, so the money is only deposited if the withdrawal worked. The array
+     <code>BankAccount[] accounts</code> holds three references; the loop prints a statement for each and adds up the total.</p>
+  <div class="callout warn"><strong>⚠️ Not safe yet!</strong> Anyone can still write <code>ravi.balance = 1000000;</code> from outside the class.
+    In the next topic we fix this with <strong>encapsulation</strong> (<code>private</code> fields).</div>
+
+  <h3>4.4 Example04 — references in action</h3>
+  <pre><span class="file">Example04_ReferencesAndMemory.java</span><code class="lang-java">static void haveBirthday(Person person) {
+    person.age++;                    // follows the copied address to the SAME object
+}
+
+static void tryToReplace(Person person) {
+    person = new Person("Someone Else", 99);   // only the local copy now points elsewhere
+}</code></pre>
+  <p>After <code>haveBirthday(p1)</code> the age is 31 (changed). After <code>tryToReplace(p1)</code> the name is still "Kiran" (the caller's
+     <code>p1</code> was never touched). The file also triggers a <code>NullPointerException</code> on purpose and catches it so the program continues
+     (you will learn <code>try/catch</code> in Topic 10).</p>
+
+  <h3>4.5 Example05 — why HashSet needs equals/hashCode</h3>
+  <pre><span class="file">Example05_ToStringEqualsHashCode.java</span><code class="lang-java">Set&lt;Book&gt; shelf = new HashSet&lt;&gt;();
+shelf.add(b1);
+shelf.add(b2);   // same ISBN -&gt; duplicate -&gt; not added
+System.out.println("Books on shelf: " + shelf.size());          // 1
+
+Set&lt;PlainBook&gt; plainShelf = new HashSet&lt;&gt;();
+plainShelf.add(plain);
+plainShelf.add(plain2);   // no equals/hashCode -&gt; both kept
+System.out.println("Plain books on shelf: " + plainShelf.size()); // 2</code></pre>
+  <p><code>Set&lt;Book&gt;</code> reads "a set of Book objects" — a collection that keeps only unique items. (The <code>&lt;Book&gt;</code> part is called generics, Topic 12.)</p>
+
+  <h3>4.6 Example06 — garbage collection you can see</h3>
+  <p>The program measures used heap memory with <code>Runtime.getRuntime()</code>, creates one million <code>Ticket</code> objects (memory goes up),
+     sets the array to <code>null</code>, asks for GC, and measures again (memory goes down). It prints <code>true</code>/<code>false</code> checks so the result
+     is easy to read even though the exact megabytes differ between computers. The <code>static int created</code> counter is shared by all tickets — <code>static</code>
+     is explained fully in Topic 9.</p>
+
+  <!-- =========================================================== -->
+  <h2 id="run">5. How to run</h2>
+  <h3>In VS Code</h3>
+  <ol>
+    <li>Open <code>D:\Java-SpringBoot</code> in VS Code.</li>
+    <li>Open any <code>Example0X_....java</code> in <code>6-OOP-Classes-And-Objects</code>.</li>
+    <li>Click <strong>Run</strong> above <code>public static void main</code>.</li>
+  </ol>
+  <h3>From the terminal</h3>
+  <pre class="terminal"><code>cd "D:\Java-SpringBoot\6-OOP-Classes-And-Objects"
+java Example01_ClassAndObject.java
+java Example02_Constructors.java
+java Example03_BankAccountObjects.java
+java Example04_ReferencesAndMemory.java
+java Example05_ToStringEqualsHashCode.java
+java Example06_ObjectLifecycleAndGC.java</code></pre>
+  <p>Expected output of <code>Example01</code>:</p>
+  <pre class="terminal"><code>Tata speeds up to 30 km/h
+Tata speeds up to 50 km/h
+Honda speeds up to 60 km/h
+Honda slows down to 45 km/h
+This is a Red Tata going at 50 km/h
+This is a White Honda going at 45 km/h
+myCar speed = 50, yourCar speed = 45
+Default brand: null
+Default speed: 0
+Default isElectric: false</code></pre>
+  <p>Expected output of <code>Example02</code>:</p>
+  <pre class="terminal"><code>--- Creating s1 with no arguments ---
+  [3-arg constructor running for Unknown]
+  [no-arg constructor finished]
+--- Creating s2 with name only ---
+  [3-arg constructor running for Arjun]
+  [name-only constructor finished]
+--- Creating s3 with all details ---
+  [3-arg constructor running for Meera]
+
+Unknown | age 18 | Not assigned
+Arjun | age 18 | Not assigned
+Meera | age 21 | Computer Science
+Course title (never set): null</code></pre>
+  <p>Expected output of <code>Example03</code>:</p>
+  <pre class="terminal"><code>Ravi deposited 1500.0 -&gt; balance 6500.0
+Ravi tried to withdraw 10000.0 -&gt; REFUSED (balance 6500.0)
+Ravi withdrew 2500.0 -&gt; balance 4000.0
+Sita deposited 2500.0 -&gt; balance 4500.0
+Transferred 2500.0 from Ravi to Sita
+
+Ravi's balance: 4000.0
+Sita's balance: 4500.0
+ACC-101 | Ravi  | balance    4000.00
+ACC-102 | Sita  | balance    4500.00
+ACC-103 | John  | balance   12000.00
+Total money in the bank: 20500.0</code></pre>
+  <p>Expected output of <code>Example04</code>:</p>
+  <pre class="terminal"><code>p1.age = 30
+p1 == p2 ? true
+p1 == p3 ? false
+number after addTen: 10
+p1.age after haveBirthday: 31
+p1.name after tryToReplace: Kiran
+nobody is null? true
+NullPointerException caught: can't use a null reference!
+Asha uses a Samsung</code></pre>
+  <p>Expected output of <code>Example05</code>:</p>
+  <pre class="terminal"><code>Without toString: PlainBook@&lt;some hex number&gt;
+With toString   : Book{isbn='978-0134685991', title='Effective Java', author='Joshua Bloch'}
+b1 == b2      : false
+b1.equals(b2) : true
+plain.equals(plain2) (no override): false
+same hashCode : true
+Books on shelf: 1
+Plain books on shelf: 2</code></pre>
+  <p>Expected output of <code>Example06</code> (megabytes will differ):</p>
+  <pre class="terminal"><code>t2 now points to ticket #3
+Using temporary ticket #99
+Ticket objects created so far: 4
+Memory went UP while 1,000,000 tickets were reachable: true
+Memory went DOWN after they became unreachable + GC: true
+(approx MB used - before: 2, during: 23, after: 2)</code></pre>
+
+  <!-- =========================================================== -->
+  <h2 id="mistakes">6. Common mistakes</h2>
+  <div class="callout danger"><strong>❌ Mistake: <code>name = name;</code> in a constructor</strong>
+    The parameter is assigned to itself and the field stays <code>null</code>.<br><strong>Fix:</strong> <code>this.name = name;</code></div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: giving a constructor a return type</strong>
+    <code>void Student(String name) { ... }</code> is a <em>method</em> named Student, not a constructor. <code>new Student("A")</code> then fails to compile.<br>
+    <strong>Fix:</strong> constructors have no return type at all.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: expecting the default constructor after writing your own</strong>
+    "constructor Student in class Student cannot be applied to given types" when calling <code>new Student()</code>.<br>
+    <strong>Fix:</strong> write a no-argument constructor yourself (and chain it with <code>this(...)</code>).</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: <code>this(...)</code> not on the first line</strong>
+    "call to this must be first statement in constructor".<br><strong>Fix:</strong> move <code>this(...)</code> to the very first line.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: thinking <code>b = a</code> copies an object</strong>
+    It copies only the reference. Changing <code>b</code>'s fields changes <code>a</code>'s object too.<br>
+    <strong>Fix:</strong> if you need a real copy, create a new object: <code>new Person(a.name, a.age)</code> (a "copy constructor" is a nice pattern for this).</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: using an object before creating it</strong>
+    <code>Car car; car.brand = "Kia";</code> → compile error (not initialized), or a field <code>Car car;</code> left <code>null</code> → <code>NullPointerException</code> at runtime.<br>
+    <strong>Fix:</strong> <code>Car car = new Car();</code> first.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: overriding <code>equals</code> but not <code>hashCode</code></strong>
+    Your objects look equal, but <code>HashSet</code> keeps duplicates and <code>HashMap.get</code> can't find keys.<br>
+    <strong>Fix:</strong> always override both, using the same fields.</div>
+
+  <div class="callout warn"><strong>⚠️ Mistake: comparing objects with <code>==</code></strong>
+    <code>book1 == book2</code> checks "same object", not "same data" — just like Strings in Topic 5.<br>
+    <strong>Fix:</strong> use <code>book1.equals(book2)</code> (after overriding <code>equals</code>).</div>
+
+  <!-- =========================================================== -->
+  <h2 id="best">7. Best practices</h2>
+  <ul>
+    <li><strong>One class = one clear responsibility.</strong> A <code>BankAccount</code> manages a balance; it shouldn't also send emails.</li>
+    <li><strong>Name classes as nouns</strong> (<code>Order</code>, <code>Invoice</code>) and methods as verbs (<code>placeOrder()</code>, <code>calculateTotal()</code>).</li>
+    <li><strong>Use constructors to create valid objects.</strong> Pass required values in the constructor so no object exists in a half-finished state.</li>
+    <li><strong>Keep one "main" constructor</strong> and chain the others to it with <code>this(...)</code> — no duplicated code.</li>
+    <li><strong>Always override <code>toString()</code></strong> for domain classes — your logs and debugging will thank you.</li>
+    <li><strong>Override <code>equals</code> and <code>hashCode</code> together</strong>, based on the fields that define identity (e.g. an id or ISBN). Let VS Code generate them.</li>
+    <li><strong>Don't call <code>System.gc()</code></strong> in real code; trust the JVM. Instead, avoid holding references you no longer need.</li>
+    <li>In real projects put <strong>each class in its own file</strong> (we bundle them only to make examples one-command runnable).</li>
+    <li>Next topic: make fields <code>private</code> and expose methods — this is how every professional Java class (and every Spring bean) is written.</li>
+  </ul>
+
+  <!-- =========================================================== -->
+  <h2 id="summary">8. Key takeaways</h2>
+  <div class="callout tip"><ul>
+    <li>OOP organizes code around objects that combine <strong>data (fields)</strong> and <strong>behaviour (methods)</strong>.</li>
+    <li>A <strong>class</strong> is a blueprint; an <strong>object</strong> is an instance created with <code>new</code>. Each object has its own field values.</li>
+    <li>Fields get default values (<code>0</code>, <code>false</code>, <code>null</code>); local variables do not.</li>
+    <li>A <strong>constructor</strong> has the class name and no return type; it runs once when the object is created.</li>
+    <li>Java adds a default no-arg constructor <strong>only</strong> if you write none.</li>
+    <li><code>this.x</code> = this object's field; <code>this(...)</code> = call another constructor (first line only).</li>
+    <li>Object variables hold <strong>references</strong>. Objects live on the <strong>heap</strong>; local variables on the <strong>stack</strong>.</li>
+    <li>Override <code>toString</code> for readable output; override <code>equals</code> + <code>hashCode</code> together for value equality.</li>
+    <li>Unreachable objects are removed automatically by the <strong>garbage collector</strong>.</li>
+  </ul></div>
+
+  <!-- =========================================================== -->
+  <h2 id="exercises">9. Practice exercises</h2>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>1. Rectangle.</strong> Create a class <code>Rectangle</code> with fields <code>width</code> and <code>height</code>, a constructor, and methods
+       <code>area()</code> and <code>perimeter()</code>. Create two rectangles and print their area and perimeter.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public class Practice01 {
+    public static void main(String[] args) {
+        Rectangle r1 = new Rectangle(4, 5);
+        Rectangle r2 = new Rectangle(2.5, 10);
+        System.out.println("r1 area=" + r1.area() + " perimeter=" + r1.perimeter()); // 20.0, 18.0
+        System.out.println("r2 area=" + r2.area() + " perimeter=" + r2.perimeter()); // 25.0, 25.0
+    }
+}
+
+class Rectangle {
+    double width;
+    double height;
+
+    Rectangle(double width, double height) {
+        this.width = width;
+        this.height = height;
+    }
+
+    double area() {
+        return width * height;
+    }
+
+    double perimeter() {
+        return 2 * (width + height);
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Easy</span>
+    <p><strong>2. Product with toString.</strong> Create a <code>Product</code> class (name, price, quantity) with a constructor and a <code>toString()</code>
+       that prints <code>Product[name=Pen, price=10.0, qty=5]</code>. Add a method <code>totalValue()</code> returning price × quantity.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public class Practice02 {
+    public static void main(String[] args) {
+        Product pen = new Product("Pen", 10.0, 5);
+        System.out.println(pen);                    // Product[name=Pen, price=10.0, qty=5]
+        System.out.println(pen.totalValue());       // 50.0
+    }
+}
+
+class Product {
+    String name;
+    double price;
+    int quantity;
+
+    Product(String name, double price, int quantity) {
+        this.name = name;
+        this.price = price;
+        this.quantity = quantity;
+    }
+
+    double totalValue() {
+        return price * quantity;
+    }
+
+    @Override
+    public String toString() {
+        return "Product[name=" + name + ", price=" + price + ", qty=" + quantity + "]";
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>3. Constructor chaining.</strong> Create a <code>Pizza</code> class with fields <code>size</code>, <code>crust</code> and <code>extraCheese</code>.
+       Provide three constructors: <code>Pizza()</code> → "Medium", "Thin", false; <code>Pizza(String size)</code>; and <code>Pizza(String size, String crust, boolean extraCheese)</code>.
+       The first two must chain to the third with <code>this(...)</code>.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public class Practice03 {
+    public static void main(String[] args) {
+        System.out.println(new Pizza());                       // Medium Thin pizza, extra cheese: false
+        System.out.println(new Pizza("Large"));                // Large Thin pizza, extra cheese: false
+        System.out.println(new Pizza("Small", "Pan", true));   // Small Pan pizza, extra cheese: true
+    }
+}
+
+class Pizza {
+    String size;
+    String crust;
+    boolean extraCheese;
+
+    Pizza() {
+        this("Medium");
+    }
+
+    Pizza(String size) {
+        this(size, "Thin", false);
+    }
+
+    Pizza(String size, String crust, boolean extraCheese) {
+        this.size = size;
+        this.crust = crust;
+        this.extraCheese = extraCheese;
+    }
+
+    @Override
+    public String toString() {
+        return size + " " + crust + " pizza, extra cheese: " + extraCheese;
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Medium</span>
+    <p><strong>4. Predict the output</strong> (then run it to check):</p>
+    <pre><code class="lang-java">Counter a = new Counter();
+Counter b = a;
+Counter c = new Counter();
+a.value = 5;
+b.value++;
+c.value = 10;
+System.out.println(a.value + " " + b.value + " " + c.value);
+System.out.println((a == b) + " " + (a == c));
+// class Counter { int value; }</code></pre>
+    <details><summary>Hint / solution</summary>
+      <p><code>a</code> and <code>b</code> point to the same object; <code>c</code> is separate.</p>
+      <pre class="terminal"><code>6 6 10
+true false</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>5. Student equality.</strong> Create a <code>Student</code> class with <code>rollNumber</code> (int) and <code>name</code>. Two students are equal
+       if their roll numbers are equal. Override <code>equals</code>, <code>hashCode</code> and <code>toString</code>. Add three students
+       (two with the same roll number) to a <code>HashSet</code> and print its size (should be 2).</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">import java.util.HashSet;
+import java.util.Objects;
+import java.util.Set;
+
+public class Practice05 {
+    public static void main(String[] args) {
+        Set&lt;Student&gt; students = new HashSet&lt;&gt;();
+        students.add(new Student(1, "Asha"));
+        students.add(new Student(2, "Vikram"));
+        students.add(new Student(1, "Asha K."));   // same roll number -&gt; duplicate
+        System.out.println(students.size());        // 2
+    }
+}
+
+class Student {
+    int rollNumber;
+    String name;
+
+    Student(int rollNumber, String name) {
+        this.rollNumber = rollNumber;
+        this.name = name;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Student other = (Student) o;
+        return rollNumber == other.rollNumber;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(rollNumber);
+    }
+
+    @Override
+    public String toString() {
+        return "Student{" + rollNumber + ", " + name + "}";
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <div class="exercise">
+    <span class="level">Challenge</span>
+    <p><strong>6. Library with objects inside objects.</strong> Create <code>Author</code> (name, country) and <code>LibraryBook</code> (title, Author author, boolean issued).
+       Give <code>LibraryBook</code> methods <code>issue()</code> and <code>returnBook()</code> that print a message and refuse to issue an already-issued book.
+       Create one author with two books and test the methods.</p>
+    <details><summary>Hint / solution</summary>
+      <pre><code class="lang-java">public class Practice06 {
+    public static void main(String[] args) {
+        Author author = new Author("R.K. Narayan", "India");
+        LibraryBook b1 = new LibraryBook("Malgudi Days", author);
+        LibraryBook b2 = new LibraryBook("The Guide", author);
+        b1.issue();          // Issued: Malgudi Days by R.K. Narayan
+        b1.issue();          // Sorry, Malgudi Days is already issued
+        b1.returnBook();     // Returned: Malgudi Days
+        b2.issue();          // Issued: The Guide by R.K. Narayan
+    }
+}
+
+class Author {
+    String name;
+    String country;
+
+    Author(String name, String country) {
+        this.name = name;
+        this.country = country;
+    }
+}
+
+class LibraryBook {
+    String title;
+    Author author;      // reference to another object
+    boolean issued;     // default false
+
+    LibraryBook(String title, Author author) {
+        this.title = title;
+        this.author = author;
+    }
+
+    void issue() {
+        if (issued) {
+            System.out.println("Sorry, " + title + " is already issued");
+            return;
+        }
+        issued = true;
+        System.out.println("Issued: " + title + " by " + author.name);
+    }
+
+    void returnBook() {
+        issued = false;
+        System.out.println("Returned: " + title);
+    }
+}</code></pre>
+    </details>
+  </div>
+
+  <!-- =========================================================== -->
+  <h2 id="interview">10. Interview questions</h2>
+  <details><summary>Q1. What is the difference between a class and an object?</summary>
+    <p>A class is a blueprint that defines fields and methods; it is written once. An object is a concrete instance of that class created at runtime
+       with <code>new</code>; it occupies heap memory and has its own field values. One class can have many objects.</p></details>
+
+  <details><summary>Q2. What is a constructor? How is it different from a method?</summary>
+    <p>A constructor initializes a new object. It has the same name as the class, no return type, is called automatically by <code>new</code>, and runs once
+       per object. A method has a return type (or <code>void</code>), any name, and can be called any number of times on an existing object.
+       Constructors are not inherited; methods are.</p></details>
+
+  <details><summary>Q3. What is the default constructor? When does Java provide it?</summary>
+    <p>A no-argument, empty constructor that the compiler adds automatically <strong>only if the class declares no constructors at all</strong>.
+       Once you write any constructor, it is not added.</p></details>
+
+  <details><summary>Q4. What are the uses of the <code>this</code> keyword?</summary>
+    <p>(1) Refer to the current object's fields when a parameter has the same name (<code>this.name = name</code>);
+       (2) call another constructor of the same class (<code>this(...)</code>, first line only);
+       (3) pass the current object as an argument (<code>register(this)</code>);
+       (4) return the current object (used in builder/fluent APIs: <code>return this;</code>).</p></details>
+
+  <details><summary>Q5. What is constructor chaining?</summary>
+    <p>Calling one constructor from another using <code>this(...)</code> (within the same class) or <code>super(...)</code> (parent class, Topic 7),
+       so that initialization logic lives in one place and isn't duplicated.</p></details>
+
+  <details><summary>Q6. Explain stack vs heap memory in Java.</summary>
+    <p>The stack stores method call frames: local variables, parameters and references; each thread has its own stack and frames disappear when the
+       method returns. The heap stores all objects and is shared by all threads; objects stay there until they become unreachable and the garbage
+       collector reclaims them.</p></details>
+
+  <details><summary>Q7. Is Java pass-by-value or pass-by-reference?</summary>
+    <p>Always pass-by-value. For objects, the value passed is a copy of the reference. So a method can modify the object's state through that copy,
+       but reassigning the parameter to a new object does not affect the caller's variable.</p></details>
+
+  <details><summary>Q8. Why must you override <code>hashCode()</code> when you override <code>equals()</code>?</summary>
+    <p>The contract says equal objects must have equal hash codes. Hash-based collections (<code>HashMap</code>, <code>HashSet</code>) first use the hash code to
+       pick a bucket, then <code>equals</code> inside it. If equal objects have different hash codes, they land in different buckets: duplicates appear in sets
+       and lookups in maps fail.</p></details>
+
+  <details><summary>Q9. When does an object become eligible for garbage collection? Can you force GC?</summary>
+    <p>When it is no longer reachable from any live reference — e.g. its reference is set to <code>null</code>, reassigned, or went out of scope.
+       You cannot force GC; <code>System.gc()</code> is only a hint that the JVM may ignore.</p></details>
+
+  <details><summary>Q10. What does the default <code>toString()</code> print and why override it?</summary>
+    <p>It prints <code>ClassName@hexHashCode</code> (e.g. <code>Book@5ca881b5</code>), which tells you nothing about the data. Overriding it gives readable output for
+       logging, debugging and error messages.</p></details>
+
+  <nav class="pager">
+    <a class="prev" href="../5-Strings/lesson.html"><small>← Previous</small>5. Strings</a>
+    <a class="next" href="../7-OOP-Encapsulation-And-Inheritance/lesson.html"><small>Next →</small>7. Encapsulation &amp; Inheritance</a>
+  </nav>
+</main>
+</body>
+</html>
